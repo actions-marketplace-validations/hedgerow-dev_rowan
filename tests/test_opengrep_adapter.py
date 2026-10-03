@@ -177,6 +177,29 @@ def test_availability_and_version_probe_is_cached(monkeypatch):
     assert calls == [["opengrep", "--version"]]
 
 
+def test_successful_probe_is_shared_until_the_binary_changes(monkeypatch, tmp_path):
+    """New adapters reuse a successful probe of the same binary file."""
+    binary = tmp_path / "opengrep"
+    binary.write_text("v1", encoding="utf-8")
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, returncode=0, stdout="opengrep 1.2.3\n", stderr="")
+
+    monkeypatch.setattr("rowan.taint.opengrep_adapter.subprocess.run", fake_run)
+    monkeypatch.setattr("rowan.taint.opengrep_adapter._VERSION_PROBES", {})
+    monkeypatch.setattr(OpengrepAdapter, "binary", property(lambda self: str(binary)))
+
+    assert OpengrepAdapter().is_installed() is True
+    assert OpengrepAdapter().get_version() == "opengrep 1.2.3"
+    assert len(calls) == 1
+
+    binary.write_text("v2 is longer", encoding="utf-8")
+    assert OpengrepAdapter().is_installed() is True
+    assert len(calls) == 2
+
+
 def test_failed_availability_probe_is_cached(monkeypatch):
     calls = []
 

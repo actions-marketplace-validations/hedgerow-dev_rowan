@@ -36,6 +36,20 @@ from rowan.languages import (
 logger = logging.getLogger(__name__)
 _UNSET = object()
 
+# Successful `--version` probes, shared by every adapter in the process and
+# keyed by the binary's path, mtime and size so a replaced binary is probed
+# again. Failures are not shared: an engine may be installed later.
+_VERSION_PROBES: dict[tuple[str, int, int], str] = {}
+
+
+def _probe_key(binary: str) -> tuple[str, int, int] | None:
+    try:
+        st = os.stat(binary)
+    except OSError:
+        return None
+    return (binary, st.st_mtime_ns, st.st_size)
+
+
 _SEVERITY_MAP: dict[str, Severity] = {
     "ERROR": Severity.HIGH,
     "WARNING": Severity.MEDIUM,
@@ -295,6 +309,11 @@ class OpengrepAdapter:
         with self._availability_lock:
             if self._installed is not None:
                 return self._installed
+            key = _probe_key(self.binary)
+            if key in _VERSION_PROBES:
+                self._version = _VERSION_PROBES[key]
+                self._installed = True
+                return True
             try:
                 # List-form args, no shell=True; self.binary is either a resolved
                 # absolute path (managed install) or looked up via shutil.which,
@@ -309,6 +328,8 @@ class OpengrepAdapter:
                     self._version = result.stdout.strip()
                     logger.info("Opengrep binary: %s (%s)", self.binary, self._version)
                     self._installed = True
+                    if key is not None:
+                        _VERSION_PROBES[key] = self._version
                 else:
                     self._installed = False
             except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
@@ -331,6 +352,7 @@ class OpengrepAdapter:
             self._installed = None
             self._version = None
             self._binary = None
+            _VERSION_PROBES.clear()
         return self.is_installed()
 
     def scan(
