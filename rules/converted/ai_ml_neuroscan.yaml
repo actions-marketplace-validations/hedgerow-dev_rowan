@@ -1,0 +1,585 @@
+rules:
+- id: NS-AIML-029
+  languages:
+  - python
+  severity: ERROR
+  message: 'CRITICAL: Chat template rendered with unsandboxed Jinja2 Template().
+
+    CVE-2026-5760: Model-provided chat_template can inject SSTI payloads
+
+    achieving RCE when loaded from GGUF/tokenizer_config.json.
+
+    Fix: Use jinja2.sandbox.ImmutableSandboxedEnvironment instead of Template().'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bTemplate\(.*chat_template
+    - pattern-regex: \bTemplate\(self\.chat_template
+  - pattern-not-regex: SandboxedEnvironment
+  - pattern-not-regex: ImmutableSandboxedEnvironment
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ssti
+    cwe:
+    - 94
+    - 1336
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: Unsandboxed Jinja2 Template from chat_template (CVE-2026-5760)
+    fix: Render chat templates in a sandboxed Jinja2 environment (jinja2.sandbox.SandboxedEnvironment); never render a template
+      string sourced from model metadata directly.
+    residual:
+    - sanitizer
+- id: NS-AIML-005
+  languages:
+  - python
+  severity: ERROR
+  message: 'Gradio file input without file type or count restrictions. Attackers can
+
+    upload arbitrary files including pickle payloads. Set file_types and file_count.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: gr\.File\s*\(
+    - pattern-regex: gr\.UploadButton\s*\(
+  - pattern-not-regex: file_count\s*=
+  - pattern-not-regex: file_types\s*=
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 434
+    original_engine: neuroscan
+    rule_name: Gradio file upload without validation
+- id: NS-AIML-006
+  languages:
+  - python
+  severity: WARNING
+  message: 'Gradio app with share=True exposes the app publicly via Gradio''s tunnel.
+
+    Combined with file upload or code execution, this is remotely exploitable.'
+  patterns:
+  - pattern-regex: \.launch\s*\([^)]*share\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 94
+    original_engine: neuroscan
+    rule_name: Gradio live reload enabled
+- id: NS-AIML-007
+  languages:
+  - python
+  severity: ERROR
+  message: 'Gradio app without authentication. All endpoints including file upload
+
+    and code execution are publicly accessible.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: auth_message\s*=\s*None
+    - pattern-regex: auth\s*=\s*None
+  - pattern-not-regex: auth\s*=\s*login_check
+  - pattern-not-regex: auth\s*=\s*\[
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 287
+    original_engine: neuroscan
+    rule_name: Gradio auth bypass
+- id: NS-AIML-008
+  languages:
+  - python
+  severity: WARNING
+  message: 'Streamlit''s @st.cache_data/@st.cache_resource decorators serialize the
+
+    function''s return value for reuse. This is presence-only: confirm the
+
+    cached function does not deserialize or re-execute attacker-influenced
+
+    data, and that the cache itself isn''t reachable by an untrusted party
+
+    (e.g. shared disk-backed cache in a multi-tenant deployment).'
+  patterns:
+  - pattern-either:
+    - pattern-regex: st\.cache_data\s*\(
+    - pattern-regex: st\.cache_resource\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    rule_name: Streamlit caching of potentially sensitive data
+    residual:
+    - sanitizer
+- id: NS-AIML-009
+  languages:
+  - python
+  severity: ERROR
+  message: 'MCP server tool exposed without authentication check. An attacker who can
+
+    reach the MCP endpoint can execute arbitrary tools on the server.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: '@server\.(tool|call_tool)\b'
+    - pattern-regex: mcp\.server\.Server\s*\(
+  - pattern-not-regex: auth.*required
+  - pattern-not-regex: require.*auth
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 749
+    original_engine: neuroscan
+    rule_name: MCP server tool exposure
+- id: NS-AIML-010
+  languages:
+  - python
+  severity: WARNING
+  message: 'Presence signal: AI agent tool wrapping shell execution. Only a confirmed
+
+    vulnerability when an LLM-agent can invoke this function AND user input
+
+    reaches it. Restrict tool capabilities to non-shell operations.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: os\.system\s*\(
+    - pattern-regex: subprocess\.(run|Popen|call)\s*\(
+  - pattern-not-regex: shell\s*=\s*False
+  - pattern-not-regex: (?:argparse|sys\.argv|--help|setup\.py|pip\s+install|pip\s+uninstall)
+  - pattern-not-regex: subprocess\.run\(\[["'](?:git|docker|pip|npm|cargo|go|make|cmake)["']
+  - pattern-not-regex: subprocess\.(?:run|Popen|call)\([^)]*capture_output\s*=\s*True
+  - pattern-not-regex: subprocess\.(?:run|Popen|call)\([^)]*check\s*=\s*True
+  - pattern-not-regex: subprocess\.(?:run|Popen|call)\([^)]*text\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?:@fixture|@pytest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 94
+    original_engine: neuroscan
+    rule_name: Agent tool with system access
+- id: NS-AIML-011
+  languages:
+  - python
+  severity: ERROR
+  message: 'LangChain/agent tool wrapping exec()/eval(). An LLM that can invoke this
+
+    tool has arbitrary Python execution. Never expose eval/exec as tools.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: '@tool\b.*\bexec\b'
+    - pattern-regex: '@tool\b.*\beval\b'
+    - pattern-regex: class.*Tool.*\bexec\b
+    - pattern-regex: class.*Tool.*\beval\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 94
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: LangChain tool with exec/eval
+    fix: Validate LLM-chosen tool arguments against an explicit allowlist before execution; never let a tool directly wrap
+      eval()/exec().
+- id: NS-AIML-012
+  languages:
+  - python
+  severity: WARNING
+  message: 'MCP using stdio transport in non-development context. stdout transport allows
+
+    any child process to inject responses. Use HTTP/SSE transport in production.'
+  patterns:
+  - pattern-regex: StdioServerTransport\s*\(
+  - pattern-not-regex: __main__
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 749
+    original_engine: neuroscan
+    rule_name: MCP stdio transport in production
+- id: NS-AIML-013
+  languages:
+  - python
+  severity: ERROR
+  message: 'OmegaConf.merge() with user-controlled config enables config injection.
+
+    Attackers can override arbitrary config values. Validate/sanitize user config.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: OmegaConf\.merge\s*\(
+    - pattern-regex: OmegaConf\.unsafe_merge\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 94
+    original_engine: neuroscan
+    rule_name: OmegaConf merge with user input
+- id: NS-AIML-014
+  languages:
+  - python
+  severity: ERROR
+  message: 'OmegaConf.load() without struct validation allows arbitrary key injection.
+
+    Use OmegaConf.structured() with a schema, or set struct=True.'
+  patterns:
+  - pattern-regex: OmegaConf\.load\s*\(
+  - pattern-not-regex: struct\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 502
+    original_engine: neuroscan
+    rule_name: Dynamic YAML config loading
+- id: NS-AIML-015
+  languages:
+  - python
+  severity: WARNING
+  message: 'Raw data inserted into vector store without embedding. Attacker-controlled
+
+    vectors can manipulate search results. Always embed and validate.'
+  patterns:
+  - pattern-regex: pinecone\.(upsert|insert)\s*\(
+  - pattern-not-regex: \.(embeddings|embed)\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 74
+    original_engine: neuroscan
+    rule_name: Pinecone insert without validation
+- id: NS-AIML-016
+  languages:
+  - python
+  severity: INFO
+  message: 'ChromaDB with telemetry enabled may leak query patterns. Disable in
+
+    environments handling sensitive data.'
+  patterns:
+  - pattern-regex: chromadb\.Settings\s*\([^)]*anonymized_telemetry\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 200
+    original_engine: neuroscan
+    original_severity: low
+    rule_name: ChromaDB with telemetry enabled
+- id: NS-AIML-017
+  languages:
+  - python
+  severity: ERROR
+  message: 'Weaviate client without authentication. Unauthenticated access to vector
+
+    database allows data exfiltration and poisoning.'
+  patterns:
+  - pattern-regex: weaviate\.Client\s*\(
+  - pattern-not-regex: auth_client_secret\s*=
+  - pattern-not-regex: api_key\s*=
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 306
+    original_engine: neuroscan
+    rule_name: Weaviate GraphQL without auth
+- id: NS-AIML-018
+  languages:
+  - python
+  severity: ERROR
+  message: 'torch.hub.load() downloads and executes code from GitHub repositories.
+
+    If the repo/user is user-controlled, this is arbitrary code execution.
+
+    Pin to trusted repos and specific commits.'
+  patterns:
+  - pattern-regex: torch\.hub\.load\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 829
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: torch.hub.load from user input
+    fix: Pin torch.hub.load() to a vetted, explicit allowlist of repositories rather than a user-influenced path.
+- id: NS-AIML-019
+  languages:
+  - python
+  severity: WARNING
+  message: 'Unpinned ML package installation. Supply chain attack via dependency
+
+    confusion or malicious version. Pin exact versions.'
+  patterns:
+  - pattern-regex: subprocess.*pip.*install.*(transformers|torch|tensorflow|keras)
+  - pattern-not-regex: ==
+  - pattern-not-regex: '>='
+  - pattern-not-regex: requirements
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 829
+    original_engine: neuroscan
+    rule_name: Unpinned pip install in ML code
+- id: NS-AIML-020
+  languages:
+  - python
+  severity: ERROR
+  message: 'ML model downloaded from potentially user-controlled URL. Could deliver
+
+    backdoored model files. Validate source and verify checksums.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: wget\.download\s*\(
+    - pattern-regex: urlretrieve\s*\(
+    - pattern-regex: requests\.get.*\.(pt|pth|onnx|h5|keras|gguf)
+  - pattern-not-regex: \.(startswith|endswith)\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 494
+    original_engine: neuroscan
+    rule_name: ML model download from dynamic URL
+- id: NS-AIML-021
+  languages:
+  - python
+  severity: ERROR
+  message: 'Fine-tuning or training endpoint without authentication. Attackers can
+
+    upload poisoned training data or override model weights.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: '@app\.(post|route).*fine.?tun(e|ing)'
+    - pattern-regex: '@app\.(post|route).*train'
+  - pattern-not-regex: '@login_required'
+  - pattern-not-regex: '@auth'
+  - pattern-not-regex: require.*auth
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 306
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: Fine-tuning endpoint without auth
+    fix: Require authentication on any fine-tuning/training endpoint that accepts uploaded data or models.
+- id: NS-AIML-022
+  languages:
+  - python
+  severity: ERROR
+  message: 'File upload to model inference without filename/type validation.
+
+    Attackers can upload backdoored model files or malicious inputs.'
+  patterns:
+  - pattern-regex: request\.files.*\.(read|save)\s*\(
+  - pattern-not-regex: secure_filename\s*\(
+  - pattern-not-regex: \.endswith\(.*allowed
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 434
+    original_engine: neuroscan
+    rule_name: Model inference with raw file upload
+- id: NS-AIML-023
+  languages:
+  - python
+  severity: ERROR
+  message: 'LangChain legacy serialization (load/dumps). CVE-2025-68664: These functions
+
+    deserialize pickle payloads, allowing RCE from serialized agent configs.
+
+    Use langgraph serialization or JSON-only formats.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: langchain_core\.load\.(loads?|dump[ds]?)\s*\(
+    - pattern-regex: langchain\.load\.(loads?|dump[ds]?)\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: LangChain loads unsafe deserialization
+    fix: Do not deserialize LangChain objects (`loads`/legacy `dumps`) from untrusted sources; use a safe data format (JSON)
+      with a known schema.
+    residual:
+    - sanitizer
+- id: NS-AIML-024
+  languages:
+  - python
+  severity: WARNING
+  message: 'LangGraph checkpoint saver used without input validation. Malicious
+
+    checkpoint data could inject state. Validate all checkpoint inputs.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: SqliteSaver\s*\(
+    - pattern-regex: MemorySaver\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 502
+    original_engine: neuroscan
+    rule_name: LangGraph checkpoint without validation
+- id: NS-AIML-025
+  languages:
+  - python
+  severity: ERROR
+  message: 'Multi-agent framework without code execution restrictions. LLMs can
+
+    generate and execute arbitrary code through agent tools. Restrict code execution.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: crewai\.Agent\s*\(
+    - pattern-regex: autogen\.AssistantAgent\s*\(
+  - pattern-not-regex: allow_code_execution\s*=\s*False
+  - pattern-not-regex: code_execution_config\s*=
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 749
+    original_engine: neuroscan
+    rule_name: CrewAI/autogen multi-agent without sandbox
+- id: NS-AIML-027
+  languages:
+  - python
+  severity: WARNING
+  message: 'HF dataset streaming without split specification. Could consume unlimited
+
+    resources or deliver poisoned data. Specify split and limit samples.'
+  patterns:
+  - pattern-regex: load_dataset\s*\([^)]*streaming\s*=\s*True
+  - pattern-not-regex: split\s*=
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 829
+    original_engine: neuroscan
+    rule_name: HF dataset streaming from URL
+- id: NS-AIML-028
+  languages:
+  - python
+  severity: ERROR
+  message: 'ONNX model loading from untrusted source. ONNX runtime has had multiple
+
+    CVEs for model-triggered code execution. Validate model provenance.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: onnx\.load\s*\(
+    - pattern-regex: onnxruntime\.InferenceSession\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 502
+    original_engine: neuroscan
+    rule_name: ONNX model from untrusted source
+- id: NS-AIML-030
+  languages:
+  - python
+  severity: ERROR
+  message: 'numpy.ctypeslib.load_library() loads and executes an arbitrary native
+
+    shared library by name from a search path. If the library name or path
+
+    is influenced by model metadata, config, or other untrusted input, this
+
+    is native code execution. Pin to a fixed, vetted library path.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: numpy\.ctypeslib\.load_library\s*\(
+    - pattern-regex: \bctypeslib\.load_library\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 829
+    original_engine: neuroscan
+    rule_name: numpy ctypeslib loads arbitrary native library
+    fix: Load only libraries from a fixed, vetted install path; never build the library name or search path from model metadata,
+      config files, or other untrusted input.
+- id: NS-AIML-031
+  languages:
+  - python
+  severity: ERROR
+  message: 'numpy.f2py.compile() compiles Fortran/C source and can execute the
+
+    resulting extension module. Untrusted source reaching this call is
+
+    direct code execution, not just deserialization.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: numpy\.f2py\.compile\s*\(
+    - pattern-regex: \bf2py\.compile\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 94
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: numpy f2py compiles and runs arbitrary source
+    fix: Never pass untrusted Fortran/C source to numpy.f2py.compile(); only compile source that ships with the trusted codebase.
+    residual:
+    - sanitizer
+- id: NS-AIML-032
+  languages:
+  - python
+  severity: ERROR
+  message: 'SessionOptions.register_custom_ops_library() loads an arbitrary native
+
+    .so/.dll into the process, distinct from and more dangerous than
+
+    loading an untrusted ONNX model file (NS-AIML-028), since it runs
+
+    native code directly rather than going through the ONNX op-graph
+
+    sandbox. Only load custom-ops libraries you built yourself.'
+  patterns:
+  - pattern-regex: register_custom_ops_library\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 829
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: ONNX Runtime loads custom native ops library
+    fix: Only register custom-ops libraries you built and vetted yourself; never load a native library that shipped alongside
+      an untrusted ONNX model.

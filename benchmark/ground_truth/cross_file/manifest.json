@@ -1,0 +1,288 @@
+{
+  "description": "Cross-file call-graph corpus: a request-reading caller in one file reaches a shell/eval sink in another through an ordinary call edge. Each case directory is scanned as its own project root. Positives name the caller file and the line(s) where a CF-SINK-001 must be anchored; negatives must produce no CF-* finding at all. Seeded from the defects fixed on 2026-09-19 (BACKLOG XF-01, XF-02, XF-04, XF-05, XF-06); before that day none of the benchmark corpora exercised CrossFilePass, so a 17-finding change on a real repo moved no gated number (RT-19).",
+  "scoring": {
+    "runner": "scripts/benchmark.py --corpus cross_file",
+    "hit": "every line in `lines` carries a CF-SINK-001 anchored in `caller_file`",
+    "clean": "no CF-SINK-001 or CF-RETURN-001 anywhere in the case",
+    "gates": "recall on expected=detect must be 1.0 and false positives on expected=clean must be 0"
+  },
+  "cases": [
+    {
+      "dir": "multiline_sink_call",
+      "expected": "detect",
+      "language": "python",
+      "caller_file": "a.py",
+      "lines": [
+        7
+      ],
+      "defect": "XF-01",
+      "description": "The sink call is split across lines and a kwarg-line regex hit used to replace the call head as sink_line, leaving sink_params empty."
+    },
+    {
+      "dir": "aliased_from_import",
+      "expected": "detect",
+      "language": "python",
+      "caller_file": "a.py",
+      "lines": [
+        7
+      ],
+      "defect": "XF-04",
+      "description": "`from c import run_it as go` keyed the callee by its local alias."
+    },
+    {
+      "dir": "keyword_and_positional_only_params",
+      "expected": "detect",
+      "language": "python",
+      "caller_file": "a.py",
+      "lines": [
+        7,
+        8
+      ],
+      "defect": "XF-05",
+      "description": "Keyword-only and positional-only parameters were never indexed in the parameter summary."
+    },
+    {
+      "dir": "same_named_method_masked",
+      "expected": "detect",
+      "language": "python",
+      "caller_file": "a.py",
+      "lines": [
+        8
+      ],
+      "defect": "XF-02",
+      "description": "A benign Safe.run defined after Shell.run masked it under a (file, name) key."
+    },
+    {
+      "dir": "tainted_argument_through_relay",
+      "expected": "detect",
+      "language": "python",
+      "caller_file": "a.py",
+      "lines": [
+        7
+      ],
+      "defect": "XF-06",
+      "description": "Positive twin of neg_constant_argument: the relay receives the request value."
+    },
+    {
+      "dir": "neg_constant_argument",
+      "expected": "clean",
+      "language": "python",
+      "caller_file": "a.py",
+      "defect": "XF-06",
+      "description": "handler reads request.args but passes a string literal to relay(); source status must not cross that edge."
+    },
+    {
+      "dir": "neg_benign_same_named_method",
+      "expected": "clean",
+      "language": "python",
+      "caller_file": "a.py",
+      "defect": "XF-02",
+      "description": "The call resolves to Safe.run, which has no sink; Shell.run in the same file must not be attributed."
+    },
+    {
+      "dir": "js_default_import",
+      "expected": "detect",
+      "language": "javascript",
+      "caller_file": "routes.js",
+      "lines": [
+        4
+      ],
+      "defect": "XF-04",
+      "description": "`import runner from './shell.js'` was keyed as the literal \"default\". Skipped when tree-sitter is not installed."
+    },
+    {
+      "dir": "receiver_module_level",
+      "expected": "detect",
+      "language": "python",
+      "caller_file": "a.py",
+      "lines": [
+        9
+      ],
+      "defect": "ADR-0006",
+      "description": "`svc = Svc()` at module level; the handler calls `svc.go(q)`, which shells out."
+    },
+    {
+      "dir": "neg_receiver_module_level_other_class",
+      "expected": "clean",
+      "language": "python",
+      "caller_file": "a.py",
+      "defect": "ADR-0006",
+      "description": "The module-level receiver is a `Safe`, whose same-named `go` only logs; `Svc.go` with the shell sink must not be chosen."
+    },
+    {
+      "dir": "receiver_attr_from_init_param",
+      "expected": "detect",
+      "language": "python",
+      "caller_file": "a.py",
+      "lines": [
+        8
+      ],
+      "defect": "ADR-0006",
+      "description": "`self.runner` is typed only by the annotated `__init__(self, runner: Runner)`; `Runner.run` shells out."
+    },
+    {
+      "dir": "neg_receiver_attr_from_init_param_safe",
+      "expected": "clean",
+      "language": "python",
+      "caller_file": "a.py",
+      "defect": "ADR-0006",
+      "description": "Same shape with `runner: SafeRunner`, whose `run` only logs; `Runner.run` with the shell sink must not be chosen."
+    },
+    {
+      "dir": "constructor_edge_into_init",
+      "expected": "detect",
+      "language": "python",
+      "caller_file": "a.py",
+      "lines": [
+        7
+      ],
+      "defect": "ADR-0006",
+      "description": "`Job(q)` runs `Job.__init__`, which shells out with its argument."
+    },
+    {
+      "dir": "neg_constructor_edge_other_method",
+      "expected": "clean",
+      "language": "python",
+      "caller_file": "a.py",
+      "defect": "ADR-0006",
+      "description": "`Job.__init__` only stores its argument; the shell sink is in a different method that runs a constant command. The constructor edge must bind to `__init__`, not to whatever sink the class has."
+    },
+    {
+      "dir": "neg_constructor_name_collision",
+      "expected": "clean",
+      "language": "python",
+      "caller_file": "a.py",
+      "defect": "ADR-0006",
+      "description": "`Request(...)` is httpx's class; an unrelated in-repo `Request` whose `__init__` shells out must not receive the constructor edge."
+    },
+    {
+      "dir": "neg_return_not_consumed",
+      "expected": "clean",
+      "language": "python",
+      "caller_file": "sink.py",
+      "defect": "XF-07",
+      "description": "relay() calls a source-returning function but returns a constant, and handler's sink uses its own parameter, not relay()'s return."
+    },
+    {
+      "dir": "return_consumed_by_sink",
+      "expected": "detect",
+      "language": "python",
+      "caller_file": "sink.py",
+      "lines": [
+        6
+      ],
+      "defect": "XF-07",
+      "description": "Positive twin: relay() returns read_input(), and handler passes that value to a shell.",
+      "rule_id": "CF-RETURN-001"
+    },
+    {
+      "dir": "neg_return_unused_by_sink",
+      "expected": "clean",
+      "language": "python",
+      "caller_file": "sink.py",
+      "defect": "XF-07",
+      "description": "relay() really returns tainted data, but handler's sink uses its own parameter, not the captured return."
+    },
+    {
+      "dir": "source_read_in_match_arm",
+      "expected": "detect",
+      "language": "python",
+      "caller_file": "a.py",
+      "lines": [
+        9
+      ],
+      "defect": "XF-11",
+      "description": "The source read and the call sit inside a `match` arm, which the statement walker did not descend into."
+    },
+    {
+      "dir": "star_import",
+      "expected": "detect",
+      "language": "python",
+      "caller_file": "a.py",
+      "lines": [
+        7
+      ],
+      "defect": "XF-10",
+      "description": "`from c import *` then a bare `run_it(q)` call."
+    },
+    {
+      "dir": "init_reexport",
+      "expected": "detect",
+      "language": "python",
+      "caller_file": "a.py",
+      "lines": [
+        7
+      ],
+      "defect": "XF-10",
+      "description": "`from pkg import run_it`, where pkg/__init__.py re-exports it from .impl."
+    },
+    {
+      "dir": "dotted_import",
+      "expected": "detect",
+      "language": "python",
+      "caller_file": "a.py",
+      "lines": [
+        7
+      ],
+      "defect": "XF-10",
+      "description": "`import pkg.impl` then `pkg.impl.run_it(q)`."
+    },
+    {
+      "dir": "neg_js_constant_argument",
+      "expected": "clean",
+      "language": "javascript",
+      "caller_file": "routes.js",
+      "defect": "XF-12",
+      "description": "The handler reads req.query but passes the literal \"ls\" to runFixed."
+    },
+    {
+      "dir": "js_tainted_argument",
+      "expected": "detect",
+      "language": "javascript",
+      "caller_file": "routes.js",
+      "lines": [
+        8
+      ],
+      "defect": "XF-12",
+      "description": "Positive twin: runFixed(q) with q from req.query."
+    },
+    {
+      "dir": "js_deep_expression_other_file",
+      "expected": "detect",
+      "language": "javascript",
+      "caller_file": "routes.js",
+      "lines": [
+        8
+      ],
+      "defect": "XF-13",
+      "description": "Same flow as js_tainted_argument, plus an unrelated file with a 3000-term string concatenation that must not abort the pass."
+    },
+    {
+      "dir": "neg_builtin_call_same_named_method",
+      "expected": "clean",
+      "language": "python",
+      "caller_file": "a.py",
+      "defect": "XF-20",
+      "description": "`open(q)` is the builtin; the same-file method `Store.open`, which shells out, must not receive the edge."
+    },
+    {
+      "dir": "neg_list_form_subprocess",
+      "expected": "clean",
+      "language": "python",
+      "caller_file": "a.py",
+      "defect": "XF-26",
+      "description": "The callee runs a list-form subprocess call to a fixed program with no shell=True. The presence rule ns-aiml-076 matched it and marked it a command-injection sink."
+    },
+    {
+      "dir": "list_form_shell_interpreter",
+      "expected": "detect",
+      "language": "python",
+      "caller_file": "a.py",
+      "lines": [
+        7
+      ],
+      "defect": "XF-26",
+      "description": "List-form argv whose program is a shell run with -c is still a shell sink; the XF-26 list-form exemption must not cover it."
+    }
+  ]
+}

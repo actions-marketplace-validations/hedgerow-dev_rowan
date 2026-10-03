@@ -1,0 +1,486 @@
+# Web vulnerability taint rules: SQLi, XSS, path traversal, IDOR
+
+rules:
+
+  - id: TNT-SQLI-001
+    mode: taint
+    message: |
+      User input reaches SQL query without parameterization: SQL injection.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [89]
+      category: injection
+      fix: "Use parameterized queries (cursor.execute(sql, params)) instead of concatenating input into SQL text."
+    pattern-sources:
+      # rowan-registry:begin source=web_request
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=web_request
+
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: cursor.execute($QUERY)
+              - pattern: $DB.execute($QUERY)
+              - pattern: $CONN.execute($QUERY)
+              - pattern: $DB.raw($QUERY)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: cursor.execute($QUERY, $PARAMS)
+              - pattern: $DB.execute($QUERY, $PARAMS)
+              # NOT $QUERY.replace(...): (a) its neutralizing effect depends
+              # entirely on caller-supplied args -- $QUERY.replace("x","y")
+              # clears taint regardless of whether it touches a SQL
+              # metacharacter; (b) even a *correctly*-targeted replace() is a
+              # known-bypassable blocklist approach to SQLi, not a substitute
+              # for parameterization. See docs/taint-sanitizer-audit.md.
+
+  - id: TNT-XSS-001
+    mode: taint
+    message: User input reflected in response without sanitization, reflected XSS.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [79]
+      category: xss
+      fix: "HTML-escape user input before writing it into the response, or use the framework's auto-escaping template engine instead of raw string interpolation."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              # NB: a bare `return $INPUT` is too broad: it fires on
+              # `return helper(tainted)` for any helper, because taint propagates
+              # through the call's return value. Restrict to sinks that actually
+              # render attacker-controlled data as HTML.
+              - pattern: make_response($INPUT)
+              # AST enrichment suppresses literal template types that Flask
+              # autoescapes, while retaining dynamic/non-HTML/disabled cases.
+              - pattern: render_template(..., $KEY=$INPUT, ...)
+              - pattern: render_template_string($INPUT, ...)
+              - pattern: Markup($INPUT)
+              - pattern: HttpResponse($INPUT)
+              - pattern: $INPUT | safe
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: escape($INPUT)
+              - pattern: html.escape($INPUT)
+              - pattern: bleach.clean($INPUT)
+              - pattern: markupsafe.escape($INPUT)
+
+  - id: TNT-XSS-002
+    mode: taint
+    message: >-
+      User input reaches a Django escaping bypass (mark_safe/format_html/
+      SafeString), which writes it into the page as trusted HTML, causing stored
+      or reflected XSS.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [79]
+      category: xss
+      fix: "Do not mark user input safe. Escape it (django.utils.html.escape), sanitize it (bleach.clean), or pass it as a format_html() argument -- arguments are escaped, only the format string is trusted."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: request.GET.get(...)
+              - pattern: request.POST.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.data
+              - pattern: request.args.get(...)
+              - pattern: request.form.get(...)
+              - pattern: request.json.get(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: mark_safe($INPUT)
+              - pattern: django.utils.safestring.mark_safe($INPUT)
+              - pattern: SafeString($INPUT)
+              - pattern: SafeText($INPUT)
+              # format_html escapes its ARGUMENTS -- only a tainted format
+              # STRING is the vulnerability, so match the first positional
+              # slot rather than the whole call.
+              - pattern: format_html($INPUT, ...)
+              - pattern: format_html_join(..., $INPUT, ...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: escape($INPUT)
+              - pattern: django.utils.html.escape($INPUT)
+              - pattern: conditional_escape($INPUT)
+              - pattern: bleach.clean($INPUT)
+              - pattern: strip_tags($INPUT)
+
+  - id: TNT-PATH-001
+    mode: taint
+    message: User input reaches file path, path traversal possible.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [22]
+      category: path_traversal
+      fix: "Resolve the path and verify the result is still under the intended base directory (os.path.realpath + os.path.commonpath check) before use, or use os.path.basename() to discard directory components entirely."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: open($PATH, ...)
+              - pattern: os.path.join($BASE, $PATH)
+              - pattern: Path($PATH, ...)
+              - pattern: flask.send_file($PATH)
+              - pattern: django.http.FileResponse($PATH)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: os.path.basename($PATH)
+              - pattern: werkzeug.utils.secure_filename($PATH)
+              # NOT $PATH.replace(...): its neutralizing effect depends
+              # entirely on caller-supplied args -- $PATH.replace("x","y")
+              # clears taint regardless of whether ".." is what's actually
+              # being stripped. os.path.basename/secure_filename remain as
+              # sound sanitizers (their effect doesn't depend on arguments).
+              # See docs/taint-sanitizer-audit.md.
+
+  - id: TNT-REDIR-001
+    mode: taint
+    message: |
+      User input reaches a redirect target: open redirect (CWE-601). An
+      attacker can send victims to an external phishing page. Validate the
+      destination against an allowlist or url_has_allowed_host_and_scheme().
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [601]
+      category: open_redirect
+      fix: "Validate redirect targets against an allowlist of internal paths; never redirect to a raw user-supplied URL."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.values.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.query_params.get(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: redirect(...)
+              - pattern: flask.redirect(...)
+              - pattern: django.shortcuts.redirect(...)
+              - pattern: HttpResponseRedirect(...)
+              - pattern: django.http.HttpResponseRedirect(...)
+              - pattern: RedirectResponse(...)
+              - pattern: starlette.responses.RedirectResponse(...)
+              - pattern: fastapi.responses.RedirectResponse(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: url_for(...)
+              - pattern: url_has_allowed_host_and_scheme(...)
+              - pattern: is_safe_url(...)
+
+  - id: TNT-UPLOAD-001
+    mode: taint
+    message: |
+      Untrusted uploaded content is written to disk. Whether this is an
+      unrestricted file upload (CWE-434) depends on validation that static
+      analysis cannot fully see (extension allowlist, content-type/magic-byte
+      check, storage outside any served or executable path). Confirm such a
+      gate exists; a raw upload persisted without one lets an attacker drop a
+      webshell or other dangerous file.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [434]
+      category: file_upload
+      fix: "Validate the actual file content (magic bytes), enforce an extension allowlist, randomize the stored name, and store uploads outside any web-served or executable directory."
+    # Semantic pattern, not one idiom: any framework's uploaded-file object or
+    # raw request body (source) reaching any filesystem-write call (sink).
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              # Flask / Werkzeug
+              - pattern: request.files.get(...)
+              - pattern: request.files[...]
+              - pattern: request.files
+              # Django
+              - pattern: request.FILES.get(...)
+              - pattern: request.FILES[...]
+              - pattern: request.FILES
+              # Tornado (RequestHandler.self.request.files)
+              - pattern: self.request.files.get(...)
+              - pattern: self.request.files[...]
+              - pattern: self.request.files
+              # Starlette / FastAPI raw body & multipart
+              - pattern: await request.body(...)
+              - pattern: await request.form(...)
+              - pattern: await request.stream(...)
+              # Raw body as a property (Django request.body, DRF request.data).
+              # Safe to include broadly: the sink is a filesystem write, so
+              # taint only reaches it when the body is actually persisted.
+              - pattern: request.body
+              - pattern: request.data
+              - pattern: request.stream
+              # FastAPI UploadFile handle (.file / .read())
+              - pattern: await $F.read(...)
+              - pattern: $F.file
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              # generic file-object write
+              - pattern: $O.write($DATA)
+              # FileStorage / UploadedFile / Django Storage .save()
+              - pattern: $O.save($PATH)
+              - pattern: default_storage.save(...)
+              - pattern: $STORAGE.save($NAME, ...)
+              # pathlib
+              - pattern: $P.write_bytes(...)
+              - pattern: $P.write_text(...)
+              # stdlib copy
+              - pattern: shutil.copyfileobj(...)
+    pattern-sanitizers:
+      # secure_filename only neutralizes the path-traversal half; it does NOT
+      # validate content/type, so it is intentionally NOT a sanitizer here.
+      # A genuine content gate (magic-byte / allowlist helper) clears taint.
+      - patterns:
+          - pattern-either:
+              - pattern: validate_file_content(...)
+              - pattern: magic.from_buffer(...)
+              - pattern: imghdr.what(...)
+
+  # ---------------------------------------------------------------------------
+  # Sensitive Data in Logs (CWE-532)
+  # ---------------------------------------------------------------------------
+  # A *sensitive* value -- a credential, auth/API-key header, session cookie,
+  # raw request body, or a variable/env-var named like a secret -- flows into a
+  # logging sink (logging.*, logger.*, self.logger.*, print). This is distinct
+  # from TNT-LOG-001 (CWE-117 log forging, which fires on *any* user input +
+  # newline). Here the taint SOURCE itself is what is sensitive, so the source
+  # set is deliberately narrow: cookies/body/credential-headers/secret-named
+  # values, NOT generic request params. The secured form -- masking, redacting,
+  # or hashing the value before logging -- clears taint and must not fire.
+  - id: TNT-LOG-002
+    mode: taint
+    message: >
+      A sensitive value (credential, authorization/API-key header, session
+      cookie, raw request body, or secret-named variable) is written to a log
+      sink. Secrets in log files (CWE-532) are readable by anyone with log
+      access and often persist in aggregation systems. Mask, redact, or hash
+      the value before logging, or omit it entirely.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [532]
+      category: sensitive_data_exposure
+      fix: "Do not log secrets. Mask/redact the value (e.g. show only a suffix) or log a one-way hash instead of the raw credential, cookie, or request body."
+      confidence: MEDIUM
+    pattern-sources:
+      # Session cookies and raw request bodies are sensitive regardless of the
+      # key/field name they carry.
+      - patterns:
+          - pattern-either:
+              - pattern: request.cookies
+              - pattern: request.cookies.get(...)
+              - pattern: request.cookies[...]
+              - pattern: request.COOKIES
+              - pattern: request.COOKIES.get(...)
+              - pattern: request.COOKIES[...]
+              - pattern: request.body
+              - pattern: request.data
+              - pattern: request.get_data(...)
+              - pattern: await request.body(...)
+      # Credential / auth / API-key request headers, matched by header name so
+      # that logging a benign header (e.g. User-Agent) does not fire.
+      - patterns:
+          - pattern-either:
+              - pattern: request.headers.get($H)
+              - pattern: request.headers[$H]
+              - pattern: request.META.get($H)
+              - pattern: request.META[$H]
+              - pattern: request.environ.get($H)
+              - pattern: request.environ[$H]
+          - metavariable-regex:
+              metavariable: $H
+              regex: (?i).*(authorization|proxy-authorization|www-authenticate|auth|cookie|token|api[-_]?key|x[-_]?api[-_]?key|secret|password|credential|bearer|session|csrf|x[-_]?auth).*
+      # Secrets pulled from the environment, matched by key name.
+      - patterns:
+          - pattern-either:
+              - pattern: os.environ[$K]
+              - pattern: os.environ.get($K)
+              - pattern: os.getenv($K)
+          - metavariable-regex:
+              metavariable: $K
+              regex: (?i).*(secret|token|password|passwd|passphrase|api[-_]?key|apikey|credential|private[-_]?key|access[-_]?key|auth).*
+      # A request parameter whose FIELD NAME marks it a credential
+      # (request.POST.get("password"), bottle request.forms.get("client_secret"),
+      # etc.). Keyed on the field name so ordinary params (page, user_id) do not
+      # taint, and tracked as a flow so a redact()/hash() before logging clears
+      # it -- unlike a presence regex, which cannot see the sanitizer.
+      - patterns:
+          - pattern-either:
+              - pattern: request.POST.get($K)
+              - pattern: request.GET.get($K)
+              - pattern: request.form.get($K)
+              - pattern: request.args.get($K)
+              - pattern: request.values.get($K)
+              - pattern: request.forms.get($K)
+              - pattern: request.params.get($K)
+              - pattern: request.data.get($K)
+          - metavariable-regex:
+              metavariable: $K
+              regex: (?i).*(password|passwd|passphrase|pwd|secret|token|api[-_]?key|apikey|access[-_]?key|auth[-_]?token|access[-_]?token|refresh[-_]?token|private[-_]?key|client[-_]?secret|credential|bearer|ssn|card[-_]?number|cvv).*
+      # NOTE: a bare `pattern: $SECRET` name source was tried and removed -- it
+      # taints every secret-named identifier (including function parameters like
+      # `api_key`), and the engine then reports spurious flows to any log call in
+      # the same scope (confirmed FP on rowan/agents/llm_backend.py:219,
+      # which logs only token *counts*). The secret-NAMED-argument case (a value
+      # whose name marks it a secret passed straight to a logger) is covered
+      # precisely by the presence rule ns-log-002, which requires the name to
+      # appear literally in the log call rather than tracking a flow.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: logging.debug(...)
+              - pattern: logging.info(...)
+              - pattern: logging.warning(...)
+              - pattern: logging.warn(...)
+              - pattern: logging.error(...)
+              - pattern: logging.critical(...)
+              - pattern: logging.exception(...)
+              - pattern: logging.fatal(...)
+              - pattern: logging.log(...)
+              - pattern: $LOG.debug(...)
+              - pattern: $LOG.info(...)
+              - pattern: $LOG.warning(...)
+              - pattern: $LOG.warn(...)
+              - pattern: $LOG.error(...)
+              - pattern: $LOG.critical(...)
+              - pattern: $LOG.exception(...)
+              - pattern: $LOG.fatal(...)
+              - pattern: $LOG.log(...)
+              - pattern: print(...)
+    pattern-sanitizers:
+      # Masking, redaction, and one-way hashing render the value safe to log.
+      # These clear taint because their neutralizing effect does NOT depend on
+      # caller-supplied arguments (unlike .replace()/.strip(), which we omit
+      # for the reasons documented on TNT-LOG-001).
+      - patterns:
+          - pattern-either:
+              - pattern: mask(...)
+              - pattern: masked(...)
+              - pattern: redact(...)
+              - pattern: redacted(...)
+              - pattern: obfuscate(...)
+              - pattern: anonymize(...)
+              - pattern: scrub(...)
+              - pattern: $X.mask(...)
+              - pattern: $X.redact(...)
+              - pattern: hashlib.sha256(...)
+              - pattern: hashlib.sha512(...)
+              - pattern: hashlib.sha1(...)
+              - pattern: hashlib.md5(...)
+              - pattern: $H.hexdigest(...)

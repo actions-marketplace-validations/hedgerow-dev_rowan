@@ -1,0 +1,22 @@
+{
+  "description": "Real, popular OSS repos used as a precision/noise baseline. These are NOT guaranteed vulnerability-free -- 'clean' here means 'not curated for a specific known vuln', so the score that matters is drift in total/HIGH+CRITICAL finding count over time, not an absolute zero. Repos are not committed to git; clone with `git clone --depth 1 <git_url> <local_path>` (see fetch_clean_code.py) before running the benchmark. local_path is relative to the repo root.",
+  "repos": [
+    {"name": "langchain", "git_url": "https://github.com/langchain-ai/langchain.git", "local_path": "scan-targets/langchain", "language": "python"},
+    {"name": "letta", "git_url": "https://github.com/letta-ai/letta.git", "local_path": "scan-targets/letta", "language": "python"},
+    {"name": "autogen", "git_url": "https://github.com/microsoft/autogen.git", "local_path": "scan-targets/autogen", "language": "python"},
+    {"name": "crewai", "git_url": "https://github.com/crewAIInc/crewAI.git", "local_path": "scan-targets/crewai", "language": "python"},
+    {"name": "vllm", "git_url": "https://github.com/vllm-project/vllm.git", "local_path": "scan-targets/vllm", "language": "python/rust"},
+    {"name": "haystack", "git_url": "https://github.com/deepset-ai/haystack.git", "local_path": "scan-targets/haystack", "language": "python"},
+    {"name": "llamaindex", "git_url": "https://github.com/run-llama/llama_index.git", "local_path": "scan-targets/llamaindex", "language": "python"},
+    {"name": "ragflow", "git_url": "https://github.com/infiniflow/ragflow.git", "local_path": "scan-targets/ragflow", "language": "python/go"},
+    {"name": "llmware", "git_url": "https://github.com/llmware-ai/llmware.git", "local_path": "scan-targets/llmware", "language": "python"},
+    {"name": "flashrag", "git_url": "https://github.com/RUC-NLPIR/FlashRAG.git", "local_path": "scan-targets/flashrag", "language": "python"},
+    {"name": "langflow", "git_url": "https://github.com/langflow-ai/langflow.git", "local_path": "scan-targets/langflow", "language": "python/typescript"},
+    {"name": "chainlit", "git_url": "https://github.com/Chainlit/chainlit.git", "local_path": "scan-targets/chainlit", "language": "python/typescript"},
+    {"name": "dubbo", "git_url": "https://github.com/apache/dubbo.git", "local_path": "scan-targets/dubbo", "language": "java"},
+    {"name": "eShop", "git_url": "https://github.com/dotnet/eShop.git", "local_path": "scan-targets/eShop", "language": "csharp"},
+    {"name": "PrestaShop", "git_url": "https://github.com/PrestaShop/PrestaShop.git", "local_path": "scan-targets/PrestaShop", "language": "php"},
+    {"name": "discourse", "git_url": "https://github.com/discourse/discourse.git", "local_path": "scan-targets/discourse", "language": "ruby"},
+    {"name": "jellyfin", "git_url": "https://github.com/jellyfin/jellyfin.git", "local_path": "scan-targets/jellyfin", "language": "csharp"}
+  ]
+}

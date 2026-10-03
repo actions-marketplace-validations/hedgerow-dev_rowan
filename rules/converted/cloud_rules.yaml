@@ -1,0 +1,189 @@
+rules:
+- id: ns-cloud-001
+  languages:
+  - go
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: ERROR
+  message: 'S3 bucket configured with public access. Use private ACLs and explicit
+
+    bucket policies with least-privilege access.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: ACL.*public-read
+    - pattern-regex: public-read-write
+    - pattern-regex: put_bucket_acl.*public
+    - pattern-regex: BlockPublicAccess.*false
+    - pattern-regex: s3\.putBucketAcl.*public
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 284
+    original_engine: neuroscan
+    rule_name: S3 bucket with public access
+- id: ns-cloud-002
+  languages:
+  - go
+  - java
+  - javascript
+  - json
+  - python
+  - typescript
+  severity: ERROR
+  message: 'IAM policy with wildcard Action or Resource grants unrestricted access.
+
+    Scope to specific actions and resources per least-privilege principle.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: '"Action"\s*:\s*"\*"'
+    - pattern-regex: '"Resource"\s*:\s*"\*"'
+    - pattern-regex: '"Effect"\s*:\s*"Allow".*"\*"'
+    - pattern-regex: iam\.put_role_policy.*\*
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 285
+    original_engine: neuroscan
+    rule_name: IAM policy with wildcard action or resource
+- id: ns-cloud-003
+  languages:
+  - go
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: ERROR
+  message: 'Cloud storage configured without server-side encryption. Enable SSE-S3,
+
+    SSE-KMS, or SSE-C and use HTTPS endpoints.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: ServerSideEncryption\s*[=:]\s*(?:None|none|"")
+    - pattern-regex: encrypted\s*[=:]\s*[Ff]alse
+    - pattern-regex: SSEAlgorithm\s*[=:]\s*(?:None|none|"")
+    - pattern-regex: kms_key_id\s*=\s*None
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: crypto
+    cwe:
+    - 311
+    original_engine: neuroscan
+    rule_name: Unencrypted cloud storage or transport
+- id: ns-cloud-004
+  languages:
+  - go
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: ERROR
+  message: 'Cloud database configured as publicly accessible. Restrict to private
+
+    subnets and use VPC peering or Private Link for access.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: PubliclyAccessible\s*[=:]\s*[Tt]rue
+    - pattern-regex: publicly_accessible\s*=\s*True
+    - pattern-regex: authorized_networks.*0\.0\.0\.0
+    - pattern-regex: ip_configuration.*authorized_networks.*0\.0\.0\.0/0
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 668
+    original_engine: neuroscan
+    rule_name: Cloud database publicly accessible
+- id: ns-cloud-005
+  languages:
+  - go
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'Cloud logging or audit trail disabled. Enable CloudTrail, Cloud Audit Logs,
+
+    or Azure Monitor for security event tracking and compliance.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: logging\s*[=:]\s*false
+    - pattern-regex: enable_logging\s*=\s*False
+    - pattern-regex: access_log_enabled\s*[=:]\s*false
+    - pattern-regex: cloudtrail.*IsLogging.*false
+    - pattern-regex: log_analytics.*enabled.*false
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 778
+    original_engine: neuroscan
+    rule_name: Cloud logging or audit trail disabled
+- id: ns-cloud-006
+  languages:
+  - go
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'Overprivileged cloud role or service account detected. Use custom roles
+
+    with minimum required permissions following least-privilege principle.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: roles/owner
+    - pattern-regex: roles/editor
+    - pattern-regex: AdministratorAccess
+    - pattern-regex: PowerUserAccess
+    - pattern-regex: AmazonS3FullAccess
+    - pattern-regex: arn:aws:iam::.*:policy/Admin
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 250
+    original_engine: neuroscan
+    rule_name: Overprivileged cloud service account or role
+- id: ns-cloud-007
+  languages:
+  - go
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: ERROR
+  message: 'Security group or firewall rule allows traffic from 0.0.0.0/0.
+
+    Restrict inbound rules to specific trusted IP ranges and required ports.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: CidrIp.*0\.0\.0\.0/0
+    - pattern-regex: cidr_blocks.*0\.0\.0\.0/0
+    - pattern-regex: source_ranges.*0\.0\.0\.0/0
+    - pattern-regex: IpProtocol.*-1
+    - pattern-regex: from_port.*0.*to_port.*65535
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 284
+    original_engine: neuroscan
+    rule_name: Cloud security group open to all traffic

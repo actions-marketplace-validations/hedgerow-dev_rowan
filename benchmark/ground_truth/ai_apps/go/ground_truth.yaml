@@ -1,0 +1,190 @@
+# Oracle (Go) -- planted-vulnerability ground truth (JG-11, benchmark answer key).
+#
+# Schema follows Langfail's benchmarks/ground_truth.yaml: meta, vulnerabilities with
+# id/title/cwe/tier/exploitable/source/sink/taint_path/sanitizers_present/notes,
+# and decoys with id/resembles/why_safe/location. Extended with
+# `expected_rule_ids`, the Rowan tnt-go-ai-* rule id(s) (JG-10) that should
+# catch each vuln, or fire as a false positive on each decoy.
+#
+# This file is NOT referenced by the app source under cmd/ and internal/ --
+# the app must contain no vuln markers, same discipline as Langfail.
+
+meta:
+  app: oracle-go
+  source_dir: .
+  tiers:
+    1: single-file, MCP tool handler (argument to sink)
+    2: single-file, LLM completion output to sink, or bind/sysprompt
+    3: 1-hop cross-file (handler -> sibling package function)
+
+vulnerabilities:
+  - id: GO-01
+    title: "MCP tool argument to exec.CommandContext"
+    cwe: CWE-78
+    tier: 1
+    exploitable: true
+    source: {file: internal/tools/exec.go, symbol: RunCommand, note: "request.RequireString(\"command\")"}
+    sink: {file: internal/tools/exec.go, symbol: RunCommand, line_hint: 17}
+    taint_path:
+      - "internal/tools/exec.go:RunCommand (command, request.RequireString)"
+      - "internal/tools/exec.go:RunCommand (exec.CommandContext(ctx, \"bash\", \"-c\", command))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-go-ai-mcptool-exec-001]
+
+  - id: GO-02
+    title: "MCP tool argument to os.ReadFile via filepath.Join"
+    cwe: CWE-22
+    tier: 1
+    exploitable: true
+    source: {file: internal/tools/file.go, symbol: ReadFile, note: "request.GetString(\"path\", \"\")"}
+    sink: {file: internal/tools/file.go, symbol: ReadFile, line_hint: 18}
+    taint_path:
+      - "internal/tools/file.go:ReadFile (p, request.GetString)"
+      - "internal/tools/file.go:ReadFile (os.ReadFile(filepath.Join(notesRoot, p)))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-go-ai-mcptool-path-001]
+
+  - id: GO-03
+    title: "MCP tool argument concatenated into SELECT"
+    cwe: CWE-89
+    tier: 1
+    exploitable: true
+    source: {file: internal/tools/sql.go, symbol: SearchTickets, note: "request.GetString(\"query\", \"\")"}
+    sink: {file: internal/tools/sql.go, symbol: SearchTickets, line_hint: 18}
+    taint_path:
+      - "internal/tools/sql.go:SearchTickets (q, request.GetString)"
+      - "internal/tools/sql.go:SearchTickets (db.QueryContext(ctx, \"... LIKE '%\"+q+\"%'\"))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-go-ai-mcptool-sql-001]
+
+  - id: GO-04
+    title: "MCP tool argument to http.Get (SSRF)"
+    cwe: CWE-918
+    tier: 1
+    exploitable: true
+    source: {file: internal/tools/http.go, symbol: FetchURL, note: "request.GetString(\"url\", \"\")"}
+    sink: {file: internal/tools/http.go, symbol: FetchURL, line_hint: 15}
+    taint_path:
+      - "internal/tools/http.go:FetchURL (u, request.GetString)"
+      - "internal/tools/http.go:FetchURL (http.Get(u))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-go-ai-mcptool-ssrf-001]
+
+  - id: GO-05
+    title: "LLM completion output executed as a shell command"
+    cwe: CWE-78
+    tier: 2
+    exploitable: true
+    source: {file: internal/tools/summarize.go, symbol: Summarize, note: "resp.Choices[0].Message.Content"}
+    sink: {file: internal/tools/summarize.go, symbol: Summarize, line_hint: 31}
+    taint_path:
+      - "internal/tools/summarize.go:Summarize (command <- resp.Choices[0].Message.Content)"
+      - "internal/tools/summarize.go:Summarize (exec.CommandContext(ctx, \"sh\", \"-c\", command))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-go-ai-llmout-exec-001]
+
+  - id: GO-06
+    title: "LLM completion output concatenated into SELECT"
+    cwe: CWE-89
+    tier: 2
+    exploitable: true
+    source: {file: internal/tools/summarize.go, symbol: SmartSearch, note: "resp.Choices[0].Message.Content"}
+    sink: {file: internal/tools/summarize.go, symbol: SmartSearch, line_hint: 53}
+    taint_path:
+      - "internal/tools/summarize.go:SmartSearch (filter <- resp.Choices[0].Message.Content)"
+      - "internal/tools/summarize.go:SmartSearch (db.QueryContext(ctx, \"... WHERE \"+filter))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-go-ai-llmout-sql-001]
+
+  - id: GO-07
+    title: "LLM completion output fetched server-side (SSRF)"
+    cwe: CWE-918
+    tier: 2
+    exploitable: true
+    source: {file: internal/tools/assistant.go, symbol: FactCheck, note: "resp.Choices[0].Message.Content"}
+    sink: {file: internal/tools/assistant.go, symbol: FactCheck, line_hint: 31}
+    taint_path:
+      - "internal/tools/assistant.go:FactCheck (citationURL <- resp.Choices[0].Message.Content)"
+      - "internal/tools/assistant.go:FactCheck (http.Get(citationURL))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-go-ai-llmout-ssrf-001]
+
+  - id: GO-08
+    title: "LLM completion output read as a file path"
+    cwe: CWE-22
+    tier: 2
+    exploitable: true
+    source: {file: internal/tools/assistant.go, symbol: FindLog, note: "resp.Choices[0].Message.Content"}
+    sink: {file: internal/tools/assistant.go, symbol: FindLog, line_hint: 57}
+    taint_path:
+      - "internal/tools/assistant.go:FindLog (logPath <- resp.Choices[0].Message.Content)"
+      - "internal/tools/assistant.go:FindLog (os.ReadFile(logPath))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-go-ai-llmout-path-001]
+
+  - id: GO-09
+    title: "MCP SSE transport bound to 0.0.0.0 with no auth"
+    cwe: CWE-306
+    tier: 2
+    exploitable: true
+    source: {file: cmd/server/main.go, symbol: main, note: "hardcoded bind address, no WithHTTPContextFunc"}
+    sink: {file: cmd/server/main.go, symbol: main, line_hint: 30}
+    taint_path:
+      - "cmd/server/main.go:main (server.NewSSEServer(s))"
+      - "cmd/server/main.go:main (sse.Start(\"0.0.0.0:8080\"), no auth middleware)"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-go-ai-mcpbind-001]
+
+  - id: GO-10
+    title: "MCP tool argument placed directly into the LLM system message"
+    cwe: LLM01
+    tier: 2
+    exploitable: true
+    source: {file: internal/tools/assistant.go, symbol: Assist, note: "request.GetString(\"persona\", \"\")"}
+    sink: {file: internal/tools/assistant.go, symbol: Assist, line_hint: 72}
+    taint_path:
+      - "internal/tools/assistant.go:Assist (persona, request.GetString)"
+      - "internal/tools/assistant.go:Assist ({Role: ChatMessageRoleSystem, Content: persona})"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-go-ai-sysprompt-001]
+
+  - id: GO-11
+    title: "Cross-file: MCP handler -> sibling shell package -> exec.CommandContext"
+    cwe: CWE-78
+    tier: 3
+    exploitable: true
+    source: {file: internal/tools/git.go, symbol: GitStatus, note: "request.GetString(\"repo_path\", \".\")"}
+    sink: {file: internal/shell/run.go, symbol: Run, line_hint: 14}
+    taint_path:
+      - "internal/tools/git.go:GitStatus (repoPath, request.GetString)"
+      - "internal/tools/git.go:GitStatus (shell.Run(ctx, \"-C\", repoPath, \"status\"))"
+      - "internal/shell/run.go:Run (exec.CommandContext(ctx, \"git\", args...))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-go-ai-mcptool-exec-001, CF-GO-EXEC-001]
+    notes: >
+      The one-hop cross-file shape the JG-09 survey found in git-mcp-go,
+      mcp-shell and mcp-toolbox: the handler and the exec.Command call are
+      in different files, joined by one ordinary function call with no
+      interface indirection. Expected MISS until JG-13 cross-file lands for
+      Go; JG-13 acceptance target. Contrast with the Java cross-file cases
+      (JA-13/JA-14), which are 2-3 hops -- this is the "much smaller
+      cross-file problem" BACKLOG.md's JG-09 entry describes.
+
+decoys:
+  - id: GOD-01
+    resembles: "GO-02 (MCP tool arg -> path traversal)"
+    why_safe: "ReadFileSafe() resolves to an absolute path via filepath.Abs and rejects anything that does not have notesRoot's absolute form as a prefix, the mcp-filesystem-server validatePath idiom"
+    location: {file: internal/tools/file.go, symbol: ReadFileSafe}
+    expected_rule_ids: [tnt-go-ai-mcptool-path-001]
+
+  - id: GOD-02
+    resembles: "GO-03 (MCP tool arg -> SQLi)"
+    why_safe: "SearchTicketsSafe() passes the argument as a $1 parameter to QueryContext, never concatenates it into the query text"
+    location: {file: internal/tools/sql.go, symbol: SearchTicketsSafe}
+    expected_rule_ids: [tnt-go-ai-mcptool-sql-001]
+
+  - id: GOD-03
+    resembles: "GO-09 (unauthenticated MCP transport bind)"
+    why_safe: "startDebugServer() binds the second SSE transport to 127.0.0.1 only, not reachable off-host"
+    location: {file: cmd/server/main.go, symbol: startDebugServer}
+    expected_rule_ids: [tnt-go-ai-mcpbind-001]

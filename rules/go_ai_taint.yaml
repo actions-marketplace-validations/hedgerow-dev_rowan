@@ -1,0 +1,422 @@
+# Go AI-surface taint rules (BACKLOG.md JG-10).
+#
+# Two source families, four sink families each. `mcp_tool_arg_go` is an MCP
+# tool-call argument (mcp-go `request.Params.Arguments` / `GetString` /
+# `RequireString`, official go-sdk typed handler args): the model picks the
+# value, so whoever controls the prompt controls it. `llm_output_go` is
+# completion text from openai-go / go-openai, langchaingo, anthropic-sdk-go,
+# ollama and genkit. Sinks are copied from rules/go_taint.yaml; the path set
+# adds the write/create/remove/mkdir shapes MCP filesystem tools use, and the
+# SQL set focuses on the statement argument so a parameterised placeholder
+# argument does not fire. Sanitizer `validatePath` is the mcp-filesystem-server
+# allowlist idiom (`validPath, err := fs.validatePath(path)`).
+#
+# `tnt-go-ai-mcpbind-001` (bind on all interfaces) is a search-mode rule and
+# lives in rules/go_ai_opengrep.yaml: tests/test_taint_rules.py requires every
+# rule in a *_taint.yaml file to be `mode: taint`.
+rules:
+  - id: tnt-go-ai-mcptool-exec-001
+    mode: taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      An MCP tool argument flows into a command execution call. The model chooses
+      the argument value, so whoever controls the prompt (a user, a retrieved
+      document, another tool's result) controls the command that runs.
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      confidence: HIGH
+      category: security
+      source_kind: tool_param
+      fix: "Do not expose a shell to the model. Allowlist the executable and pass model-chosen values as separate exec.Command arguments, never through `sh -c` or a shell-interpolated string."
+    pattern-sources:
+      # rowan-registry:begin source=mcp_tool_arg_go
+      - patterns:
+          - pattern-either:
+              - pattern: $REQ.Params.Arguments
+              - pattern: $REQ.GetArguments()
+              - pattern: "($REQ : mcp.CallToolRequest).GetString(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).GetInt(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).GetFloat(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).GetBool(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).RequireString(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).RequireInt(...)"
+              - patterns:
+                  - pattern: $ARGS
+                  - pattern-inside: |
+                      func(ctx context.Context, $REQ *mcp.CallToolRequest, $ARGS $T) (*mcp.CallToolResult, $OUT, error) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $ARGS
+                  - pattern-inside: |
+                      func $H(ctx context.Context, $REQ *mcp.CallToolRequest, $ARGS $T) (*mcp.CallToolResult, $OUT, error) {
+                        ...
+                      }
+      # rowan-registry:end source=mcp_tool_arg_go
+    pattern-sinks:
+      - pattern: exec.Command(...)
+      - pattern: exec.CommandContext(...)
+      - pattern: syscall.Exec(...)
+      - pattern: os.StartProcess(...)
+    pattern-sanitizers:
+      - pattern: filepath.Base(...)
+
+  - id: tnt-go-ai-mcptool-path-001
+    mode: taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      An MCP tool argument flows into a filesystem path. The model chooses the
+      argument value, so whoever controls the prompt controls which file is read,
+      written or deleted.
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+      confidence: HIGH
+      category: security
+      source_kind: tool_param
+      fix: "Resolve the path with filepath.Abs, then filepath.EvalSymlinks, and check the result is under an explicit allowlist of directories before use (the mcp-filesystem-server validatePath idiom), or use filepath.Base() to discard directory components entirely."
+    pattern-sources:
+      # rowan-registry:begin source=mcp_tool_arg_go
+      - patterns:
+          - pattern-either:
+              - pattern: $REQ.Params.Arguments
+              - pattern: $REQ.GetArguments()
+              - pattern: "($REQ : mcp.CallToolRequest).GetString(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).GetInt(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).GetFloat(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).GetBool(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).RequireString(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).RequireInt(...)"
+              - patterns:
+                  - pattern: $ARGS
+                  - pattern-inside: |
+                      func(ctx context.Context, $REQ *mcp.CallToolRequest, $ARGS $T) (*mcp.CallToolResult, $OUT, error) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $ARGS
+                  - pattern-inside: |
+                      func $H(ctx context.Context, $REQ *mcp.CallToolRequest, $ARGS $T) (*mcp.CallToolResult, $OUT, error) {
+                        ...
+                      }
+      # rowan-registry:end source=mcp_tool_arg_go
+    # Path argument only for the multi-argument sinks: file content flowing
+    # into os.WriteFile is not traversal (mcp-filesystem-server write_file.go).
+    pattern-sinks:
+      - pattern: os.Open(...)
+      - pattern: os.ReadFile(...)
+      - patterns:
+          - pattern: os.WriteFile($P, ...)
+          - focus-metavariable: $P
+      - pattern: os.Create(...)
+      - pattern: os.Remove(...)
+      - patterns:
+          - pattern: os.MkdirAll($P, ...)
+          - focus-metavariable: $P
+      - pattern: ioutil.ReadFile(...)
+      - pattern: filepath.Join(...)
+      - patterns:
+          - pattern: http.ServeFile($W, $R, $P)
+          - focus-metavariable: $P
+    pattern-sanitizers:
+      - pattern: filepath.Base(...)
+      - pattern: strings.Contains($PATH, "..")
+      - pattern: validatePath(...)
+      - pattern: $S.validatePath(...)
+
+  - id: tnt-go-ai-mcptool-sql-001
+    mode: taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      An MCP tool argument flows into the text of a SQL statement. The model
+      chooses the argument value, so whoever controls the prompt controls the
+      query.
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      confidence: HIGH
+      category: security
+      source_kind: tool_param
+      fix: "Keep the statement text constant and pass the model-chosen value as a placeholder argument (database/sql's `?` / `$1` args), never by string concatenation or template substitution into the SQL text."
+    pattern-sources:
+      # rowan-registry:begin source=mcp_tool_arg_go
+      - patterns:
+          - pattern-either:
+              - pattern: $REQ.Params.Arguments
+              - pattern: $REQ.GetArguments()
+              - pattern: "($REQ : mcp.CallToolRequest).GetString(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).GetInt(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).GetFloat(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).GetBool(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).RequireString(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).RequireInt(...)"
+              - patterns:
+                  - pattern: $ARGS
+                  - pattern-inside: |
+                      func(ctx context.Context, $REQ *mcp.CallToolRequest, $ARGS $T) (*mcp.CallToolResult, $OUT, error) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $ARGS
+                  - pattern-inside: |
+                      func $H(ctx context.Context, $REQ *mcp.CallToolRequest, $ARGS $T) (*mcp.CallToolResult, $OUT, error) {
+                        ...
+                      }
+      # rowan-registry:end source=mcp_tool_arg_go
+    # The statement argument is the sink, not the whole call: a tainted value
+    # passed as a placeholder argument (`db.Query("... WHERE id = ?", v)`) is
+    # the fix, not the bug. The URL/gin exclusions are copied from
+    # tnt-go-sqli-001.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.Query($Q, ...)
+              - pattern: $DB.QueryRow($Q, ...)
+              - pattern: $DB.QueryContext($CTX, $Q, ...)
+              - pattern: $DB.QueryRowContext($CTX, $Q, ...)
+              - pattern: $DB.Exec($Q, ...)
+              - pattern: $DB.ExecContext($CTX, $Q, ...)
+              - pattern: $DB.Select(&$DEST, $Q, ...)
+              - pattern: $DB.Get(&$DEST, $Q, ...)
+          - pattern-not: $X.URL.Query(...)
+          - pattern-not: "($X : *gin.Context).Query(...)"
+          - focus-metavariable: $Q
+    pattern-sanitizers:
+      - pattern: $DB.Prepare(...)
+      - pattern: strconv.Atoi(...)
+      - pattern: strconv.ParseInt(...)
+
+  - id: tnt-go-ai-mcptool-ssrf-001
+    mode: taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      An MCP tool argument flows into an outbound HTTP request URL. The model
+      chooses the argument value, so whoever controls the prompt chooses where
+      the server sends requests (internal services, cloud metadata endpoints).
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery (SSRF)"
+      confidence: HIGH
+      category: security
+      source_kind: tool_param
+      fix: "Validate the destination host against an explicit allowlist of permitted domains/IPs before making the request."
+    pattern-sources:
+      # rowan-registry:begin source=mcp_tool_arg_go
+      - patterns:
+          - pattern-either:
+              - pattern: $REQ.Params.Arguments
+              - pattern: $REQ.GetArguments()
+              - pattern: "($REQ : mcp.CallToolRequest).GetString(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).GetInt(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).GetFloat(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).GetBool(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).RequireString(...)"
+              - pattern: "($REQ : mcp.CallToolRequest).RequireInt(...)"
+              - patterns:
+                  - pattern: $ARGS
+                  - pattern-inside: |
+                      func(ctx context.Context, $REQ *mcp.CallToolRequest, $ARGS $T) (*mcp.CallToolResult, $OUT, error) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $ARGS
+                  - pattern-inside: |
+                      func $H(ctx context.Context, $REQ *mcp.CallToolRequest, $ARGS $T) (*mcp.CallToolResult, $OUT, error) {
+                        ...
+                      }
+      # rowan-registry:end source=mcp_tool_arg_go
+    pattern-sinks:
+      - pattern: http.Get(...)
+      - pattern: http.Post(...)
+      - pattern: $CLIENT.Do(...)
+      - pattern: url.Parse(...)
+      - patterns:
+          - pattern: http.NewRequest($M, $U, ...)
+          - focus-metavariable: $U
+      - patterns:
+          - pattern: http.NewRequestWithContext($CTX, $M, $U, ...)
+          - focus-metavariable: $U
+
+  - id: tnt-go-ai-llmout-sql-001
+    mode: taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      LLM completion text flows into the text of a SQL statement. Model output
+      is attacker-influenced through the prompt, so this is SQL injection with
+      the model as the carrier.
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      confidence: HIGH
+      category: security
+      source_kind: llm_output
+      fix: "Never execute model-written SQL directly. Have the model choose among fixed statements or fill placeholder arguments, and run the result against a read-only, least-privilege connection."
+    pattern-sources:
+      # rowan-registry:begin source=llm_output_go
+      - patterns:
+          - pattern-either:
+              - pattern: $RESP.Choices[$I].Message.Content
+              - pattern: $RESP.Choices[$I].Content
+              - pattern: llms.GenerateFromSinglePrompt(...)
+              - pattern: $MSG.Content[$I].Text
+              - pattern: $RESP.Message.Content
+              - pattern: "($RESP : api.GenerateResponse).Response"
+              - pattern: genkit.Generate(...)
+              - pattern: genkit.GenerateText(...)
+              - pattern: "($RESP : *ai.ModelResponse).Text()"
+      # rowan-registry:end source=llm_output_go
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.Query($Q, ...)
+              - pattern: $DB.QueryRow($Q, ...)
+              - pattern: $DB.QueryContext($CTX, $Q, ...)
+              - pattern: $DB.QueryRowContext($CTX, $Q, ...)
+              - pattern: $DB.Exec($Q, ...)
+              - pattern: $DB.ExecContext($CTX, $Q, ...)
+              - pattern: $DB.Select(&$DEST, $Q, ...)
+              - pattern: $DB.Get(&$DEST, $Q, ...)
+          - pattern-not: $X.URL.Query(...)
+          - pattern-not: "($X : *gin.Context).Query(...)"
+          - focus-metavariable: $Q
+    pattern-sanitizers:
+      - pattern: $DB.Prepare(...)
+      - pattern: strconv.Atoi(...)
+      - pattern: strconv.ParseInt(...)
+
+  - id: tnt-go-ai-llmout-exec-001
+    mode: taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      LLM completion text flows into a command execution call. Model output is
+      attacker-influenced through the prompt, so this is command injection with
+      the model as the carrier.
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      confidence: HIGH
+      category: security
+      source_kind: llm_output
+      fix: "Never run model-written commands. Map model output onto an allowlist of executables and pass values as separate exec.Command arguments, never through `sh -c`."
+    pattern-sources:
+      # rowan-registry:begin source=llm_output_go
+      - patterns:
+          - pattern-either:
+              - pattern: $RESP.Choices[$I].Message.Content
+              - pattern: $RESP.Choices[$I].Content
+              - pattern: llms.GenerateFromSinglePrompt(...)
+              - pattern: $MSG.Content[$I].Text
+              - pattern: $RESP.Message.Content
+              - pattern: "($RESP : api.GenerateResponse).Response"
+              - pattern: genkit.Generate(...)
+              - pattern: genkit.GenerateText(...)
+              - pattern: "($RESP : *ai.ModelResponse).Text()"
+      # rowan-registry:end source=llm_output_go
+    pattern-sinks:
+      - pattern: exec.Command(...)
+      - pattern: exec.CommandContext(...)
+      - pattern: syscall.Exec(...)
+      - pattern: os.StartProcess(...)
+    pattern-sanitizers:
+      - pattern: filepath.Base(...)
+
+  - id: tnt-go-ai-llmout-ssrf-001
+    mode: taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      LLM completion text flows into an outbound HTTP request URL. Model output
+      is attacker-influenced through the prompt, so whoever controls the prompt
+      chooses where the server sends requests.
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery (SSRF)"
+      confidence: HIGH
+      category: security
+      source_kind: llm_output
+      fix: "Validate the destination host against an explicit allowlist of permitted domains/IPs before making the request."
+    pattern-sources:
+      # rowan-registry:begin source=llm_output_go
+      - patterns:
+          - pattern-either:
+              - pattern: $RESP.Choices[$I].Message.Content
+              - pattern: $RESP.Choices[$I].Content
+              - pattern: llms.GenerateFromSinglePrompt(...)
+              - pattern: $MSG.Content[$I].Text
+              - pattern: $RESP.Message.Content
+              - pattern: "($RESP : api.GenerateResponse).Response"
+              - pattern: genkit.Generate(...)
+              - pattern: genkit.GenerateText(...)
+              - pattern: "($RESP : *ai.ModelResponse).Text()"
+      # rowan-registry:end source=llm_output_go
+    pattern-sinks:
+      - pattern: http.Get(...)
+      - pattern: http.Post(...)
+      - pattern: $CLIENT.Do(...)
+      - pattern: url.Parse(...)
+      - patterns:
+          - pattern: http.NewRequest($M, $U, ...)
+          - focus-metavariable: $U
+      - patterns:
+          - pattern: http.NewRequestWithContext($CTX, $M, $U, ...)
+          - focus-metavariable: $U
+
+  - id: tnt-go-ai-llmout-path-001
+    mode: taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      LLM completion text flows into a filesystem path. Model output is
+      attacker-influenced through the prompt, so whoever controls the prompt
+      controls which file is read, written or deleted.
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+      confidence: HIGH
+      category: security
+      source_kind: llm_output
+      fix: "Resolve the path with filepath.Abs, then filepath.EvalSymlinks, and check the result is under an explicit allowlist of directories before use, or use filepath.Base() to discard directory components entirely."
+    pattern-sources:
+      # rowan-registry:begin source=llm_output_go
+      - patterns:
+          - pattern-either:
+              - pattern: $RESP.Choices[$I].Message.Content
+              - pattern: $RESP.Choices[$I].Content
+              - pattern: llms.GenerateFromSinglePrompt(...)
+              - pattern: $MSG.Content[$I].Text
+              - pattern: $RESP.Message.Content
+              - pattern: "($RESP : api.GenerateResponse).Response"
+              - pattern: genkit.Generate(...)
+              - pattern: genkit.GenerateText(...)
+              - pattern: "($RESP : *ai.ModelResponse).Text()"
+      # rowan-registry:end source=llm_output_go
+    # Path argument only for the multi-argument sinks: file content flowing
+    # into os.WriteFile is not traversal (mcp-filesystem-server write_file.go).
+    pattern-sinks:
+      - pattern: os.Open(...)
+      - pattern: os.ReadFile(...)
+      - patterns:
+          - pattern: os.WriteFile($P, ...)
+          - focus-metavariable: $P
+      - pattern: os.Create(...)
+      - pattern: os.Remove(...)
+      - patterns:
+          - pattern: os.MkdirAll($P, ...)
+          - focus-metavariable: $P
+      - pattern: ioutil.ReadFile(...)
+      - pattern: filepath.Join(...)
+      - patterns:
+          - pattern: http.ServeFile($W, $R, $P)
+          - focus-metavariable: $P
+    pattern-sanitizers:
+      - pattern: filepath.Base(...)
+      - pattern: strings.Contains($PATH, "..")
+      - pattern: validatePath(...)
+      - pattern: $S.validatePath(...)

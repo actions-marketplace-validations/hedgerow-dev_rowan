@@ -1,0 +1,11 @@
+# Synthetic secrets used as detection-test fixtures (reviewed 2026-09-29 and
+# re-checked 2026-10-02). No value here is a real credential.
+# Format: file:rule:line, as gitleaks dir reports them.
+tests/test_ast_analysis.py:generic-api-key:283
+tests/test_enrichment_dedup_line_anchor.py:generic-api-key:13
+tests/test_enrichment_dedup_line_anchor.py:generic-api-key:17
+tests/test_fp_fn.py:generic-api-key:778
+tests/test_llm_telemetry_egress.py:generic-api-key:152
+tests/test_llm_telemetry_egress.py:generic-api-key:157
+tests/test_mcp_config_scan.py:generic-api-key:59
+tests/test_rules.py:aws-access-token:807

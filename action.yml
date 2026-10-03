@@ -1,0 +1,100 @@
+name: "Rowan SAST"
+description: "Run the Rowan SAST scanner and emit SARIF for GitHub code scanning"
+branding:
+  icon: "shield"
+  color: "green"
+
+inputs:
+  target:
+    description: "Path to scan"
+    required: false
+    default: "."
+  output:
+    description: "SARIF output file path"
+    required: false
+    default: "rowan.sarif"
+  baseline:
+    description: "Optional baseline file; when set, report only findings absent from it"
+    required: false
+    default: ""
+  ref:
+    description: "Rowan git ref to install (branch, tag, or SHA). Empty installs the Action's own checked-out version."
+    required: false
+    default: ""
+  args:
+    description: "Extra arguments appended to `rowan scan`"
+    required: false
+    default: ""
+  opengrep-version:
+    description: "Opengrep release tag to install. Pinned so a red build is attributable to the scanned change, not an engine update."
+    required: false
+    default: "v1.29.0"
+
+# Taint analysis requires Opengrep. The steps below install Cosign and a
+# signature-verified Opengrep binary before scanning.
+
+runs:
+  using: "composite"
+  steps:
+    # All inputs are attacker-controllable in a consumer's workflow (a PR
+    # title, branch name, or label wired into `args` or `ref`). Every input is
+    # passed through `env:` and referenced as a shell variable below rather
+    # than interpolated with `${{ }}` inside `run:`, so its content is always
+    # treated as data by bash, never re-parsed as shell syntax (the standard
+    # GitHub Actions script-injection mitigation; see issue #225).
+    - name: Validate ref
+      shell: bash
+      env:
+        REF: ${{ inputs.ref }}
+        OPENGREP_VERSION: ${{ inputs.opengrep-version }}
+      run: |
+        if [[ -n "$REF" && ! "$REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+          echo "::error::ref must match ^[A-Za-z0-9._/-]+\$, got: $REF"
+          exit 1
+        fi
+        if [[ ! "$OPENGREP_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::opengrep-version must look like v1.2.3, got: $OPENGREP_VERSION"
+          exit 1
+        fi
+    - name: Install Rowan
+      shell: bash
+      env:
+        REF: ${{ inputs.ref }}
+      run: |
+        # Default to the Action's own checkout, so pinning the Action to a tag
+        # or SHA also pins the scanner it installs.
+        if [ -n "$REF" ]; then
+          pip install "rowan-sast @ git+https://github.com/hedgerow-dev/rowan@${REF}"
+        else
+          pip install "$GITHUB_ACTION_PATH"
+        fi
+    - name: Install cosign
+      uses: sigstore/cosign-installer@f713795cb21599bc4e5c4b58cbad1da852d7eeb9 # v3
+    - name: Install Opengrep
+      shell: bash
+      env:
+        OPENGREP_VERSION: ${{ inputs.opengrep-version }}
+      run: |
+        rowan install-engine --prefix "$HOME/.local" --version "$OPENGREP_VERSION"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+    - name: Scan
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+        OUTPUT: ${{ inputs.output }}
+        BASELINE: ${{ inputs.baseline }}
+        ARGS: ${{ inputs.args }}
+      run: |
+        cmd=(rowan scan "$TARGET" --ci)
+        if [ -n "$BASELINE" ]; then
+          cmd+=(--baseline "$BASELINE")
+        fi
+        if [ -n "$ARGS" ]; then
+          read -ra extra_args <<< "$ARGS"
+          cmd+=("${extra_args[@]}")
+        fi
+        # Keep the Action's trust and output contract after caller-supplied
+        # args, so a duplicate option in ARGS cannot re-enable project config
+        # or replace the SARIF output path/format.
+        cmd+=(--no-project-config -f sarif -o "$OUTPUT")
+        "${cmd[@]}"

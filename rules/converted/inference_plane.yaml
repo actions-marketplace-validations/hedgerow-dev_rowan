@@ -1,0 +1,212 @@
+rules:
+- id: ns-aiml-140
+  languages:
+  - python
+  severity: WARNING
+  message: 'An internal KV transfer or remote peer parameter (kv_transfer_params,
+
+    remote_engine_id, remote_host, remote_port, cache_salt) is declared as a
+
+    field on a request model, or read straight out of a request body, so an
+
+    unauthenticated caller can choose which peer a decode worker pulls KV
+
+    blocks from. In vLLM''s NIXL path the worker compares the peer''s
+
+    engine_id against an expected_engine_id supplied in that same client
+
+    payload, which makes the peer check self-asserted rather than
+
+    authentication. This is a presence signal: confirm the model or handler
+
+    is reachable by untrusted callers before treating it as exploitable.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bkv_transfer_params\s*:\s*[^=]*=\s*Field\b
+    - pattern-regex: \b(?:remote_engine_id|remote_host|remote_port|cache_salt)\s*:\s*[^=]*=\s*Field\b
+    - pattern-regex: \b(?:request|req|body|payload|data|params|json|kv_transfer_params|kv_params|transfer_params)\w*(?:\.\w+)*\s*(?:\.get\(|\[)\s*["'](?:kv_transfer_params|remote_engine_id|remote_host|remote_port|cache_salt)["']
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?:\bdel\b|\.pop\()
+  - pattern-not-regex: \]\s*(?:\[[^\]]*\]\s*)*=[^=]
+  - pattern-not-regex: \]\s*(?:\[[^\]]*\]\s*)*\.update\(
+  metadata:
+    category: auth
+    cwe:
+    - 290
+    - 345
+    original_engine: neuroscan
+    rule_name: KV transfer control parameters on the public request schema
+    fix: Strip kv_transfer_params, cache_salt and peer address fields at the ingress boundary, and derive peer identity in
+      the backend from a signed internal context instead of the client payload.
+    residual:
+    - sanitizer
+  paths:
+    exclude:
+    - /tests/
+    - /test/
+    - test_*.py
+    - '*_test.py'
+- id: ns-aiml-141
+  languages:
+  - go
+  - python
+  severity: WARNING
+  message: 'An internal inference-routing header is read from the incoming request.
+
+    Headers such as x-prefiller-host-port, x-encoder-hosts-ports,
+
+    x-kv-cache-source-host-port, x-data-parallel-host-port, target-pod and
+
+    x-llm-d-model-name-rewrite select the prefill peer, the destination pod
+
+    or the model name. If the gateway does not strip them at ingress, a
+
+    client can point the routing layer at an arbitrary internal address or
+
+    rewrite the model it is authorized for. Consuming these in a backend
+
+    sidecar is by design, so confirm the ingress strip list actually covers
+
+    the header before treating this as exploitable.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)headers?\s*(?:\.get)?\s*[\[\(]\s*["'](?:x-prefiller-host-port|x-encoder-hosts-ports|x-kv-cache-source-host-port|x-data-parallel-host-port|x-llm-d-model-name-rewrite|target-pod)["']
+    - pattern-regex: (?i)\b(?:x_prefiller_host_port|x_encoder_hosts_ports|x_kv_cache_source_host_port|x_data_parallel_host_port|x_llm_d_model_name_rewrite|target_pod)\s*:\s*[^=]*=\s*Header\b
+    - pattern-regex: (?:\.Header\w*\.(?:Get|Values)|Headers\[)\s*\(?\s*\w*\.?(?:PrefillEndpoint|KVCacheSource|EncoderHosts|DataParallel|ModelNameRewrite|TargetPod)\w*
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?i)\bresp(?:onse)?\w*(?:\.\w+)*\.headers
+  - pattern-not-regex: \]\s*=[^=]
+  metadata:
+    category: ssrf
+    cwe:
+    - 444
+    - 918
+    original_engine: neuroscan
+    rule_name: Internal routing header read from a client request
+    fix: Drop internal routing headers at the gateway perimeter by default, and pass routing context to sidecars in a signed
+      token rather than a mutable header.
+    residual:
+    - sanitizer
+  paths:
+    exclude:
+    - /tests/
+    - /test/
+    - test_*.py
+    - '*_test.py'
+    - '*_test.go'
+- id: ns-aiml-142
+  languages:
+  - python
+  severity: ERROR
+  message: 'A cache or block key is truncated to 8 or 16 bits by a small bitmask, or
+
+    to a short hexdigest slice. LMCache truncates its multimodal hash with
+
+    `int(hex_part, 16) & 0xFFFF` (CVE-2026-10813, LMCache <= 0.4.6): 16 bits
+
+    of key space is a birthday collision within a few hundred requests, so
+
+    one tenant''s lookup can land on another tenant''s cached entry. Keep
+
+    cache lookup identifiers at full width, at least 128 bits.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)\b(?:hash|hashes|digest|hexdigest|hex_part|hexpart|cache_key|block_key|mm_hash)\w*.*&\s*0x(?:ffff|ff)\b
+    - pattern-regex: (?i)&\s*0x(?:ffff|ff)\b.*\b(?:cache|hash|block|key)\w*\b
+    - pattern-regex: (?i)\b(?:kv|block|prefix|chunk|cache|prompt|token|mm_hash)\w*.*(?:hexdigest\(\)|\.hex\(\))\s*\[\s*:\s*(?:1[0-6]|[1-9])\s*\]
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: crypto
+    cwe:
+    - 327
+    - 328
+    original_engine: neuroscan
+    rule_name: Cache key digest truncated below a usable width
+    fix: Use an untruncated keyed digest (HMAC-SHA256 or BLAKE3) for cache and block keys, and never narrow the stored identifier
+      below 128 bits.
+- id: ns-aiml-143
+  languages:
+  - python
+  severity: WARNING
+  message: 'A cache key is derived with Python''s builtin hash() over token or chunk
+
+    data, or the process pins PYTHONHASHSEED to make that hash reproducible.
+
+    CPython does not randomize int and tuple hashing, so the key is a fixed,
+
+    publicly reproducible function of the token sequence with no secret and
+
+    no tenant binding. LMCache''s builtin chunk hashing has exactly this
+
+    shape and requires PYTHONHASHSEED=0 for cross-process consistency. The
+
+    defect is the missing key, not the speed of the hash: an attacker who
+
+    knows or guesses a prefix computes the victim''s exact cache key offline,
+
+    which enables presence probing, targeted eviction and pre-seeding.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?:environ\s*(?:\[|\.get\()|getenv\(|setenv\(|putenv\()\s*["']PYTHONHASHSEED
+    - pattern-regex: (?m)^\s*(?:export\s+|ENV\s+)?PYTHONHASHSEED\s*=\s*\d
+    - pattern-regex: \bhash\(\s*\(?[^)]*\b(?:token_ids|tokens_tuple|token_tuple|tokens|chunk_tokens|chunk_hash|prefix_hash|block_tokens)\b
+    - pattern-regex: (?i)\b(?:hash_func|hash_function|hash_algo\w*|chunk_hash_algo\w*|hashing_algorithm)\b[^=\n]*=\s*(?:hash\b|["']builtin["'])
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?m)^\s*(?:async\s+)?(?:def|func)\s
+  - pattern-not-regex: (?i)(?:hmac|blake2|blake3|sha256|sha3|sha512)
+  metadata:
+    category: crypto
+    cwe:
+    - 327
+    - 330
+    original_engine: neuroscan
+    rule_name: Unkeyed builtin hash used for cache key derivation
+    fix: Derive cache keys with HMAC-SHA256 or keyed BLAKE3 under a per-deployment secret, and bind the tenant identity into
+      the key material.
+    residual:
+    - sanitizer
+  paths:
+    exclude:
+    - /tests/
+    - /test/
+    - /testing/
+    - test_*.py
+    - '*_test.py'
+- id: ns-aiml-144
+  languages:
+  - go
+  - python
+  severity: WARNING
+  message: 'A non-cryptographic cache key hash (xxhash, murmur, cityhash) is seeded
+
+    with a literal 0, or a dedicated cache hash seed is set to 0. AIBrix
+
+    forces the prefix-cache xxhash64 seed to 0 when statesync is enabled,
+
+    which removes the only deployment-specific input to the key. With a
+
+    known seed the key is computable offline, so an attacker can probe for a
+
+    victim prefix or pre-seed an entry under a key the victim will hit.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)(?:xxhash|xxh32|xxh64|xxh3|mmh3|murmur\w*|cityhash|farmhash)\w*.*\bseed\s*=\s*0\b
+    - pattern-regex: (?i)\b(?:hash_seed|hashseed|cache_seed|prefix_cache_seed|prefix_hash_seed|kv_hash_seed)\s*[:=]\s*0\b
+    - pattern-regex: (?i)\b(?:mmh3\.hash\w*|xxhash\.\w+|xxh64|xxh3_\w+)\s*\([^)]*,\s*0\s*\)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?i)(?:np\.random|numpy\.random|torch\.manual_seed|random\.seed|set_seed)
+  metadata:
+    category: crypto
+    cwe:
+    - 327
+    - 760
+    original_engine: neuroscan
+    rule_name: Cache key hash seeded with a literal zero
+    fix: Seed cache key hashing from a per-deployment secret rather than a constant, or replace the non-cryptographic hash
+      with a keyed digest.

@@ -1,0 +1,509 @@
+# Python web-application surface rules: neuroscan format (plain regex strings)
+#
+# ---------------------------------------------------------------------------
+# VALIDATION STATUS, per rule (measured 2026-08-01 over 11 real repos:
+# chainlit, flashrag, llmware, crewai, haystack, letta, langchain, llamaindex,
+# langflow, ragflow, vllm, for 6735 findings total). Per CONTRIBUTING.md
+# "Validating a rule", a rule earns its place by firing on code nobody wrote
+# for it; benchmark hits are NOT validation.
+#
+#   ns-websec-598-001   VALIDATED. 1 real-world true positive in a real,
+#                       currently-maintained LLM-serving project: a
+#                       third-party provider's API key read from a
+#                       query-string parameter and forwarded onward
+#                       (CWE-598 exposure via server logs, Referer header,
+#                       browser history). 0 false positives. Low volume.
+#                       Exact location withheld pending upstream disclosure.
+#
+#   ns-websec-611-001   UNVALIDATED. 0 hits across all 11 repos. Fires on the
+#                       synthetic probe and on the benchmark (V25) only. The
+#                       class is real; either the pattern is too narrow (it
+#                       requires an explicit resolve_entities=True /
+#                       no_network=False on an lxml XMLParser) or none of
+#                       these 11 repos parses XML that way. Not distinguished.
+#
+#   ns-websec-1333-001  UNVALIDATED, WITH A KNOWN FALSE POSITIVE. Its single
+#                       real-world hit is an FP:
+#                       langflow/.../files_and_knowledge/filesystem.py:360
+#                       matches a DOCSTRING describing catastrophic
+#                       backtracking ("rejecting e.g. `(a+)+` or `(.*)*`") --
+#                       prose about ReDoS, not a live regex. 0 true positives.
+#                       Needs a string-context exclusion before it can be
+#                       trusted; it does still fire correctly on a genuine
+#                       nested quantifier (benchmark V48).
+#
+# Two further rules (ns-websec-470-001/002) were written and then WITHDRAWN on
+# measurement -- see rules/_wip/python_web_surface_470_wip.yaml.
+# ---------------------------------------------------------------------------
+#
+# Fills gaps in ordinary (non-AI/ML) Python web-hygiene coverage: the corpus
+# is heavily weighted toward AI/ML weaknesses (CWE-502 x49, CWE-94 x42) and
+# was found to produce zero findings against a labeled vulnerable Flask app
+# for several classic web-app bug classes. This file adds high-precision
+# rules for the classes confirmed genuinely absent after a full corpus
+# search (rg 'cwe:\s*\[?<N>\]?' rules/*.yaml). See each rule's own engine
+# note for what was checked and why the shape below, specifically, was
+# chosen.
+#
+# Two classes from the same review (CWE-1021 clickjacking, CWE-352 generic
+# "no CSRF protection anywhere in this app") are deliberately NOT covered
+# here -- see the bottom of this file for why.
+
+rules:
+
+  # =========================================================================
+  # CWE-598: auth token accepted from a URL query string
+  # =========================================================================
+  # Engine note: corpus-wide search (`rg 'cwe:\s*\[?598\]?' rules/*.yaml`)
+  # found zero existing coverage. request.args.get(...) already appears as a
+  # generic taint *source* in ~20 places (python_taint.yaml, ml_taint.yaml,
+  # ai_ml_taint.yaml, agent_taint.yaml) feeding SSRF/path-traversal/command-
+  # injection/deserialization sinks, but none of those rules key off the
+  # *name* of the query parameter, so none of them fire on "a query string
+  # is itself the transport for a bearer credential" -- the read is the
+  # complete signal, independent of what happens to the value afterward. A
+  # token read from ?token=/?access_token=/?api_key= is already exposed by
+  # the read itself (server access logs, the Referer header on any outbound
+  # link/asset the page loads, browser history), so this is written as a
+  # presence-mode rule, not taint: gating it on a downstream "used for auth"
+  # sink would only narrow recall without adding real precision, since the
+  # exposure has already happened.
+  #
+  # Verified true positive: langfail/api/deps.py:17 (`_extract_token`),
+  # `return request.args.get("token")` (ground truth V43). Key list is
+  # scoped to unambiguous auth/credential names (token, access_token,
+  # auth_token, api_key, apikey, session_token, bearer_token, id_token,
+  # refresh_token) and requires an exact quoted-key match, not a substring
+  # -- this deliberately does NOT match `csrf_token`, `next_token`,
+  # `page_token`, `continuation_token`, or `cursor` style pagination/CSRF
+  # params, which are a different (and largely legitimate) use of "token"
+  # in a query string. Verified empirically against three large real
+  # dependency trees (langflow, plus the full pip/setuptools/requests/
+  # aiohttp/huggingface_hub/accelerate/litellm/langsmith install trees --
+  # several GB, hundreds of packages): zero matches.
+  #
+  # Also run against a second, larger corpus (12 real Python-heavy repos --
+  # langchain, letta, autogen, crewai, vllm, haystack, llamaindex, ragflow,
+  # llmware, flashrag, langflow, chainlit -- 11412 Python files): one hit,
+  # in a real, currently-maintained LLM-serving project. Not that endpoint's
+  # own session credential (a separate, correctly header-based
+  # `Authorization: Bearer` token handles that); it's a third-party LLM
+  # provider's API key, read from a query-string parameter and forwarded
+  # onward to list that provider's models. Counted as a true positive, not
+  # a false positive: CWE-598's exposure mechanism (server
+  # logs, Referer header, browser history) applies identically regardless
+  # of whose credential it is.
+  - id: ns-websec-598-001
+    message: >
+      A credential-shaped URL query parameter (token/access_token/api_key/...)
+      is read directly from the query string. Query strings are logged by web
+      servers and proxies, sent to third-party origins via the Referer
+      header on any outbound request the page makes, and persist in browser
+      history -- all leak the credential outside the TLS-protected request
+      body. Accept the same credential via the Authorization header (or a
+      POST body) instead.
+    severity: WARNING
+    languages: [python]
+    patterns:
+      - request\.args\.get\(\s*["'](?:token|access_token|auth_token|api_key|apikey|session_token|bearer_token|id_token|refresh_token)["']
+      - request\.args\[\s*["'](?:token|access_token|auth_token|api_key|apikey|session_token|bearer_token|id_token|refresh_token)["']\s*\]
+      - request\.GET\.get\(\s*["'](?:token|access_token|auth_token|api_key|apikey|session_token|bearer_token|id_token|refresh_token)["']
+      - request\.GET\[\s*["'](?:token|access_token|auth_token|api_key|apikey|session_token|bearer_token|id_token|refresh_token)["']\s*\]
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [598]
+      category: auth
+      fix: "Accept the credential only via the Authorization header (e.g. `Authorization: Bearer <token>`) or a POST body. If a query-string fallback is required for legacy clients, log a deprecation warning and strip it from any URL that is echoed back, redirected to, or logged verbatim."
+
+  # =========================================================================
+  # CWE-611: XXE via an explicitly permissive lxml XMLParser
+  # =========================================================================
+  # Engine note: corpus-wide search found XXE already covered twice --
+  # NS-DESER-009 (security_surface.yaml) and ns-aiml-070 (ai_security.yaml)
+  # -- both matching xml.etree.ElementTree.parse(/fromstring(, ET.parse(/
+  # fromstring(, lxml.etree.parse(, and xml.dom.minidom.parse(/xml.sax.parse(
+  # presence. That is real, working coverage for the "parse untrusted XML at
+  # all" signal (confirmed by reading both rules directly), so a third rule
+  # matching the same .parse()/.fromstring() presence would double-fire on
+  # every line those two already catch (the DEF-10/14/26/39/42 duplicate-
+  # rule pattern this corpus has hit five times before) and was NOT added.
+  #
+  # What neither existing rule catches: the parser *configuration* itself.
+  # lxml's default XMLParser is safe by default in modern lxml (no_network
+  # defaults True, load_dtd defaults False) -- a bare etree.fromstring(...)
+  # or etree.parse(...) call with no explicit parser argument is usually NOT
+  # exploitable, which is exactly why neither existing rule's blanket
+  # presence-on-.parse()/.fromstring() signal is being duplicated here. The
+  # genuine, previously-uncovered gap is code that explicitly re-enables the
+  # dangerous behavior via an XMLParser(resolve_entities=True, ...) /
+  # XMLParser(..., no_network=False) construction -- a strictly more
+  # specific and lower-FP signal than "any XML parse call" would be.
+  #
+  # Verified true positive: langfail/ml/modelconfig.py:24
+  # (`parser = etree.XMLParser(resolve_entities=True, no_network=False,
+  # load_dtd=True)`), ground truth V25. Verified zero matches across the
+  # same three large real dependency trees used for the CWE-598 check above
+  # (no XMLParser( call with either dangerous kwarg appeared anywhere).
+  - id: ns-websec-611-001
+    message: >
+      lxml XMLParser explicitly re-enables entity resolution
+      (resolve_entities=True) and/or network access during DTD/entity
+      resolution (no_network=False). This overrides lxml's safe-by-default
+      parser configuration and reopens classic XXE: local file disclosure
+      via an internal/external entity, or SSRF via a network-fetched
+      entity/DTD.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - (?:lxml\.)?etree\.XMLParser\([^)]{0,300}?(?:resolve_entities\s*=\s*True|no_network\s*=\s*False)
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [611]
+      category: deserialization
+      fix: "Do not set resolve_entities=True or no_network=False on an XMLParser used for untrusted input. Use the default XMLParser() (or explicitly resolve_entities=False, no_network=True, load_dtd=False), or switch to defusedxml.lxml.parse()/fromstring()."
+
+  # =========================================================================
+  # CWE-1333: ReDoS via a nested-quantifier regex
+  # =========================================================================
+  # Engine note: corpus-wide search found zero existing CWE-1333 coverage of
+  # any kind (regex or taint).
+  #
+  # A genuine taint-mode formulation (source: request.json/args/form getter;
+  # sink: a compiled/inline pattern matched against that value) was tried
+  # first, since the task brief specifically suggested taint mode here and
+  # it is the more precise design in principle. It does not work in this
+  # engine: verified empirically with opengrep 1.22.0 --taint-intrafile
+  # (both directly and via a `metavariable-pattern` + `pattern-regex`
+  # constraint on the sink's own pattern argument) against a same-file
+  # reproduction of the exact ground-truth shape (a module-level `_RE =
+  # re.compile(...)` matched later via `_RE.match(tainted)`, and the inline
+  # `re.match(pattern_literal, tainted)` variant) -- both produced 0
+  # findings. This engine's `metavariable-pattern` does not appear to see
+  # through even direct same-file constant propagation for this shape, and
+  # cross-function/cross-file linkage (the real ground-truth case: the
+  # regex is defined and matched inside validate_username() in
+  # core/security.py, called from register() in api/auth.py) is out of
+  # reach of opengrep's own dataflow engine entirely -- that gap is what
+  # this project's own separate cross-file correlation pass exists for, and
+  # it operates on Finding objects opengrep already produced, not on
+  # regex-literal content.
+  #
+  # Given that, this ships as a presence-mode structural rule instead: a
+  # nested quantifier is a *latent* ReDoS risk the moment it is compiled,
+  # independent of whether today's caller happens to pass attacker data --
+  # the same "structural risk, not proven flow" reasoning this corpus
+  # already accepts for other presence-mode rules (e.g. NS-SSRF-102's own
+  # "Surface signal only" framing). The naive version of this heuristic
+  # (`\([^()]*[+*][^()]*\)[+*]`, "a quantified group whose content also
+  # contains a quantifier") was tested against ~2GB / hundreds of real
+  # packages (pip, setuptools, packaging, requests, aiohttp,
+  # huggingface_hub, accelerate, datasets, fontTools, litellm, langsmith,
+  # langflow) and had a severe false-positive rate (43 hits in one tree
+  # alone) almost entirely from the extremely common and NOT vulnerable
+  # "quantified-atom, then a literal-separated quantified-atom" idiom used
+  # by version/identifier/dotted-path parsers -- e.g. `[a-z0-9]+(?:[._-]
+  # [a-z0-9]+)*` or `\w+(\.\w+)*`. Those are safe because the separator
+  # character disambiguates every split of the string across the outer
+  # repetition, so there is no exponential-backtracking ambiguity. The
+  # shipped pattern instead requires the ENTIRE group content to be exactly
+  # one bare quantified atom (a character class, `.`, or a `\d`/`\w`/`\s`-
+  # style shorthand, with nothing else beside it) -- i.e. `(X+)+`, `(X*)*`,
+  # `(X+)*`, `(X*)+` with no literal separator inside the group, which is
+  # the actual precondition for the exponential-split ambiguity and is what
+  # the ground-truth pattern (`^([a-zA-Z0-9_]+)*$`) is. Re-run against the
+  # same corpora after tightening: 2 hits total, both genuine nested-
+  # quantifier patterns (`(\s*)+` in a sympy test-suite linter regex) --
+  # correctly structurally flagged, just not attacker-reachable in that
+  # particular deployment (a presence-mode rule's known and accepted
+  # limitation, not a false positive of the detection itself).
+  #
+  # A second, narrower pattern also flags `(X|X)+`/`(X|X)*` -- literally
+  # duplicated alternation branches, e.g. `(a|a)*` -- via a backreference
+  # requiring both sides of the single `|` to be textually identical.
+  #
+  # Verified true positive: langfail/core/security.py:134
+  # (`_USERNAME_RE = re.compile(r"^([a-zA-Z0-9_]+)*$")`), ground truth V48.
+  #
+  # Also run against a second, larger corpus (12 real Python-heavy repos --
+  # langchain, letta, autogen, crewai, vllm, haystack, llamaindex, ragflow,
+  # llmware, flashrag, langflow, chainlit -- 11412 Python files, alongside
+  # the same corpus's other five rules): two hits, both in
+  # langflow/.../filesystem.py, both inside a component that itself
+  # implements a ReDoS-shape guard and documents examples of what it
+  # rejects. Line 107 (`# Examples: \`(a+)+\`, \`(a*)*\`, ...`) is a
+  # comment -- excluded from a real `rowan scan` by this rule's own
+  # `pattern-not: '(?m)^\s*#'` via EnrichmentPass's per-line manifest
+  # fallback (rowan/passes/enrichment.py, issue #92); it only shows up
+  # running raw `opengrep` directly against the converted rule, which
+  # bypasses that fallback and its containment-based pattern-not-regex
+  # semantics -- not a false positive a real scan would report. Line 360
+  # (`"(rejecting e.g. \`(a+)+\` or \`(.*)*\`) and oversized lines are
+  # skipped."`) is a genuine false positive: a Pydantic Field(description=)
+  # string, not a comment, so no existing pattern-not excludes it. This is
+  # a narrow, honestly-reported gap -- a presence-mode regex-on-regex-
+  # literal check cannot distinguish "this string is compiled as a regex"
+  # from "this string is prose that happens to quote a regex example" --
+  # found exactly once across the entire 11412-file corpus.
+  - id: ns-websec-1333-001
+    message: >
+      Regex contains a nested quantifier -- a quantified group whose entire
+      content is itself a single quantified atom (e.g. `(a+)+`, `([a-z0-9]+
+      )*`, `(\d*)+`), or a repeated group with two identical alternation
+      branches (e.g. `(a|a)*`). Both shapes admit exponentially many ways to
+      partition a matching prefix across the outer repetition, so a
+      catastrophic-backtracking (ReDoS) input can make a single match call
+      take seconds to hours. If this pattern is ever matched against
+      request-derived input (a form field, header, or query parameter), one
+      request can pin a worker thread.
+    severity: WARNING
+    languages: [python]
+    patterns:
+      - \((?:\?:)?(?:\[[^\]\n]*\]|\\[dwsDWS]|\\.|\.)[+*]\)[+*]
+      - \((\\[dwsDWS]|\[[^\]\n]*\]|\w+)\|\1\)[+*]
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [1333]
+      category: general
+      fix: "Rewrite the group so repetitions cannot overlap: require a literal or disjoint separator between repeated atoms (e.g. `[a-z0-9]+(?:[._-][a-z0-9]+)*` instead of `([a-z0-9_]+)*`), use an atomic/possessive group if your regex engine supports one, or validate with a bounded, linear-time check (a single non-nested character class with a length cap) instead of a general-purpose pattern."
+
+  # =========================================================================
+  # CWE-915: mass assignment via constructor dict-splat
+  # =========================================================================
+  # Engine note: corpus-wide search found existing CWE-915 coverage in
+  # framework_rules.yaml (ns-fw-java-005, Spring's BeanUtils.copyProperties/
+  # @ModelAttribute), ruby.yaml, misc_rules.yaml, and security_surface.yaml
+  # -- none of it Python-specific, and none matching a dict-splat
+  # constructor call or a setattr() loop, which are the Python idioms for
+  # this class. Genuine gap, not a duplicate.
+  #
+  # This rule covers only the constructor-splat half of the class
+  # (`Model(**request.json)`); the setattr()-loop half (the ground-truth
+  # V14 shape) needs an actual source-to-sink check to be precise -- see
+  # TNT-MASSASSIGN-001 in python_web_surface_taint.yaml for why and how that
+  # was verified. Deliberately scoped to a *literal* `request.json`/
+  # `request.form`/`request.get_json()` splat target, not a generic
+  # variable name (`**data`, `**body`, `**payload`): tested the generic-
+  # variable-name version against the same large real corpora used above
+  # and it produced 8-9 hits in langflow alone, all false positives --
+  # `ExceptionBody(**body)`, `cls(**data)`, `FlowListCreate(**data)`, etc.,
+  # none of which splat directly from a request object. "data"/"body"/
+  # "payload" are simply too common as generic identifier names to use as a
+  # taint proxy without an actual dataflow check; requiring the literal
+  # `request.*` attribute chain removed all of those false positives (this
+  # exact pattern re-run afterward: 0 matches in the same corpora).
+
+  # =========================================================================
+  # CWE-1004: session cookie set without HttpOnly
+  # =========================================================================
+  # Engine note: corpus-wide search (`rg 'cwe:\s*\[?1004\]?' rules/*.yaml`)
+  # found zero existing coverage. The nearest neighbour is ns-bb-003
+  # (misc_rules.yaml, CWE-614), which only matches an *explicit*
+  # `httponly=False` / `secure=False` / `samesite=None`. The far more common
+  # real shape is the argument being absent altogether -- and Flask,
+  # Django's `HttpResponse.set_cookie`, and FastAPI/Starlette all default
+  # `httponly` to False, so omission is insecure-by-default rather than a
+  # neutral "unspecified". Genuine gap, not a duplicate.
+  #
+  # Absence is expressed via `sanitizers:` rather than `pattern-not:`
+  # because a real `set_cookie(...)` call is almost always wrapped across
+  # several lines, and `pattern-not` is evaluated per-line: `httponly=`
+  # three lines below the opening paren would never suppress it. The
+  # sanitizer window is the mechanism that already exists for exactly this.
+  # (Carrying a rule's own `sanitizers:` list onto the default Opengrep
+  # engine path required a converter/EnrichmentPass fix -- see
+  # `manifest["sanitizers"]` in scripts/convert_neuroscan_to_opengrep.py.)
+  #
+  # The sanitizer matches `httponly=` with ANY value, not `httponly=True`:
+  # measured against the real corpus, requiring the literal True produced 9
+  # false positives in langflow alone (`httponly=auth_settings.
+  # REFRESH_HTTPONLY` and friends -- the flag *is* passed, just from
+  # config). This rule's claim is strictly "the argument is absent";
+  # `httponly=False` is ns-bb-003's job.
+  #
+  # VALIDATION (2026-08-02, 39 real repos across scan-targets/ --
+  # langchain, letta, autogen, crewai, vllm, haystack, llamaindex, ragflow,
+  # llmware, flashrag, langflow, chainlit, open-webui, pydantic-ai,
+  # smolagents, deepspeed, tgi, dify, bentoml, diffusers, litellm,
+  # metaflow, feast, sagemaker-python-sdk, FastChat, AutoGPT, LibreChat,
+  # transformers, ollama, open-interpreter, pandas-ai, vanna, mem0,
+  # langgraph, MCP servers + python-sdk, datasets, dagster, prefect,
+  # wandb): VALIDATED. 4 hits, all in one real, currently-maintained
+  # LLM-serving project's proxy layer, all true positives of exactly this
+  # class: a signed session cookie set with no httponly, no secure, and no
+  # samesite at all. 0 false positives, 0 hits in the other 38 repos. Exact
+  # location withheld pending upstream disclosure.
+  - id: ns-websec-1004-001
+    message: >
+      A cookie is set without an `httponly` argument. Flask, Django, and
+      Starlette/FastAPI all default it to False, so the value is readable
+      from JavaScript via `document.cookie` -- any XSS anywhere on the
+      origin can exfiltrate it. If this cookie carries a session or auth
+      token, that turns a contained XSS into full account takeover.
+    severity: WARNING
+    languages: [python]
+    exclude_paths:
+      - "/tests/"
+      - "/test/"
+      - "test_*.py"
+      - "*_test.py"
+      - "conftest.py"
+    patterns:
+      - \.set_cookie\s*\(
+      - \.set_signed_cookie\s*\(
+    sanitizers:
+      - '(?i)httponly\s*='
+    pattern-not:
+      - '(?m)^\s*#'
+      # `set_cookie(**kwargs)` hides its arguments in a helper -- measured
+      # as 3 false positives in dify (`**approval_grant_cleared_cookie_
+      # kwargs()`), where the helper does set httponly.
+      - set_cookie\s*\(\s*\*\*
+    metadata:
+      cwe: [1004]
+      category: config
+      fix: "Pass `httponly=True` on any cookie carrying a session or auth token, together with `secure=True` and `samesite=\"Lax\"` (or `\"Strict\"`). Only set `httponly=False` for a cookie a first-party script genuinely has to read, and never for one that authenticates the request."
+
+  # =========================================================================
+  # CWE-614: session/auth cookie hardened with HttpOnly but missing Secure
+  # =========================================================================
+  # Companion to ns-websec-1004-001 above (which fires only when `httponly` is
+  # ABSENT). The opposite shape: a cookie that sets `httponly=True` yet ships
+  # no Secure flag (omitted or bound to a config/env value that defaults off).
+  # Anchored on `httponly=True` (cookie-only on this corpus) and suppressed by
+  # a windowed `secure=True` sanitizer, so zero overlap with ns-websec-1004-001.
+  # RealVuln measurement: 22 fires, 19 TP / 3 FP (0.86); 12 net-new detections.
+
+  - id: ns-websec-614-001
+    message: >
+      A cookie is set without the `secure` flag (or with `secure=False`).
+      Flask, Django, and Starlette/FastAPI all default it to False, so the
+      browser will send this cookie over plain HTTP -- a network attacker on
+      the path (public Wi-Fi, a downgraded link, a captive portal) reads it
+      directly. If it carries a session or auth token, that is session
+      hijacking with no XSS required. Pass `secure=True` on any cookie that
+      authenticates the request.
+    severity: WARNING
+    languages: [python]
+    exclude_paths:
+      - "/tests/"
+      - "/test/"
+      - "test_*.py"
+      - "*_test.py"
+      - "conftest.py"
+    patterns:
+      - \.set_cookie\s*\(
+      - \.set_signed_cookie\s*\(
+      - (?i)\b(?:SESSION_COOKIE_SECURE|CSRF_COOKIE_SECURE)\s*=\s*False\b
+    sanitizers:
+      # Call-shape sanitizer (does not end in `\(`, so it suppresses on
+      # presence anywhere in the statement window). Matches `secure=True` and
+      # `secure=<config var>` but NOT `secure=False` (negative lookahead), and
+      # NOT the `..._COOKIE_SECURE` constant (the `\b` before `secure` fails
+      # after the `_`), so the config-line pattern above is never
+      # self-suppressed.
+      - '(?i)\bsecure\s*=\s*(?!false\b)\S'
+    pattern-not:
+      - '(?m)^\s*#'
+      # `set_cookie(**kwargs)` hides its arguments in a helper -- the same
+      # false-positive shape ns-websec-1004-001 excludes.
+      - set_cookie\s*\(\s*\*\*
+    metadata:
+      cwe: [614]
+      category: config
+      fix: "Pass `secure=True` on any cookie carrying a session or auth token, together with `httponly=True` and `samesite=\"Lax\"` (or `\"Strict\"`). For Django, set `SESSION_COOKIE_SECURE = True` and `CSRF_COOKIE_SECURE = True` in settings. Only serve a cookie without Secure over a connection you know is never HTTPS, which for an authenticated app is never."
+
+  - id: ns-websec-330-001
+    message: >
+      A security-sensitive value is generated with the `random` module.
+      `random` is a Mersenne Twister seeded from a small state: an attacker
+      who observes a few outputs can recover the internal state and predict
+      every past and future value. For a session token, password-reset
+      code, salt, nonce, or key that is a complete break. Use `secrets`
+      (`secrets.token_urlsafe`, `secrets.token_bytes`) or
+      `random.SystemRandom`, both of which draw from the OS CSPRNG.
+    severity: ERROR
+    languages: [python]
+    exclude_paths:
+      - "/tests/"
+      - "/test/"
+      - "/testing/"
+      - "/benchmarks/"
+      - "/examples/"
+      - "test_*.py"
+      - "*_test.py"
+      - "conftest.py"
+    patterns:
+      # A security-named binding assigned directly from the `random` module.
+      - (?i)\b\w*(?:token|secret|nonce|salt|otp|passwd|password|apikey|api_key|secret_key|session_id|sessionid|reset_code|recovery_code|csrf)\w*\s*=\s*[^=\n]*\brandom\.(?:random|randint|randrange|choice|choices|sample|shuffle|uniform|getrandbits)\s*\(
+      # Key material: a bytes/bytearray buffer filled from the `random`
+      # module. Narrower than bare `getrandbits` (which matches benign
+      # trace-id generators) because the bytes() wrapper is the key-material
+      # idiom specifically.
+      - \b(?:key|iv|nonce|seed_material)\w*\s*=\s*bytes(?:array)?\s*\(\s*random\.
+    pattern-not:
+      - '(?m)^\s*#'
+      # random.SystemRandom() IS the CSPRNG-backed API -- same method names.
+      - random\.SystemRandom
+    metadata:
+      cwe: [330, 338]
+      category: crypto
+      fix: "Use the `secrets` module: `secrets.token_urlsafe(32)` for a URL-safe token, `secrets.token_bytes(32)` for raw key material, `secrets.choice(alphabet)` for a random character. Where an existing `random.Random` API shape must be kept, swap the instance for `random.SystemRandom()`."
+
+  # =========================================================================
+  # CWE-276/732: world-writable file or directory permissions
+  # =========================================================================
+  # Engine note: corpus-wide search (`rg 'cwe:\s*\[?(276|732)\]?' rules/
+  # *.yaml`) found zero existing coverage for either CWE, in any language.
+  # dockerfile.yaml covers `chmod 777` in an image layer, which is a
+  # different surface (build-time, ephemeral container filesystem) from an
+  # application chmod'ing its own data directory at runtime.
+  #
+  # Restricted to the write bits (`2`, `3`, `6`, `7` in the final position)
+  # because world-*readable* (0o644, 0o755) is ordinary and correct for most
+  # files -- it is the ability of any local account to REPLACE the contents
+  # that turns this into local privilege escalation when the target is code,
+  # a config file, or key material. `os.umask(0)` is included: it makes
+  # every subsequently created file world-writable, which is the same
+  # weakness applied process-wide rather than to one path.
+  #
+  # VALIDATION (2026-08-02, same 39 repos as ns-websec-1004-001):
+  # VALIDATED. 28 hits, 0 false positives -- every hit is a literal
+  # `os.chmod(path, 0o777)`. Concentrated in two real, currently-maintained
+  # AI/agent projects: one accounts for 27 of the 28, chmod'ing several of
+  # its own data and library directories world-writable, apparently by
+  # design per its own source comments; the other is a container-executor
+  # chmod'ing a bind-mounted host directory. Exact locations withheld
+  # pending upstream disclosure. The concentration is a property of those
+  # two codebases, not of the rule --
+  # it fires on nothing at all in the other 37 repos.
+  - id: ns-websec-276-001
+    message: >
+      Permissions are set to grant write access to every local account. Any
+      user on the host can replace this file's contents -- if it holds code,
+      configuration, or key material that the application later reads or
+      executes, that is local privilege escalation into the service's
+      identity. Grant the owner (0o700 for a directory, 0o600 for a file),
+      or a dedicated group, and nothing wider.
+    severity: WARNING
+    languages: [python]
+    exclude_paths:
+      - "/tests/"
+      - "/test/"
+      - "test_*.py"
+      - "*_test.py"
+      - "conftest.py"
+    patterns:
+      - (?:os|shutil)\.(?:chmod|fchmod|lchmod)\s*\([^,\n]+,\s*0o?[0-7]?[0-7][0-7][2367]\s*[),]
+      - os\.umask\s*\(\s*0+\s*\)
+    pattern-not:
+      - '(?m)^\s*#'
+    metadata:
+      cwe: [276, 732]
+      category: config
+      fix: "Use 0o700 for a directory and 0o600 for a file the service alone needs, or 0o750/0o640 with a dedicated group for shared read access. If multiple accounts genuinely must write, give them a shared group rather than granting world write. Replace `os.umask(0)` with `os.umask(0o077)`."

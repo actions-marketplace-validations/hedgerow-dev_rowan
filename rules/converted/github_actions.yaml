@@ -1,0 +1,236 @@
+rules:
+- id: ns-sec-001
+  languages:
+  - yaml
+  severity: ERROR
+  message: 'Hardcoded AWS credential in a GitHub Actions workflow file. Anyone with
+
+    read access to the repository (or its history) can read the key.
+
+    Move it to GitHub Secrets and reference it as ${{ secrets.NAME }}.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: AKIA[0-9A-Z]{16}
+    - pattern-regex: aws_secret_access_key\s*:\s*["']?[A-Za-z0-9/+=]{40}["']?
+  - pattern-not-regex: AKIAIOSFODNN7EXAMPLE
+  - pattern-not-regex: \$\{\{\s*secrets\.
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: secrets
+    cwe:
+    - 798
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: Hardcoded AWS credentials in workflow
+    fix: Store the credential in GitHub Secrets and reference it as ${{ secrets.NAME }}; never commit a literal key to a workflow
+      file.
+    residual:
+    - secrets
+- id: ns-sec-002
+  languages:
+  - yaml
+  severity: ERROR
+  message: 'Hardcoded GitHub, Slack, Google API, or private-key credential in a
+
+    workflow file. Anyone with read access to the repository (or its
+
+    history) can read it. Move it to GitHub Secrets and rotate it.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: ghp_[A-Za-z0-9]{36}\b
+    - pattern-regex: github_pat_[A-Za-z0-9_]{22,}
+    - pattern-regex: xox[baprs]-[A-Za-z0-9-]{10,}
+    - pattern-regex: AIza[0-9A-Za-z_-]{35}\b
+    - pattern-regex: '-----BEGIN\s?(RSA|OPENSSH|EC|DSA|PGP)?\s?PRIVATE KEY-----'
+  - pattern-not-regex: \$\{\{\s*secrets\.
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: secrets
+    cwe:
+    - 798
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: Hardcoded platform/API token in workflow
+    fix: Store the token in GitHub Secrets and reference it as ${{ secrets.NAME }}; rotate the token since it is already committed
+      to history.
+    residual:
+    - secrets
+- id: ns-cicd-001
+  languages:
+  - yaml
+  severity: ERROR
+  message: 'pull_request_target runs with the base repo''s secrets and write
+
+    permissions, even for PRs from forks. If this workflow later checks
+
+    out or runs the PR head''s code, a forked PR can steal secrets or
+
+    push using the workflow''s permissions. Prefer pull_request, or make
+
+    sure this workflow never builds/runs the PR head ref.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: '^\s*pull_request_target\s*:'
+    - pattern-regex: ^\s*-?\s*pull_request_target\s*$
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 269
+    original_engine: neuroscan
+    rule_name: pull_request_target trigger used
+    fix: Prefer the pull_request trigger, which runs with no write access to secrets. If pull_request_target is required,
+      do not check out or run the PR head's code (github.event.pull_request.head.*).
+- id: ns-cicd-002
+  languages:
+  - yaml
+  severity: WARNING
+  message: 'Action referenced by a branch name or short version tag rather than a
+
+    full commit SHA. A branch/tag can be repointed by the upstream
+
+    maintainer (or an attacker who compromises their account) to run
+
+    different code in your CI with access to your secrets. Pin to a
+
+    full-length commit SHA.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: uses:\s*[\w.-]+/[\w.-]+@(main|master|latest|HEAD)\b
+    - pattern-regex: uses:\s*[\w.-]+/[\w.-]+@v?[0-9]+(\.[0-9]+)?\s*$
+  - pattern-not-regex: uses:\s*actions/[\w.-]+@[0-9a-f]{40}
+  - pattern-not-regex: uses:\s*[\w.-]+/[\w.-]+@[0-9a-f]{40}
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 829
+    original_engine: neuroscan
+    rule_name: Third-party action pinned to a mutable ref
+    fix: 'Pin the action to a full-length commit SHA (uses: owner/repo@<40-char-sha>) instead of a branch or version tag,
+      so a compromised upstream tag can''t silently change what runs in CI.'
+- id: ns-cicd-003
+  languages:
+  - yaml
+  severity: ERROR
+  message: 'Attacker-controlled context value (PR/issue title or body, a comment,
+
+    or the head branch name) referenced directly in shell source. An
+
+    attacker can craft a title/branch name containing
+
+    shell metacharacters to inject arbitrary commands into the runner.
+
+    Pass the value through env: and reference the environment variable
+
+    from the shell instead of interpolating it into the script text.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?m)^\s*(?:-\s*)?run:\s*[^\n]*\$\{\{[ \t]*github\.event\.(issue|pull_request)\.(title|body)[ \t]*\}\}
+    - pattern-regex: (?m)^\s*(?:-\s*)?run:\s*[^\n]*\$\{\{[ \t]*github\.event\.(comment|review)\.body[ \t]*\}\}
+    - pattern-regex: (?m)^\s*(?:-\s*)?run:\s*[^\n]*\$\{\{[ \t]*github\.head_ref[ \t]*\}\}
+    - pattern-regex: (?:echo\s|export\s|if\s|elif\s|\[\[|\]\]|&&|>>|\$\(|`|curl\s|wget\s|git\s|npm\s|pip\s|uv\s|docker\s|bash\s|make\s|python\s|python3\s|sed\s|awk\s|mv\s|cp\s|rm\s|cd\s|tar\s|kubectl\s|gh\s|aws\s|helm\s)[^\n]*\$\{\{\s*github\.event\.(issue|pull_request)\.(title|body)\s*\}\}
+    - pattern-regex: (?:echo\s|export\s|if\s|elif\s|\[\[|\]\]|&&|>>|\$\(|`|curl\s|wget\s|git\s|npm\s|pip\s|uv\s|docker\s|bash\s|make\s|python\s|python3\s|sed\s|awk\s|mv\s|cp\s|rm\s|cd\s|tar\s|kubectl\s|gh\s|aws\s|helm\s)[^\n]*\$\{\{\s*github\.head_ref\s*\}\}
+    - pattern-regex: ^\s*[A-Za-z_][A-Za-z0-9_]*=[^\n]*\$\{\{\s*(?:github\.event\.(?:issue|pull_request)\.(?:title|body)|github\.event\.(?:comment|review)\.body|github\.head_ref)\s*\}\}
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 94
+    original_engine: neuroscan
+    rule_name: Untrusted context value used in workflow
+    fix: 'Never interpolate github.event.*.title/body, github.head_ref, or comment/review bodies directly into a run: script.
+      Pass them through an env: variable instead and reference the env var from the shell, so the value is data rather than
+      injected script text.'
+    residual:
+    - sanitizer
+- id: ns-cicd-004
+  languages:
+  - yaml
+  severity: WARNING
+  message: 'A workflow_dispatch input or repository_dispatch payload value is
+
+    interpolated directly into a `run:` script on this line. The expression is
+
+    expanded into the script text before the shell parses it, so a value
+
+    containing shell metacharacters runs as commands on the runner.
+
+
+    A free-text input is not a trust boundary: anyone who can trigger the
+
+    workflow controls it, and the job often holds more privilege than they do
+
+    (id-token: write, publish credentials, a release environment). Git ref and
+
+    tag names accept ;, |, &&, backticks and $(). Quoting the expression does
+
+    not fix it, because $(...) and backticks still expand inside double
+
+    quotes.
+
+
+    Triggering `workflow_dispatch` normally requires write access, so treat
+
+    that form as CI hardening and privilege escalation within the pipeline
+
+    rather than unauthenticated RCE. A repository-dispatch payload can have a
+
+    different trust boundary and must be assessed from its trigger policy.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?m)^\s*(?:-\s*)?run:\s*[^\n]*\$\{\{[ \t]*(?:github\.event\.)?inputs\.
+    - pattern-regex: (?m)^\s*(?:-\s*)?run:\s*[^\n]*\$\{\{[ \t]*github\.event\.client_payload\.
+    - pattern-regex: (?:echo\s|export\s|if\s|elif\s|\[\[|\]\]|&&|>>|\$\(|`|curl\s|wget\s|git\s|npm\s|pip\s|uv\s|docker\s|bash\s|make\s|python\s|python3\s|sed\s|awk\s|mv\s|cp\s|rm\s|cd\s|tar\s|kubectl\s|gh\s|aws\s|helm\s)[^\n]*\$\{\{\s*(?:github\.event\.)?inputs\.
+  - pattern-not-regex: (?m)^\s*#
+  metadata:
+    category: injection
+    cwe:
+    - 94
+    original_engine: neuroscan
+    rule_name: 'Workflow input interpolated into a run: script'
+    fix: 'Bind the input to a step-level env: variable and reference "$VAR" from the shell, so the value is passed as data
+      instead of being pasted into the script text.'
+    residual:
+    - sanitizer
+- id: ns-cicd-005
+  languages:
+  - yaml
+  severity: ERROR
+  message: 'A pull request head branch name is interpolated directly into a run:
+
+    script. Unlike a workflow input, this value needs no repository
+
+    permission at all: anyone who can open a fork pull request chooses the
+
+    branch name, and branch names accept shell metacharacters.
+
+
+    Combined with pull_request_target or workflow_run, which run with the
+
+    base repository''s secrets, this is the standard path from an outside
+
+    contributor to secret exfiltration. Bind the value to an env: variable
+
+    and quote the shell reference.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: run:.*\$\{\{\s*github\.event\.pull_request\.head\.(?:ref|label)\b
+    - pattern-regex: run:.*\$\{\{\s*github\.event\.workflow_run\.head_branch\b
+    - pattern-regex: (?:echo\s|export\s|if\s|elif\s|\[\[|\]\]|&&|>>|\$\(|`|curl\s|wget\s|git\s|npm\s|pip\s|uv\s|docker\s|bash\s|make\s|python\s|python3\s|sed\s|awk\s|mv\s|cp\s|rm\s|cd\s|tar\s|kubectl\s|gh\s|aws\s|helm\s)[^\n]*\$\{\{\s*github\.event\.pull_request\.head\.(?:ref|label)\b
+  - pattern-not-regex: (?m)^\s*#
+  metadata:
+    category: injection
+    cwe:
+    - 94
+    original_engine: neuroscan
+    rule_name: 'Pull request head ref interpolated into a run: script'
+    fix: 'Bind the ref to a step-level env: variable and reference "$HEAD_REF" from the shell. Never paste a fork-controlled
+      branch name into script text.'
+    residual:
+    - sanitizer

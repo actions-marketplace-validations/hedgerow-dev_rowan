@@ -1,0 +1,174 @@
+# JavaScript / TypeScript Security Rules
+rules:
+
+  - id: JS-INJECT-001
+    name: eval() code injection
+    severity: warning
+    category: injection
+    cwe: [95]
+    languages: [javascript, typescript]
+    patterns:
+      - '\beval\s*\('
+    pattern-not:
+      - '(?m)^\s*//.*'
+    message: |
+      eval() executes arbitrary JavaScript code. Use JSON.parse() for data,
+      or restructure code to avoid dynamic evaluation entirely.
+
+  - id: JS-INJECT-002
+    name: new Function() code injection
+    severity: critical
+    category: injection
+    cwe: [95]
+    fix: "Never call new Function()/eval() on untrusted input; use a proper parser for the expected format."
+    languages: [javascript, typescript]
+    patterns:
+      - 'new\s+Function\s*\('
+    pattern-not:
+      - '(?m)^\s*//.*'
+    message: |
+      new Function() is equivalent to eval(). Dynamic code execution sink.
+      Avoid constructing functions from runtime strings.
+
+  - id: JS-INJECT-003
+    name: child_process command injection
+    severity: high
+    category: command_injection
+    cwe: [78]
+    languages: [javascript, typescript]
+    patterns:
+      - '(child_process|require\([''"]child_process[''"]\))\.(exec|execSync|spawn)\s*\('
+    pattern-not:
+      - '(?m)^\s*//.*'
+    message: |
+      Shell command injection via exec()/spawn(). User input in command string
+      enables RCE. Use execFile() with separate arguments.
+
+  - id: JS-XSS-001
+    name: innerHTML DOM XSS
+    severity: high
+    category: xss
+    cwe: [79]
+    languages: [javascript, typescript]
+    patterns:
+      - '\.innerHTML\s*='
+    pattern-not:
+      - '\.innerHTML\s*=\s*[''"]\s*[''"]'
+      - '(?m)^\s*//.*'
+    message: |
+      Assignment to innerHTML is a DOM-based XSS sink. Use textContent
+      or DOMPurify to sanitize HTML.
+
+  - id: JS-XSS-002
+    name: dangerouslySetInnerHTML XSS
+    severity: high
+    category: xss
+    cwe: [79]
+    languages: [javascript, typescript]
+    patterns:
+      - 'dangerouslySetInnerHTML'
+    pattern-not:
+      - '(?m)^\s*//.*'
+    message: |
+      dangerouslySetInnerHTML bypasses React XSS protection. Use sanitization
+      (DOMPurify) or restructure to avoid raw HTML injection.
+
+  - id: JS-XSS-003
+    name: document.write XSS
+    severity: medium
+    category: xss
+    cwe: [79]
+    languages: [javascript, typescript]
+    patterns:
+      - 'document\.write(ln)?\s*\('
+    pattern-not:
+      - '(?m)^\s*//.*'
+    message: |
+      document.write() during page load injects attacker-controlled HTML.
+      Use DOM manipulation methods (createElement, appendChild) instead.
+
+  - id: JS-DESER-001
+    name: Unsafe YAML/js-yaml deserialization
+    severity: high
+    category: deserialization
+    cwe: [502]
+    languages: [javascript, typescript]
+    patterns:
+      - 'yaml\.load\s*\('
+      - 'js-yaml.*\.load\s*\('
+      - 'serialize\.unserialize\s*\('
+    pattern-not:
+      - '\.safeLoad\s*\('
+      - '\.safeLoadAll\s*\('
+      - '(?m)^\s*//.*'
+    message: |
+      Unsafe deserialization via yaml.load() leads to RCE. Use yaml.safeLoad().
+
+  - id: JS-CRYPTO-001
+    name: Weak hash algorithm
+    severity: medium
+    category: crypto
+    cwe: [328]
+    languages: [javascript, typescript]
+    patterns:
+      - |-
+        \.createHash\(['"](md5|sha1)['"]\)
+    pattern-not:
+      - '(?m)^\s*//.*'
+    message: |
+      MD5 and SHA-1 are cryptographically broken. Use SHA-256 or better.
+
+  - id: JS-CRYPTO-002
+    name: Math.random() for security
+    severity: medium
+    category: crypto
+    cwe: [330]
+    languages: [javascript, typescript]
+    patterns:
+      - 'Math\.random\s*\(\s*\)'
+    pattern-not:
+      - 'crypto\.randomBytes\s*\('
+      - 'crypto\.getRandomValues\s*\('
+      - '(?m)^\s*//.*'
+    message: |
+      Math.random() is not cryptographically secure. Use
+      crypto.randomBytes() or crypto.getRandomValues().
+
+  - id: JS-SSRF-001
+    name: User-controlled HTTP request
+    severity: high
+    category: ssrf
+    cwe: [918]
+    languages: [javascript, typescript]
+    patterns:
+      - 'fetch\s*\('
+      - 'axios\.(get|post|put|delete|patch)\s*\('
+      - 'axios\s*\('
+      - 'got\.(get|post)\s*\('
+      - 'needle\.(get|post)\s*\('
+      - 'superagent\.(get|post)\s*\('
+      - 'request\.(get|post)\s*\('
+      - 'http\.(get|request)\s*\('
+      - 'https\.(get|request)\s*\('
+    pattern-not:
+      - 'fetch\s*\(\s*[''"]\/'
+      - 'axios\.(get|post)\s*\(\s*[''"]\/'
+      - '(?m)^\s*//.*'
+    message: |
+      HTTP request detected. If URL comes from user input, SSRF is possible.
+      Validate URLs against an allowlist and block private IP ranges.
+
+  - id: JS-PATH-001
+    name: User-controlled file path
+    severity: high
+    category: path_traversal
+    cwe: [22]
+    languages: [javascript, typescript]
+    patterns:
+      - 'fs\.(readFile|readFileSync|writeFile|createReadStream)\s*\([^)]*\$'
+    pattern-not:
+      - 'path\.(normalize|resolve)\s*\('
+      - '(?m)^\s*//.*'
+    message: |
+      User input in filesystem path. Use path.normalize() and validate
+      the resolved path is within intended directory.

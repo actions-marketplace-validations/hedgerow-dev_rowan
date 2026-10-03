@@ -1,0 +1,777 @@
+# Miscellaneous Security Rules: neuroscan format
+# Bug bounty, auth, logging, infrastructure, Gradio/Streamlit
+
+rules:
+
+  # ── Bug Bounty: JWT ───────────────────────────────────────────────
+
+  - id: ns-bb-001
+    name: JWT weak or hardcoded secret
+    severity: ERROR
+    category: crypto
+    cwe: [347]
+    languages: [python, javascript, typescript, java, go]
+    patterns:
+      - 'jwt\.(encode|sign)\s*\('
+      - 'JWT_SECRET\s*[=:]\s*["''][^"'']{1,20}["'']'
+      - 'secret\s*[=:]\s*["''](?:secret|password|changeme|test|key)["'']'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      JWT signed with a weak or hardcoded secret. Use a strong random key
+      (256+ bits) stored in environment variables.
+
+  - id: ns-bb-002
+    name: JWT algorithm confusion
+    severity: ERROR
+    category: crypto
+    cwe: [327]
+    languages: [python, javascript, typescript]
+    patterns:
+      - 'algorithms\s*=\s*\[.*none'
+      - 'algorithm.*HS256.*RS256'
+      - 'options.*verify.*false'
+    # NOT bare 'verify\s*[=:]\s*[Ff]alse': that has zero connection to JWT --
+    # it matches any TLS-verification-disabled call (requests.get(...,
+    # verify=False), an SSL context, etc.), producing a nonsensical "JWT
+    # algorithm confusion" finding on code with no JWT involvement at all.
+    # Confirmed on a real repo: fired on `requests.get(url, verify=False)`.
+    # Generic TLS-verify-disabled is already correctly owned by NS-CRYPTO-101
+    # and ns-bb-004, so removing it here is a pure precision gain, not a
+    # recall loss. `options.*verify.*false` remains -- that's the
+    # JWT-library-specific `{verify: false}` options-dict idiom.
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      JWT algorithm confusion or verification bypass. Always enforce expected
+      algorithm and never accept "none". Use PyJWT with algorithms=["RS256"].
+
+  - id: ns-bb-003
+    name: Insecure cookie settings
+    severity: WARNING
+    category: config
+    cwe: [614]
+    languages: [python, javascript, typescript, java, go, csharp]
+    patterns:
+      - 'secure\s*[=:]\s*[Ff]alse'
+      - 'httponly\s*[=:]\s*[Ff]alse'
+      - 'samesite\s*[=:]\s*["'']?[Nn]one'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Cookie missing Secure, HttpOnly, or SameSite flags. Set Secure=True,
+      HttpOnly=True, and SameSite=Lax or Strict.
+
+  - id: ns-bb-004
+    name: TLS certificate verification disabled
+    severity: ERROR
+    category: crypto
+    cwe: [295]
+    languages: [python, javascript, typescript, java, go]
+    patterns:
+      - 'verify\s*=\s*False'
+      - 'VERIFY_SSL\s*=\s*False'
+      - 'rejectUnauthorized\s*:\s*false'
+      - 'InsecureSkipVerify\s*:\s*true'
+      - 'NODE_TLS_REJECT_UNAUTHORIZED.*0'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      TLS certificate verification disabled. This allows MITM attacks.
+      Remove verify=False and use proper certificate chains.
+
+  - id: ns-bb-005
+    name: Mass assignment from user input
+    severity: ERROR
+    category: injection
+    cwe: [915]
+    languages: [python, javascript, typescript]
+    patterns:
+      - '\*\*request\.(json|form|data)'
+      - 'Object\.assign\(\s*\w+,\s*req\.body'
+      - '\.update\(request\.(json|data|POST)\)'
+      - '\{\.\.\.req\.body\}'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Mass assignment from user input. Attackers can set admin/role fields.
+      Use explicit field allowlists or DTOs.
+
+  - id: ns-bb-006
+    name: "Privilege escalation: user-controlled role"
+    severity: ERROR
+    category: auth
+    cwe: [269]
+    languages: [python, javascript, typescript, java, go, csharp]
+    patterns:
+      - 'role\s*=\s*request\.'
+      - 'is_admin\s*=\s*request\.'
+      - 'req\.body\.role'
+      - 'req\.body\.is_admin'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Role or admin flag set from user input. Use server-side authorization
+      checks and never trust client-supplied privilege levels.
+
+  - id: ns-bb-007
+    name: OAuth insecure redirect or state
+    severity: ERROR
+    category: auth
+    cwe: [601]
+    languages: [python, javascript, typescript]
+    patterns:
+      - 'redirect_uri\s*=\s*request\.'
+      - 'OAUTHLIB_INSECURE_TRANSPORT'
+    pattern-not:
+      - 'validate_redirect'
+      - 'is_allowed_redirect'
+      - 'check_redirect'
+      - 'allowlist'
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+      - 'OAUTHLIB_INSECURE_TRANSPORT\s*=\s*False'
+      - 'OAUTHLIB_INSECURE_TRANSPORT\s*=\s*0'
+    message: |
+      OAuth redirect_uri from user input or insecure transport.
+      Validate redirect URIs against a registered allowlist and always use state.
+
+  # ── Bug Bounty: Unsafe YAML ───────────────────────────────────────
+
+  - id: ns-bb-008
+    name: Unsafe YAML deserialization
+    severity: ERROR
+    category: deserialization
+    cwe: [502]
+    languages: [python]
+    patterns:
+      - 'yaml\.load\([^)]*Loader\s*=\s*yaml\.FullLoader'
+      - 'yaml\.load\([^)]*Loader\s*=\s*yaml\.UnsafeLoader'
+      - 'yaml\.unsafe_load\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      YAML loaded with FullLoader or UnsafeLoader allows object instantiation.
+      Use yaml.safe_load() or yaml.load(data, Loader=yaml.SafeLoader).
+
+  - id: ns-bb-009
+    name: Time-of-check time-of-use race condition
+    severity: WARNING
+    category: general
+    cwe: [367]
+    languages: [python, javascript, typescript, java, go]
+    patterns:
+      - 'os\.path\.exists.*open\('
+      - 'if.*balance.*>=.*balance\s*-='
+      - 'check.*then.*update'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Potential TOCTOU race condition. The check and use are not atomic.
+      Use file locks, database transactions, or atomic operations.
+
+  - id: ns-bb-010
+    name: Insecure direct object reference (IDOR)
+    severity: WARNING
+    category: auth
+    cwe: [639]
+    languages: [python, javascript, typescript, java, go, csharp]
+    patterns:
+      - '\.objects\.get\(id\s*=\s*request\.'
+      - '\.findById\(req\.params\.'
+      - 'findOne\(\{.*req\.params\.'
+      - 'WHERE.*id\s*=.*req\.(params|query)'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Object retrieved by user-supplied ID without ownership check.
+      Verify the authenticated user has access to the requested resource.
+
+  - id: ns-bb-011
+    name: GraphQL introspection enabled in production
+    severity: info
+    category: config
+    cwe: [200]
+    languages: [python, javascript, typescript, java]
+    patterns:
+      - 'introspection\s*[=:]\s*[Tt]rue'
+      - '__schema\s*[=:]'
+      - 'graphiql\s*[=:]\s*[Tt]rue'
+    pattern-not:
+      - 'introspection.*False'
+      - '{.*introspection'
+      - '(?i)(?:getattr|hasattr|type\s*=\s*)\s*'
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+      - 'GraphQL(?:Schema|ObjectType|InputObjectType|EnumType)'
+      - 'graphene\.(?:Schema|ObjectType|Input|Enum)\b'
+      - 'strawberry\.(?:type|schema|input|enum)\b'
+    message: |
+      GraphQL introspection or GraphiQL enabled. Disable in production to
+      prevent schema enumeration by attackers.
+      Presence signal; confirm this config is production-facing.
+
+  # ── Bug Bounty: WebSocket ─────────────────────────────────────────
+
+  - id: ns-bb-012
+    name: WebSocket without origin validation
+    severity: WARNING
+    category: auth
+    cwe: [346]
+    languages: [python, javascript, typescript]
+    patterns:
+      - 'websocket\.accept\('
+      - 'WebSocket\('
+      - 'socketio\.\w+\('
+    pattern-not:
+      - 'check_origin'
+      - 'allowed_origins'
+      - 'cors_allowed_origins'
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      WebSocket connection without origin validation. Enforce origin checks
+      to prevent cross-site WebSocket hijacking.
+
+  - id: ns-bb-013
+    name: Cache key from user-controlled header
+    severity: WARNING
+    category: injection
+    cwe: [444]
+    languages: [python, javascript, typescript]
+    patterns:
+      - 'cache.*request\.headers'
+      - 'Vary.*X-Forwarded'
+      - 'cache_key.*request\.(GET|args|query)'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Cache key derived from user-controlled input. Web cache poisoning
+      possible. Normalize and validate cache key components.
+
+
+  - id: ns-bb-014
+    name: Insecure random for security-sensitive value
+    severity: WARNING
+    category: crypto
+    cwe: [330, 338]
+    languages: [python, javascript, typescript]
+    # Discriminator is the SECURITY CONTEXT, not the PRNG call. A non-crypto
+    # PRNG (random.*, numpy.random.*, Math.random) is only flagged when the
+    # value it produces is named or defined as a token/secret/password/OTP/
+    # session-id/nonce/salt/api-key/reset-code/coupon/credential. The CSPRNG
+    # forms (secrets.*, os.urandom, random.SystemRandom, crypto.randomBytes)
+    # are the SAFE variants and do not match. Idiom-complete across three
+    # shapes, each self-contained on one line so it holds under the
+    # line-oriented regex engine:
+    #   1. security-named binding    token = random.randint(...)
+    #                                sessionToken = Math.random()...
+    #                                nonce: str = random.randrange(...)
+    #                                otp = "".join(random.choice(a) for _..)
+    #   2. security-named function   def make_token(): return random.choice()
+    #      (one-liner def/arrow; a multi-line body is out of a line regex's
+    #       reach -- caught only when the binding itself is security-named)
+    #   3. token-shaped join/comp    key = "".join([random.choice(x) for..])
+    patterns:
+      # 1 + 3: a security-named binding assigned from a non-crypto PRNG. The
+      # `\w*` on both sides of the keyword and (?i) make it camelCase-aware
+      # (resetToken, apiKey). token(?!iz) avoids ML "tokenizer"/"tokenize".
+      - '(?i)\b\w*(?:token(?!iz)|secret|nonce|salt|otp|passwd|password|passphrase|passcode|apikey|api_key|secret_key|secretkey|private_key|signing_key|encryption_key|session|sessionid|session_id|csrf|xsrf|coupon|voucher|verification|verify_code|activation|confirmation|recovery|access_token|refresh_token|bearer|credential)\w*[''"]?\s*[:=]\s*.{0,120}?(?:random\.(?:random|randint|randrange|choice|choices|sample|shuffle|uniform|getrandbits)|(?:np|numpy)\.random\.\w+|Math\.random)\s*\('
+      # 2: a security-named function/lambda whose one-line body draws from a
+      # non-crypto PRNG (def make_token(): ..., const genOtp = () => ...).
+      - '(?i)\b(?:def|function)\s+\w*(?:token(?!iz)|secret|nonce|salt|otp|passwd|password|passphrase|passcode|apikey|api_key|session|csrf|coupon|voucher|verification|activation|confirmation|recovery|credential)\w*\s*\([^)]*\)\s*(?:->\s*[\w\[\], ]+)?:?.{0,140}?(?:random\.(?:random|randint|randrange|choice|choices|sample|shuffle|uniform|getrandbits)|(?:np|numpy)\.random\.\w+|Math\.random)\s*\('
+    pattern-not:
+      # random.SystemRandom() is the OS-CSPRNG-backed API (same method names).
+      - 'random\.SystemRandom'
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    exclude_paths:
+      - "/tests/"
+      - "/test/"
+      - "/examples/"
+      - "test_*.py"
+      - "*_test.py"
+      - "*.test.js"
+      - "*.spec.js"
+      - "conftest.py"
+    message: |
+      Non-cryptographic PRNG used for a security-sensitive value. random.*,
+      numpy.random.*, and Math.random() are Mersenne-Twister-class generators:
+      observing a few outputs lets an attacker recover the internal state and
+      predict every past and future value. For a token, secret, password, OTP,
+      session id, nonce, salt, API key, reset/verification code, or coupon use
+      a CSPRNG: Python secrets.token_urlsafe()/secrets.choice() (or
+      random.SystemRandom()), Node crypto.randomBytes()/crypto.getRandomValues().
+
+  - id: ns-secret-001
+    name: Hardcoded credential or secret
+    severity: info
+    category: secrets
+    cwe: [798]
+    languages: [python]
+    patterns:
+      # Security-named variable assigned a string literal >=6 chars. pattern-not
+      # drops env/config reads and test/example fixtures; f-strings don't match
+      # because the 'f' sits between = and the opening quote.
+      - '(?i)(?:password|passwd|pwd|secret|secret_key|api_?key|access_?key|auth_?token|access_?token|private_?key|client_?secret|db_pass\w*)\s*=\s*["''][^"''\n]{6,}["'']'
+      - 'SECRET_KEY\s*=\s*["''][^"''\n]+["'']'
+      # Subscript-config assignment: app.config['SECRET_KEY'] = 'literal'. The
+      # name-then-'=' patterns above miss this because '] sits between the name
+      # and '='. Uppercase-only key keeps it off runtime dict mutations.
+      - '\[\s*["''](?:SECRET_KEY|SECRET|PASSWORD|PASSWD|API_?KEY|ACCESS_?KEY|AUTH_?TOKEN|ACCESS_?TOKEN|PRIVATE_?KEY|CLIENT_?SECRET|JWT_?SECRET)[A-Z0-9_]*["'']\s*\]\s*=\s*["''][^"''\n]{4,}["'']'
+    pattern-not:
+      - 'os\.environ|os\.getenv|getenv|environ|config\(|Field\(|Depends\(|Settings|secrets\.'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest|example|sample|dummy|placeholder|changeme|your_)'
+      # Test/seed fixtures, not real hardcoded secrets: user-creation and login
+      # helpers passed a password kwarg, and DEMO_* demo constants.
+      - '(?i)(?:create_user|create_superuser|get_or_create|update_or_create|force_login|authenticate\(|\.login\()'
+      - '\bDEMO_'
+    message: |
+      Hardcoded credential or secret assigned to a security-sensitive name (CWE-798).
+      Load secrets from environment variables or a secrets manager, never source.
+
+  - id: ns-bb-015
+    name: postMessage without origin check
+    severity: WARNING
+    category: xss
+    cwe: [346]
+    languages: [javascript, typescript]
+    patterns:
+      - 'postMessage\(.*\*'
+      - 'addEventListener.*message'
+    pattern-not:
+      - 'event\.origin'
+      - 'e\.origin'
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      postMessage with wildcard target or message listener without origin validation.
+      Always check event.origin against a trusted domain allowlist.
+
+  - id: ns-bb-016
+    name: Docker privileged mode or dangerous mount
+    severity: ERROR
+    category: config
+    cwe: [250]
+    languages: [python, javascript, typescript, go]
+    patterns:
+      - 'privileged\s*[=:]\s*[Tt]rue'
+      - '/var/run/docker\.sock'
+      - '--privileged'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Docker container with privileged mode or host socket mount.
+      Grants full host access. Use capability-based security (--cap-add) instead.
+
+  - id: ns-auth-001
+    name: Missing rate limiting
+    severity: WARNING
+    category: auth
+    cwe: [307]
+    languages: [python, javascript, typescript]
+    patterns:
+      - 'def login\('
+      - '/api/auth'
+      - 'password.*verify'
+    pattern-not:
+      - 'rate_limit'
+      - 'ratelimit'
+      - 'throttle'
+      - 'RateLimiter'
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Authentication endpoint without rate limiting. Apply rate limiting
+      to prevent credential stuffing and brute force attacks.
+
+  - id: ns-auth-002
+    name: Missing auth decorator on sensitive handler
+    severity: WARNING
+    category: auth
+    cwe: [862]
+    languages: [python]
+    patterns:
+      - 'def (delete|update|create|admin)\w*\(.*request'
+    pattern-not:
+      - '@login_required'
+      - '@permission_required'
+      - '@auth'
+      - '@requires_auth'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Sensitive handler without authentication decorator. Add @login_required
+      or equivalent auth check.
+
+  - id: ns-log-001
+    name: Log injection via user input
+    severity: WARNING
+    category: injection
+    cwe: [117]
+    languages: [python, javascript, typescript, java]
+    patterns:
+      - 'logger?\.(info|warn|error|debug)\(.*request\.'
+      - 'console\.log\(.*req\.(body|params|query)'
+      - 'logging\.\w+\(.*request\.'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      User input logged directly. Attackers can inject fake log entries
+      or ANSI escape sequences. Sanitize before logging.
+
+  - id: ns-infra-001
+    name: Timing attack in string comparison
+    severity: info
+    category: crypto
+    cwe: [208]
+    languages: [python, javascript, typescript, java, go]
+    exclude_paths:
+      - "/tests/"
+      - "/test/"
+      - "test_*.py"
+      - "*_test.py"
+      - "conftest.py"
+    patterns:
+      - 'token\s*[=!]=\s*'
+      - 'secret\s*[=!]=\s*'
+      - 'api_key\s*[=!]=\s*'
+      - 'password\s*[=!]=\s*'
+      - 'oauth_state\s*[=!]=\s*'
+      - 'csrf\w*\s*[=!]=\s*'
+      - 'nonce\s*[=!]=\s*'
+      - 'signature\s*[=!]=\s*'
+      - 'digest\s*[=!]=\s*'
+    pattern-not:
+      - 'hmac\.compare_digest'
+      - 'constant_time'
+      - 'timingSafeEqual'
+      - '[=!]=\s*(?:None|null|nil|""|'''')'
+      - '[=!]=\s*["''](?:bearer|basic)'
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      String comparison for secret values is vulnerable to timing attacks.
+      Use hmac.compare_digest() (Python) or crypto.timingSafeEqual() (Node.js).
+
+  - id: ns-infra-002
+    name: XPath injection
+    severity: ERROR
+    category: injection
+    cwe: [643]
+    languages: [python, javascript, typescript, java]
+    patterns:
+      - '\.xpath\(.*request\.'
+      - '\.xpath\(.*\+\s*\w+'
+      - 'XPathExpression.*\+'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      XPath query constructed with user input. Use parameterized XPath
+      queries or validate/escape input before building expressions.
+
+  - id: ns-infra-003
+    name: Stack trace exposure in error response
+    severity: info
+    category: config
+    cwe: [209]
+    languages: [python, javascript, typescript, java, go, csharp]
+    patterns:
+      - 'traceback\.format_exc\(\)'
+      - 'stack.*response'
+      - 'e\.stack'
+      - 'err\.stack'
+    pattern-not:
+      - '(?:logger?|logging)\.[a-z]+\('
+      - 'log\.(?:error|warning|info|debug|exception)\('
+      - 'print\('
+      - 'if\s+(?:__?debug|DEBUG)\b'
+      - 'sys\.exc_info\('
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Stack trace included in error response. Exposes internal structure
+      to attackers. Return generic error messages and log details server-side.
+
+  # ── Gradio ────────────────────────────────────────────────────────
+
+  - id: ns-grd-001
+    name: Gradio share tunnel enabled
+    severity: WARNING
+    category: config
+    cwe: [668]
+    languages: [python]
+    patterns:
+      - '\.launch\([^)]*share\s*=\s*True'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Gradio share=True exposes the app publicly via tunnel. Combined with
+      file upload or code execution, this is remotely exploitable.
+
+  - id: ns-grd-002
+    name: Gradio unauthenticated bind
+    severity: WARNING
+    category: auth
+    cwe: [287]
+    languages: [python]
+    patterns:
+      - '\.launch\([^)]*server_name\s*=\s*["'']0\.0\.0\.0["'']'
+    pattern-not:
+      - 'auth\s*='
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Gradio bound to 0.0.0.0 without authentication. Any network user
+      can access the app. Add auth=("user", "pass") or use auth callbacks.
+
+  - id: ns-grd-003
+    name: Gradio file upload without validation
+    severity: ERROR
+    category: ai_ml
+    cwe: [434]
+    languages: [python]
+    patterns:
+      - 'gr\.File\s*\('
+      - 'gr\.UploadButton\s*\('
+    pattern-not:
+      - 'file_types\s*='
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Gradio file input without file_types restriction. Attackers can upload
+      arbitrary files including pickle payloads. Set file_types=[".csv", ".txt"].
+
+  - id: ns-grd-004
+    name: Gradio eval/exec in handler
+    severity: ERROR
+    category: injection
+    cwe: [94]
+    languages: [python]
+    patterns:
+      - 'gr\.Interface\(.*eval'
+      - 'gr\.Interface\(.*exec'
+      - 'gr\.Blocks.*eval\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Gradio handler uses eval() or exec(). User input from the UI can
+      reach these sinks. Refactor to avoid dynamic code execution.
+
+  - id: ns-grd-005
+    name: Gradio shell injection
+    severity: ERROR
+    category: command_injection
+    cwe: [78]
+    languages: [python]
+    patterns:
+      - 'gr\.Interface.*subprocess.*shell\s*=\s*True'
+      - 'gr\.Interface.*os\.system'
+      - 'os\.system\(.*gr\.'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Gradio handler executes shell commands with user input. Use
+      subprocess.run() with shell=False and a list of arguments.
+
+  - id: ns-stl-001
+    name: Streamlit shell injection
+    severity: ERROR
+    category: command_injection
+    cwe: [78]
+    languages: [python]
+    patterns:
+      - 'st\.text_input.*subprocess'
+      - 'st\.text_input.*os\.system'
+      - 'subprocess.*st\.session_state'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Streamlit user input passed to shell command. Use subprocess.run()
+      with shell=False and sanitize all inputs.
+
+  - id: ns-stl-002
+    name: Streamlit eval/exec with user input
+    severity: ERROR
+    category: injection
+    cwe: [94]
+    languages: [python]
+    patterns:
+      - 'eval\(.*st\.text'
+      - 'exec\(.*st\.text'
+      - 'eval\(.*st\.session_state'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Streamlit user input passed to eval() or exec(). Refactor to avoid
+      dynamic code execution with user-controlled data.
+
+  - id: ns-bb-017
+    name: Docker SDK container created with no isolation options
+    severity: high
+    category: config
+    cwe: [653]
+    fix: "Pass explicit isolation options when creating the container: network_mode='none' (or an internal network), user= a non-root uid, cap_drop=['ALL'], security_opt=['no-new-privileges'], plus mem_limit and pids_limit. Mount the work directory read-only where the workload does not need to write."
+    languages: [python]
+    exclude_paths:
+      - /tests/
+      - /test/
+      - integration-tests/
+      - load_tests/
+      - _tests/
+      - conftest.py
+    patterns:
+      - '\.containers\.(?:run|create)\s*[(,]'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    sanitizers:
+      - '\bnetwork_mode\s*='
+      - '\bnetwork\s*='
+      - '\bnetwork_disabled\s*='
+      - '\bcap_drop\s*='
+      - '\bsecurity_opt\s*='
+      - '\bmem_limit\s*='
+      - '\bpids_limit\s*='
+      - '\bread_only\s*=\s*True'
+      - '\buser\s*='
+      - '\buserns_mode\s*='
+      - '\*\*\w*kwargs'
+    message: |
+      A container is created through the Docker SDK with none of the options
+      that would actually isolate it. With no network_mode the container joins
+      the default bridge and has full outbound network access; with no user it
+      runs as whatever the image's default is, usually root; with no cap_drop
+      or security_opt it keeps the default capability set; with no mem_limit or
+      pids_limit it can exhaust the host.
+
+      This matters most when the container is the sandbox for untrusted or
+      model-generated code. A bind-mounted host directory is then writable by
+      that code, which turns "run this snippet in a container" into a host file
+      write, and full egress turns it into an exfiltration and SSRF path to the
+      cloud metadata service.
+
+      Any one isolation option present in the surrounding lines suppresses this
+      finding, on the assumption that an author who set one considered the
+      others. The rule flags the case where none was set at all.
+
+  - id: ns-bb-018
+    name: Another principal's identifier disclosed in a conflict error
+    severity: medium
+    category: auth
+    cwe: [209]
+    fix: "Return a generic conflict message ('that name is already in use'). Never name the holder of the conflicting resource. Log the incumbent identifier server-side if operators need it."
+    languages: [python, javascript, typescript, go, java, csharp]
+    exclude_paths:
+      - /tests/
+      - /test/
+      - _tests/
+      - conftest.py
+    patterns:
+      - '(?i)f["''][^"'']*\b(?:already|belongs to|owned by|registered to|in use by|taken by|assigned to)\b[^"'']*\{[^}]*\b(?:existing|incumbent|current|previous|other|original)_[a-z_]*(?:user|client|owner|tenant|account|session|member|customer|principal)'
+      - '(?i)f["''][^"'']*\{[^}]*\b(?:existing|incumbent|current|previous|other|original)_[a-z_]*(?:user|client|owner|tenant|account|session|member|customer|principal)[^}]*\}[^"'']*\b(?:already|owns|holds|has it|is using)\b'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    sanitizers:
+      - 'logger\.'
+      - 'logging\.'
+      - '_logger\.'
+      - 'console\.(?:log|warn|error)'
+    message: |
+      An error returned to a caller names the identifier of a *different*
+      principal: the one that already holds the contested resource. The caller
+      learns an identifier they had no way to obtain, and identifiers are often
+      the only thing standing between an attacker and impersonation.
+
+      This is the defect that turns an ordinary uniqueness check into an attack
+      primitive. In AutoGen's gRPC host, RegisterAgent replies "already
+      registered with client <id>", and that id is exactly the value needed to
+      hijack the victim's connection, because the transport treats a
+      self-asserted client id as identity.
+
+      Reply with a generic conflict, and keep the incumbent identifier in the
+      server-side log.
+
+  - id: ns-bb-019
+    name: Caller-supplied header or metadata used as identity
+    severity: medium
+    category: auth
+    cwe: [290]
+    fix: "Derive identity from a verified credential (a signed token, a mTLS peer certificate, or a session looked up server-side), not from a header the caller writes. If an upstream gateway injects the header, make the service reject the header when it arrives from anywhere else."
+    languages: [python, javascript, typescript, go, java, csharp]
+    exclude_paths:
+      - /tests/
+      - /test/
+      - _tests/
+      - conftest.py
+    patterns:
+      - '(?i)metadata\s*(?:\.get\(|\[)\s*["''](?:client-id|user-id|tenant-id|account-id|on-behalf-of)["'']'
+      - '(?i)headers\s*(?:\.get\(|\[)\s*["'']x-(?:user|client|tenant|account|principal|remote[-_]user)[-_]?(?:id|name)?["'']'
+    pattern-not:
+      - '(?i)(?:headers|metadata)\s*\[\s*["''][^"'']+["'']\s*\]\s*=[^=]'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    sanitizers:
+      - 'jwt\.'
+      - 'verify_'
+      - '_verify'
+      - 'authenticate'
+      - 'decode_token'
+      - 'validate_token'
+      - 'peer_cert'
+      - 'ssl_client'
+    message: |
+      An identity is read from a value the caller writes. gRPC metadata and HTTP
+      headers are caller-controlled on any request that reaches the service
+      directly, so an identifier taken from them is asserted, not proven. If it
+      then keys session state, connection state, or an authorization decision,
+      any peer can claim to be any other peer.
+
+      AutoGen's gRPC host does exactly this: worker identity is the `client-id`
+      metadata header, with no verification anywhere, which is what makes agent
+      spoofing and connection hijacking possible.
+
+      This is a legitimate pattern only when an upstream gateway injects the
+      header and the service is unreachable by any other route. That is a
+      deployment property the code cannot express, so confirm it rather than
+      assume it, and strip the header on ingress.

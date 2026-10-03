@@ -1,0 +1,948 @@
+rules:
+- id: ns-bb-001
+  languages:
+  - go
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: ERROR
+  message: 'JWT signed with a weak or hardcoded secret. Use a strong random key
+
+    (256+ bits) stored in environment variables.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: jwt\.(encode|sign)\s*\(
+    - pattern-regex: JWT_SECRET\s*[=:]\s*["'][^"']{1,20}["']
+    - pattern-regex: secret\s*[=:]\s*["'](?:secret|password|changeme|test|key)["']
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: crypto
+    cwe:
+    - 347
+    original_engine: neuroscan
+    rule_name: JWT weak or hardcoded secret
+- id: ns-bb-002
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: ERROR
+  message: 'JWT algorithm confusion or verification bypass. Always enforce expected
+
+    algorithm and never accept "none". Use PyJWT with algorithms=["RS256"].'
+  patterns:
+  - pattern-either:
+    - pattern-regex: algorithms\s*=\s*\[.*none
+    - pattern-regex: algorithm.*HS256.*RS256
+    - pattern-regex: options.*verify.*false
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: crypto
+    cwe:
+    - 327
+    original_engine: neuroscan
+    rule_name: JWT algorithm confusion
+- id: ns-bb-003
+  languages:
+  - csharp
+  - go
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'Cookie missing Secure, HttpOnly, or SameSite flags. Set Secure=True,
+
+    HttpOnly=True, and SameSite=Lax or Strict.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: secure\s*[=:]\s*[Ff]alse
+    - pattern-regex: httponly\s*[=:]\s*[Ff]alse
+    - pattern-regex: samesite\s*[=:]\s*["']?[Nn]one
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 614
+    original_engine: neuroscan
+    rule_name: Insecure cookie settings
+- id: ns-bb-004
+  languages:
+  - go
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: ERROR
+  message: 'TLS certificate verification disabled. This allows MITM attacks.
+
+    Remove verify=False and use proper certificate chains.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: verify\s*=\s*False
+    - pattern-regex: VERIFY_SSL\s*=\s*False
+    - pattern-regex: rejectUnauthorized\s*:\s*false
+    - pattern-regex: InsecureSkipVerify\s*:\s*true
+    - pattern-regex: NODE_TLS_REJECT_UNAUTHORIZED.*0
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: crypto
+    cwe:
+    - 295
+    original_engine: neuroscan
+    rule_name: TLS certificate verification disabled
+- id: ns-bb-005
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: ERROR
+  message: 'Mass assignment from user input. Attackers can set admin/role fields.
+
+    Use explicit field allowlists or DTOs.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \*\*request\.(json|form|data)
+    - pattern-regex: Object\.assign\(\s*\w+,\s*req\.body
+    - pattern-regex: \.update\(request\.(json|data|POST)\)
+    - pattern-regex: \{\.\.\.req\.body\}
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 915
+    original_engine: neuroscan
+    rule_name: Mass assignment from user input
+    residual:
+    - sanitizer
+- id: ns-bb-006
+  languages:
+  - csharp
+  - go
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: ERROR
+  message: 'Role or admin flag set from user input. Use server-side authorization
+
+    checks and never trust client-supplied privilege levels.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: role\s*=\s*request\.
+    - pattern-regex: is_admin\s*=\s*request\.
+    - pattern-regex: req\.body\.role
+    - pattern-regex: req\.body\.is_admin
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 269
+    original_engine: neuroscan
+    rule_name: 'Privilege escalation: user-controlled role'
+- id: ns-bb-007
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: ERROR
+  message: 'OAuth redirect_uri from user input or insecure transport.
+
+    Validate redirect URIs against a registered allowlist and always use state.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: redirect_uri\s*=\s*request\.
+    - pattern-regex: OAUTHLIB_INSECURE_TRANSPORT
+  - pattern-not-regex: validate_redirect
+  - pattern-not-regex: is_allowed_redirect
+  - pattern-not-regex: check_redirect
+  - pattern-not-regex: allowlist
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: OAUTHLIB_INSECURE_TRANSPORT\s*=\s*False
+  - pattern-not-regex: OAUTHLIB_INSECURE_TRANSPORT\s*=\s*0
+  metadata:
+    category: auth
+    cwe:
+    - 601
+    original_engine: neuroscan
+    rule_name: OAuth insecure redirect or state
+- id: ns-bb-008
+  languages:
+  - python
+  severity: ERROR
+  message: 'YAML loaded with FullLoader or UnsafeLoader allows object instantiation.
+
+    Use yaml.safe_load() or yaml.load(data, Loader=yaml.SafeLoader).'
+  patterns:
+  - pattern-either:
+    - pattern-regex: yaml\.load\([^)]*Loader\s*=\s*yaml\.FullLoader
+    - pattern-regex: yaml\.load\([^)]*Loader\s*=\s*yaml\.UnsafeLoader
+    - pattern-regex: yaml\.unsafe_load\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    rule_name: Unsafe YAML deserialization
+    residual:
+    - sanitizer
+- id: ns-bb-009
+  languages:
+  - go
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'Potential TOCTOU race condition. The check and use are not atomic.
+
+    Use file locks, database transactions, or atomic operations.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: os\.path\.exists.*open\(
+    - pattern-regex: if.*balance.*>=.*balance\s*-=
+    - pattern-regex: check.*then.*update
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: general
+    cwe:
+    - 367
+    original_engine: neuroscan
+    rule_name: Time-of-check time-of-use race condition
+    residual:
+    - sanitizer
+- id: ns-bb-010
+  languages:
+  - csharp
+  - go
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'Object retrieved by user-supplied ID without ownership check.
+
+    Verify the authenticated user has access to the requested resource.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.objects\.get\(id\s*=\s*request\.
+    - pattern-regex: \.findById\(req\.params\.
+    - pattern-regex: findOne\(\{.*req\.params\.
+    - pattern-regex: WHERE.*id\s*=.*req\.(params|query)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 639
+    original_engine: neuroscan
+    rule_name: Insecure direct object reference (IDOR)
+- id: ns-bb-011
+  languages:
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: INFO
+  message: 'GraphQL introspection or GraphiQL enabled. Disable in production to
+
+    prevent schema enumeration by attackers.
+
+    Presence signal; confirm this config is production-facing.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: introspection\s*[=:]\s*[Tt]rue
+    - pattern-regex: __schema\s*[=:]
+    - pattern-regex: graphiql\s*[=:]\s*[Tt]rue
+  - pattern-not-regex: introspection.*False
+  - pattern-not-regex: '{.*introspection'
+  - pattern-not-regex: (?i)(?:getattr|hasattr|type\s*=\s*)\s*
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: GraphQL(?:Schema|ObjectType|InputObjectType|EnumType)
+  - pattern-not-regex: graphene\.(?:Schema|ObjectType|Input|Enum)\b
+  - pattern-not-regex: strawberry\.(?:type|schema|input|enum)\b
+  metadata:
+    category: config
+    cwe:
+    - 200
+    original_engine: neuroscan
+    rule_name: GraphQL introspection enabled in production
+- id: ns-bb-012
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'WebSocket connection without origin validation. Enforce origin checks
+
+    to prevent cross-site WebSocket hijacking.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: websocket\.accept\(
+    - pattern-regex: WebSocket\(
+    - pattern-regex: socketio\.\w+\(
+  - pattern-not-regex: check_origin
+  - pattern-not-regex: allowed_origins
+  - pattern-not-regex: cors_allowed_origins
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 346
+    original_engine: neuroscan
+    rule_name: WebSocket without origin validation
+- id: ns-bb-013
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'Cache key derived from user-controlled input. Web cache poisoning
+
+    possible. Normalize and validate cache key components.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: cache.*request\.headers
+    - pattern-regex: Vary.*X-Forwarded
+    - pattern-regex: cache_key.*request\.(GET|args|query)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 444
+    original_engine: neuroscan
+    rule_name: Cache key from user-controlled header
+    residual:
+    - sanitizer
+- id: ns-bb-014
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'Non-cryptographic PRNG used for a security-sensitive value. random.*,
+
+    numpy.random.*, and Math.random() are Mersenne-Twister-class generators:
+
+    observing a few outputs lets an attacker recover the internal state and
+
+    predict every past and future value. For a token, secret, password, OTP,
+
+    session id, nonce, salt, API key, reset/verification code, or coupon use
+
+    a CSPRNG: Python secrets.token_urlsafe()/secrets.choice() (or
+
+    random.SystemRandom()), Node crypto.randomBytes()/crypto.getRandomValues().'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)\b\w*(?:token(?!iz)|secret|nonce|salt|otp|passwd|password|passphrase|passcode|apikey|api_key|secret_key|secretkey|private_key|signing_key|encryption_key|session|sessionid|session_id|csrf|xsrf|coupon|voucher|verification|verify_code|activation|confirmation|recovery|access_token|refresh_token|bearer|credential)\w*['"]?\s*[:=]\s*.{0,120}?(?:random\.(?:random|randint|randrange|choice|choices|sample|shuffle|uniform|getrandbits)|(?:np|numpy)\.random\.\w+|Math\.random)\s*\(
+    - pattern-regex: (?i)\b(?:def|function)\s+\w*(?:token(?!iz)|secret|nonce|salt|otp|passwd|password|passphrase|passcode|apikey|api_key|session|csrf|coupon|voucher|verification|activation|confirmation|recovery|credential)\w*\s*\([^)]*\)\s*(?:->\s*[\w\[\],
+        ]+)?:?.{0,140}?(?:random\.(?:random|randint|randrange|choice|choices|sample|shuffle|uniform|getrandbits)|(?:np|numpy)\.random\.\w+|Math\.random)\s*\(
+  - pattern-not-regex: random\.SystemRandom
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: crypto
+    cwe:
+    - 330
+    - 338
+    original_engine: neuroscan
+    rule_name: Insecure random for security-sensitive value
+  paths:
+    exclude:
+    - /tests/
+    - /test/
+    - /examples/
+    - test_*.py
+    - '*_test.py'
+    - '*.test.js'
+    - '*.spec.js'
+    - conftest.py
+- id: ns-secret-001
+  languages:
+  - python
+  severity: INFO
+  message: 'Hardcoded credential or secret assigned to a security-sensitive name (CWE-798).
+
+    Load secrets from environment variables or a secrets manager, never source.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)(?:password|passwd|pwd|secret|secret_key|api_?key|access_?key|auth_?token|access_?token|private_?key|client_?secret|db_pass\w*)\s*=\s*["'][^"'\n]{6,}["']
+    - pattern-regex: SECRET_KEY\s*=\s*["'][^"'\n]+["']
+    - pattern-regex: \[\s*["'](?:SECRET_KEY|SECRET|PASSWORD|PASSWD|API_?KEY|ACCESS_?KEY|AUTH_?TOKEN|ACCESS_?TOKEN|PRIVATE_?KEY|CLIENT_?SECRET|JWT_?SECRET)[A-Z0-9_]*["']\s*\]\s*=\s*["'][^"'\n]{4,}["']
+  - pattern-not-regex: os\.environ|os\.getenv|getenv|environ|config\(|Field\(|Depends\(|Settings|secrets\.
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest|example|sample|dummy|placeholder|changeme|your_)
+  - pattern-not-regex: (?i)(?:create_user|create_superuser|get_or_create|update_or_create|force_login|authenticate\(|\.login\()
+  - pattern-not-regex: \bDEMO_
+  metadata:
+    category: secrets
+    cwe:
+    - 798
+    original_engine: neuroscan
+    rule_name: Hardcoded credential or secret
+    residual:
+    - secrets
+- id: ns-bb-015
+  languages:
+  - javascript
+  - typescript
+  severity: WARNING
+  message: 'postMessage with wildcard target or message listener without origin validation.
+
+    Always check event.origin against a trusted domain allowlist.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: postMessage\(.*\*
+    - pattern-regex: addEventListener.*message
+  - pattern-not-regex: event\.origin
+  - pattern-not-regex: e\.origin
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: xss
+    cwe:
+    - 346
+    original_engine: neuroscan
+    rule_name: postMessage without origin check
+    residual:
+    - sanitizer
+- id: ns-bb-016
+  languages:
+  - go
+  - javascript
+  - python
+  - typescript
+  severity: ERROR
+  message: 'Docker container with privileged mode or host socket mount.
+
+    Grants full host access. Use capability-based security (--cap-add) instead.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: privileged\s*[=:]\s*[Tt]rue
+    - pattern-regex: /var/run/docker\.sock
+    - pattern-regex: --privileged
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 250
+    original_engine: neuroscan
+    rule_name: Docker privileged mode or dangerous mount
+- id: ns-auth-001
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'Authentication endpoint without rate limiting. Apply rate limiting
+
+    to prevent credential stuffing and brute force attacks.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: def login\(
+    - pattern-regex: /api/auth
+    - pattern-regex: password.*verify
+  - pattern-not-regex: rate_limit
+  - pattern-not-regex: ratelimit
+  - pattern-not-regex: throttle
+  - pattern-not-regex: RateLimiter
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 307
+    original_engine: neuroscan
+    rule_name: Missing rate limiting
+- id: ns-auth-002
+  languages:
+  - python
+  severity: WARNING
+  message: 'Sensitive handler without authentication decorator. Add @login_required
+
+    or equivalent auth check.'
+  patterns:
+  - pattern-regex: def (delete|update|create|admin)\w*\(.*request
+  - pattern-not-regex: '@login_required'
+  - pattern-not-regex: '@permission_required'
+  - pattern-not-regex: '@auth'
+  - pattern-not-regex: '@requires_auth'
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 862
+    original_engine: neuroscan
+    rule_name: Missing auth decorator on sensitive handler
+- id: ns-log-001
+  languages:
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'User input logged directly. Attackers can inject fake log entries
+
+    or ANSI escape sequences. Sanitize before logging.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: logger?\.(info|warn|error|debug)\(.*request\.
+    - pattern-regex: console\.log\(.*req\.(body|params|query)
+    - pattern-regex: logging\.\w+\(.*request\.
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 117
+    original_engine: neuroscan
+    rule_name: Log injection via user input
+    residual:
+    - sanitizer
+- id: ns-infra-001
+  languages:
+  - go
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: INFO
+  message: 'String comparison for secret values is vulnerable to timing attacks.
+
+    Use hmac.compare_digest() (Python) or crypto.timingSafeEqual() (Node.js).'
+  patterns:
+  - pattern-either:
+    - pattern-regex: token\s*[=!]=\s*
+    - pattern-regex: secret\s*[=!]=\s*
+    - pattern-regex: api_key\s*[=!]=\s*
+    - pattern-regex: password\s*[=!]=\s*
+    - pattern-regex: oauth_state\s*[=!]=\s*
+    - pattern-regex: csrf\w*\s*[=!]=\s*
+    - pattern-regex: nonce\s*[=!]=\s*
+    - pattern-regex: signature\s*[=!]=\s*
+    - pattern-regex: digest\s*[=!]=\s*
+  - pattern-not-regex: hmac\.compare_digest
+  - pattern-not-regex: constant_time
+  - pattern-not-regex: timingSafeEqual
+  - pattern-not-regex: '[=!]=\s*(?:None|null|nil|""|'''')'
+  - pattern-not-regex: '[=!]=\s*["''](?:bearer|basic)'
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: crypto
+    cwe:
+    - 208
+    original_engine: neuroscan
+    rule_name: Timing attack in string comparison
+  paths:
+    exclude:
+    - /tests/
+    - /test/
+    - test_*.py
+    - '*_test.py'
+    - conftest.py
+- id: ns-infra-002
+  languages:
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: ERROR
+  message: 'XPath query constructed with user input. Use parameterized XPath
+
+    queries or validate/escape input before building expressions.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.xpath\(.*request\.
+    - pattern-regex: \.xpath\(.*\+\s*\w+
+    - pattern-regex: XPathExpression.*\+
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 643
+    original_engine: neuroscan
+    rule_name: XPath injection
+    residual:
+    - sanitizer
+- id: ns-infra-003
+  languages:
+  - csharp
+  - go
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: INFO
+  message: 'Stack trace included in error response. Exposes internal structure
+
+    to attackers. Return generic error messages and log details server-side.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: traceback\.format_exc\(\)
+    - pattern-regex: stack.*response
+    - pattern-regex: e\.stack
+    - pattern-regex: err\.stack
+  - pattern-not-regex: (?:logger?|logging)\.[a-z]+\(
+  - pattern-not-regex: log\.(?:error|warning|info|debug|exception)\(
+  - pattern-not-regex: print\(
+  - pattern-not-regex: if\s+(?:__?debug|DEBUG)\b
+  - pattern-not-regex: sys\.exc_info\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 209
+    original_engine: neuroscan
+    rule_name: Stack trace exposure in error response
+- id: ns-grd-001
+  languages:
+  - python
+  severity: WARNING
+  message: 'Gradio share=True exposes the app publicly via tunnel. Combined with
+
+    file upload or code execution, this is remotely exploitable.'
+  patterns:
+  - pattern-regex: \.launch\([^)]*share\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 668
+    original_engine: neuroscan
+    rule_name: Gradio share tunnel enabled
+- id: ns-grd-002
+  languages:
+  - python
+  severity: WARNING
+  message: 'Gradio bound to 0.0.0.0 without authentication. Any network user
+
+    can access the app. Add auth=("user", "pass") or use auth callbacks.'
+  patterns:
+  - pattern-regex: \.launch\([^)]*server_name\s*=\s*["']0\.0\.0\.0["']
+  - pattern-not-regex: auth\s*=
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 287
+    original_engine: neuroscan
+    rule_name: Gradio unauthenticated bind
+- id: ns-grd-003
+  languages:
+  - python
+  severity: ERROR
+  message: 'Gradio file input without file_types restriction. Attackers can upload
+
+    arbitrary files including pickle payloads. Set file_types=[".csv", ".txt"].'
+  patterns:
+  - pattern-either:
+    - pattern-regex: gr\.File\s*\(
+    - pattern-regex: gr\.UploadButton\s*\(
+  - pattern-not-regex: file_types\s*=
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 434
+    original_engine: neuroscan
+    rule_name: Gradio file upload without validation
+- id: ns-grd-004
+  languages:
+  - python
+  severity: ERROR
+  message: 'Gradio handler uses eval() or exec(). User input from the UI can
+
+    reach these sinks. Refactor to avoid dynamic code execution.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: gr\.Interface\(.*eval
+    - pattern-regex: gr\.Interface\(.*exec
+    - pattern-regex: gr\.Blocks.*eval\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 94
+    original_engine: neuroscan
+    rule_name: Gradio eval/exec in handler
+    residual:
+    - sanitizer
+- id: ns-grd-005
+  languages:
+  - python
+  severity: ERROR
+  message: 'Gradio handler executes shell commands with user input. Use
+
+    subprocess.run() with shell=False and a list of arguments.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: gr\.Interface.*subprocess.*shell\s*=\s*True
+    - pattern-regex: gr\.Interface.*os\.system
+    - pattern-regex: os\.system\(.*gr\.
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: command_injection
+    cwe:
+    - 78
+    original_engine: neuroscan
+    rule_name: Gradio shell injection
+    residual:
+    - sanitizer
+- id: ns-stl-001
+  languages:
+  - python
+  severity: ERROR
+  message: 'Streamlit user input passed to shell command. Use subprocess.run()
+
+    with shell=False and sanitize all inputs.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: st\.text_input.*subprocess
+    - pattern-regex: st\.text_input.*os\.system
+    - pattern-regex: subprocess.*st\.session_state
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: command_injection
+    cwe:
+    - 78
+    original_engine: neuroscan
+    rule_name: Streamlit shell injection
+    residual:
+    - sanitizer
+- id: ns-stl-002
+  languages:
+  - python
+  severity: ERROR
+  message: 'Streamlit user input passed to eval() or exec(). Refactor to avoid
+
+    dynamic code execution with user-controlled data.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: eval\(.*st\.text
+    - pattern-regex: exec\(.*st\.text
+    - pattern-regex: eval\(.*st\.session_state
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 94
+    original_engine: neuroscan
+    rule_name: Streamlit eval/exec with user input
+    residual:
+    - sanitizer
+- id: ns-bb-017
+  languages:
+  - python
+  severity: ERROR
+  message: 'A container is created through the Docker SDK with none of the options
+
+    that would actually isolate it. With no network_mode the container joins
+
+    the default bridge and has full outbound network access; with no user it
+
+    runs as whatever the image''s default is, usually root; with no cap_drop
+
+    or security_opt it keeps the default capability set; with no mem_limit or
+
+    pids_limit it can exhaust the host.
+
+
+    This matters most when the container is the sandbox for untrusted or
+
+    model-generated code. A bind-mounted host directory is then writable by
+
+    that code, which turns "run this snippet in a container" into a host file
+
+    write, and full egress turns it into an exfiltration and SSRF path to the
+
+    cloud metadata service.
+
+
+    Any one isolation option present in the surrounding lines suppresses this
+
+    finding, on the assumption that an author who set one considered the
+
+    others. The rule flags the case where none was set at all.'
+  patterns:
+  - pattern-regex: \.containers\.(?:run|create)\s*[(,]
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 653
+    original_engine: neuroscan
+    rule_name: Docker SDK container created with no isolation options
+    fix: 'Pass explicit isolation options when creating the container: network_mode=''none'' (or an internal network), user=
+      a non-root uid, cap_drop=[''ALL''], security_opt=[''no-new-privileges''], plus mem_limit and pids_limit. Mount the work
+      directory read-only where the workload does not need to write.'
+    residual:
+    - sanitizer
+  paths:
+    exclude:
+    - /tests/
+    - /test/
+    - integration-tests/
+    - load_tests/
+    - _tests/
+    - conftest.py
+- id: ns-bb-018
+  languages:
+  - csharp
+  - go
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'An error returned to a caller names the identifier of a *different*
+
+    principal: the one that already holds the contested resource. The caller
+
+    learns an identifier they had no way to obtain, and identifiers are often
+
+    the only thing standing between an attacker and impersonation.
+
+
+    This is the defect that turns an ordinary uniqueness check into an attack
+
+    primitive. In AutoGen''s gRPC host, RegisterAgent replies "already
+
+    registered with client <id>", and that id is exactly the value needed to
+
+    hijack the victim''s connection, because the transport treats a
+
+    self-asserted client id as identity.
+
+
+    Reply with a generic conflict, and keep the incumbent identifier in the
+
+    server-side log.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)f["'][^"']*\b(?:already|belongs to|owned by|registered to|in use by|taken by|assigned to)\b[^"']*\{[^}]*\b(?:existing|incumbent|current|previous|other|original)_[a-z_]*(?:user|client|owner|tenant|account|session|member|customer|principal)
+    - pattern-regex: (?i)f["'][^"']*\{[^}]*\b(?:existing|incumbent|current|previous|other|original)_[a-z_]*(?:user|client|owner|tenant|account|session|member|customer|principal)[^}]*\}[^"']*\b(?:already|owns|holds|has
+        it|is using)\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 209
+    original_engine: neuroscan
+    rule_name: Another principal's identifier disclosed in a conflict error
+    fix: Return a generic conflict message ('that name is already in use'). Never name the holder of the conflicting resource.
+      Log the incumbent identifier server-side if operators need it.
+    residual:
+    - sanitizer
+  paths:
+    exclude:
+    - /tests/
+    - /test/
+    - _tests/
+    - conftest.py
+- id: ns-bb-019
+  languages:
+  - csharp
+  - go
+  - java
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'An identity is read from a value the caller writes. gRPC metadata and HTTP
+
+    headers are caller-controlled on any request that reaches the service
+
+    directly, so an identifier taken from them is asserted, not proven. If it
+
+    then keys session state, connection state, or an authorization decision,
+
+    any peer can claim to be any other peer.
+
+
+    AutoGen''s gRPC host does exactly this: worker identity is the `client-id`
+
+    metadata header, with no verification anywhere, which is what makes agent
+
+    spoofing and connection hijacking possible.
+
+
+    This is a legitimate pattern only when an upstream gateway injects the
+
+    header and the service is unreachable by any other route. That is a
+
+    deployment property the code cannot express, so confirm it rather than
+
+    assume it, and strip the header on ingress.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)metadata\s*(?:\.get\(|\[)\s*["'](?:client-id|user-id|tenant-id|account-id|on-behalf-of)["']
+    - pattern-regex: (?i)headers\s*(?:\.get\(|\[)\s*["']x-(?:user|client|tenant|account|principal|remote[-_]user)[-_]?(?:id|name)?["']
+  - pattern-not-regex: (?i)(?:headers|metadata)\s*\[\s*["'][^"']+["']\s*\]\s*=[^=]
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 290
+    original_engine: neuroscan
+    rule_name: Caller-supplied header or metadata used as identity
+    fix: Derive identity from a verified credential (a signed token, a mTLS peer certificate, or a session looked up server-side),
+      not from a header the caller writes. If an upstream gateway injects the header, make the service reject the header when
+      it arrives from anywhere else.
+    residual:
+    - sanitizer
+  paths:
+    exclude:
+    - /tests/
+    - /test/
+    - _tests/
+    - conftest.py

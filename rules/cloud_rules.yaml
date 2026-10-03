@@ -1,0 +1,156 @@
+# Cloud Infrastructure Security Rules: neuroscan format
+# Covers AWS, GCP, Azure misconfigurations detectable in application code
+
+rules:
+
+  # ── CLOUD001: S3 public access ────────────────────────────────────
+
+  - id: ns-cloud-001
+    name: S3 bucket with public access
+    severity: ERROR
+    category: config
+    cwe: [284]
+    languages: [python, javascript, typescript, java, go]
+    patterns:
+      - 'ACL.*public-read'
+      - 'public-read-write'
+      - 'put_bucket_acl.*public'
+      - 'BlockPublicAccess.*false'
+      - 's3\.putBucketAcl.*public'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      S3 bucket configured with public access. Use private ACLs and explicit
+      bucket policies with least-privilege access.
+
+  # ── CLOUD002: IAM wildcard permissions ────────────────────────────
+
+  - id: ns-cloud-002
+    name: IAM policy with wildcard action or resource
+    severity: ERROR
+    category: auth
+    cwe: [285]
+    languages: [python, javascript, typescript, java, go, json]
+    patterns:
+      - '"Action"\s*:\s*"\*"'
+      - '"Resource"\s*:\s*"\*"'
+      - '"Effect"\s*:\s*"Allow".*"\*"'
+      - 'iam\.put_role_policy.*\*'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      IAM policy with wildcard Action or Resource grants unrestricted access.
+      Scope to specific actions and resources per least-privilege principle.
+
+  # ── CLOUD003: Unencrypted storage / transport ─────────────────────
+
+  - id: ns-cloud-003
+    name: Unencrypted cloud storage or transport
+    severity: ERROR
+    category: crypto
+    cwe: [311]
+    languages: [python, javascript, typescript, java, go]
+    patterns:
+      - 'ServerSideEncryption\s*[=:]\s*(?:None|none|"")'
+      - 'encrypted\s*[=:]\s*[Ff]alse'
+      - 'SSEAlgorithm\s*[=:]\s*(?:None|none|"")'
+      - 'kms_key_id\s*=\s*None'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Cloud storage configured without server-side encryption. Enable SSE-S3,
+      SSE-KMS, or SSE-C and use HTTPS endpoints.
+
+  # ── CLOUD004: Publicly accessible database ────────────────────────
+
+  - id: ns-cloud-004
+    name: Cloud database publicly accessible
+    severity: ERROR
+    category: config
+    cwe: [668]
+    languages: [python, javascript, typescript, java, go]
+    patterns:
+      - 'PubliclyAccessible\s*[=:]\s*[Tt]rue'
+      - 'publicly_accessible\s*=\s*True'
+      - 'authorized_networks.*0\.0\.0\.0'
+      - 'ip_configuration.*authorized_networks.*0\.0\.0\.0/0'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Cloud database configured as publicly accessible. Restrict to private
+      subnets and use VPC peering or Private Link for access.
+
+  # ── CLOUD005: Missing logging / audit trail ───────────────────────
+
+  - id: ns-cloud-005
+    name: Cloud logging or audit trail disabled
+    severity: WARNING
+    category: config
+    cwe: [778]
+    languages: [python, javascript, typescript, java, go]
+    patterns:
+      - 'logging\s*[=:]\s*false'
+      - 'enable_logging\s*=\s*False'
+      - 'access_log_enabled\s*[=:]\s*false'
+      - 'cloudtrail.*IsLogging.*false'
+      - 'log_analytics.*enabled.*false'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Cloud logging or audit trail disabled. Enable CloudTrail, Cloud Audit Logs,
+      or Azure Monitor for security event tracking and compliance.
+
+  # ── CLOUD006: Overprivileged service account ──────────────────────
+
+  - id: ns-cloud-006
+    name: Overprivileged cloud service account or role
+    severity: WARNING
+    category: auth
+    cwe: [250]
+    languages: [python, javascript, typescript, java, go]
+    patterns:
+      - 'roles/owner'
+      - 'roles/editor'
+      - 'AdministratorAccess'
+      - 'PowerUserAccess'
+      - 'AmazonS3FullAccess'
+      - 'arn:aws:iam::.*:policy/Admin'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Overprivileged cloud role or service account detected. Use custom roles
+      with minimum required permissions following least-privilege principle.
+
+  # ── CLOUD007: Insecure network / security group ───────────────────
+
+  - id: ns-cloud-007
+    name: Cloud security group open to all traffic
+    severity: ERROR
+    category: config
+    cwe: [284]
+    languages: [python, javascript, typescript, java, go]
+    patterns:
+      - 'CidrIp.*0\.0\.0\.0/0'
+      - 'cidr_blocks.*0\.0\.0\.0/0'
+      - 'source_ranges.*0\.0\.0\.0/0'
+      - 'IpProtocol.*-1'
+      - 'from_port.*0.*to_port.*65535'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Security group or firewall rule allows traffic from 0.0.0.0/0.
+      Restrict inbound rules to specific trusted IP ranges and required ports.

@@ -1,0 +1,120 @@
+rules:
+- id: ns-aiml-169
+  languages:
+  - java
+  severity: WARNING
+  message: 'A Java MCP SSE/HTTP transport is configured to listen on every network
+
+    interface, with no authentication marker on the same configuration
+
+    statement. Confirm that a Spring Security/OAuth filter protects the MCP
+
+    endpoint; otherwise remote clients can invoke every exposed tool.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?:WebMvcSseServerTransportProvider|HttpServletSseServerTransportProvider)[^;\n]{0,240}(?:0\.0\.0\.0|server\.address)
+    - pattern-regex: (?:server\.address|setServerAddress|serverAddress)\s*\(?\s*[=:]?\s*["']0\.0\.0\.0["']
+  - pattern-not-regex: (?m)^\s*//
+  - pattern-not-regex: (?i)(?:Bearer|OAuth|Authorization|SecurityFilterChain|authenticated)
+  - pattern-not-regex: (?:127\.0\.0\.1|localhost)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 306
+    - 668
+    original_engine: neuroscan
+    rule_name: Java MCP HTTP transport bound to all interfaces
+- id: ns-aiml-170
+  languages:
+  - java
+  severity: ERROR
+  message: 'A literal API credential is embedded in Java AI client configuration.
+
+    Move it to an injected secret and rotate the exposed credential.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)\b(?:openai|anthropic|gemini|cohere|mistral|groq|langsmith|langfuse)[A-Za-z0-9_]*(?:ApiKey|SecretKey|Token)?\s*=\s*["'][A-Za-z0-9_\-]{16,}["']
+    - pattern-regex: (?i)\.(?:apiKey|secretKey|accessToken)\s*\(\s*["'][A-Za-z0-9_\-]{16,}["']\s*\)
+  - pattern-not-regex: (?m)^\s*//
+  - pattern-not-regex: (?i)(?:example|placeholder|your[-_ ]?(?:api[-_ ]?)?key|changeme|dummy|test[-_ ]?key)
+  - pattern-not-regex: (?:System\.getenv|System\.getProperty|@Value\s*\()
+  metadata:
+    category: secrets
+    cwe:
+    - 798
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: Java AI provider API key embedded as a literal
+    fix: 'Remove the literal from source, load the credential from a secret manager
+
+      or injected environment variable, and rotate the exposed credential.'
+    residual:
+    - secrets
+- id: ns-aiml-171
+  languages:
+  - java
+  severity: WARNING
+  message: 'A Java agent/MCP tool description is supplied by a variable rather than
+
+    a reviewed literal. If mutable or remotely sourced, it can silently
+
+    inject instructions into the model context when tool metadata is loaded.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: '@Tool\s*\([^\n)]*\bdescription\s*=\s*(?!["''])[A-Za-z_]\w*(?:\.\w+)*'
+    - pattern-regex: \.(?:description|setDescription)\s*\(\s*(?!["'])[A-Za-z_]\w*(?:\.\w+)*\s*\)
+    - pattern-regex: new\s+(?:ToolSpecification|ToolDefinition)\s*\([^\n,]+,\s*(?!["'])[A-Za-z_]\w*(?:\.\w+)*\s*\)
+  - pattern-not-regex: (?m)^\s*//
+  - pattern-not-regex: \bdescription\s*=\s*["']
+  - pattern-not-regex: \.(?:description|setDescription)\s*\(\s*["']
+  metadata:
+    category: prompt_injection
+    cwe:
+    - 829
+    original_engine: neuroscan
+    rule_name: Java AI/MCP tool description is non-literal
+    residual:
+    - sanitizer
+- id: ns-aiml-172
+  languages:
+  - java
+  severity: WARNING
+  message: 'DJL Criteria loads model content from an HTTP(S) URL with no integrity
+
+    value visible on the same statement. Pin a trusted digest or package the
+
+    reviewed model artifact locally to prevent upstream replacement.'
+  patterns:
+  - pattern-regex: \.optModelUrls?\s*\(\s*["']https?://
+  - pattern-not-regex: (?m)^\s*//
+  - pattern-not-regex: (?i)(?:sha256|checksum|digest|integrity)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 494
+    original_engine: neuroscan
+    rule_name: DJL model downloaded over HTTP without pinned integrity
+- id: ns-aiml-173
+  languages:
+  - java
+  severity: WARNING
+  message: 'Model.load receives a non-literal path. Confirm the value cannot be
+
+    chosen by a request or model output and confine it to a trusted model
+
+    directory with an integrity check before loading.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bModel\.load\s*\(\s*(?!["'])[A-Za-z_]\w*(?:\.\w+)*\s*\)
+    - pattern-regex: \bModel\.load\s*\([^,\n]+,\s*(?!["'])[A-Za-z_]\w*(?:\.\w+)*\s*\)
+  - pattern-not-regex: (?m)^\s*//
+  - pattern-not-regex: \bModel\.load\s*\([^)]*["'][^"']+["']\s*\)
+  metadata:
+    category: path_traversal
+    cwe:
+    - 22
+    - 494
+    original_engine: neuroscan
+    rule_name: Java model loaded from a non-literal path
+    residual:
+    - sanitizer

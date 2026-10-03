@@ -1,0 +1,86 @@
+rules:
+- id: NS-TPL-001
+  languages:
+  - generic
+  severity: ERROR
+  message: 'Autoescaping is switched off for this block, so any variable rendered
+
+    inside it is written to the page unescaped. Anything reaching those
+
+    variables from user input is stored or reflected XSS.'
+  patterns:
+  - pattern-regex: \{%-?\s*autoescape\s+(?:false|off)\s*-?%\}
+  metadata:
+    category: xss
+    cwe:
+    - 79
+    original_engine: neuroscan
+    rule_name: Jinja autoescape disabled
+    fix: Remove the autoescape block and escape the specific value you meant to trust with |safe, rather than disabling escaping
+      for the whole block.
+    residual:
+    - sanitizer
+  paths:
+    include:
+    - '*.html'
+    - '*.htm'
+    - '*.jinja'
+    - '*.jinja2'
+    - '*.j2'
+- id: NS-TPL-002
+  languages:
+  - generic
+  severity: WARNING
+  message: 'This value is rendered with escaping bypassed (|safe). The filter is
+
+    correct only when the value is HTML the application itself built. If
+
+    any part of it comes from user input, this is XSS. Whether it does is
+
+    not decidable from the template alone -- verify the source.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \{\{[^}]*\|\s*safe\s*\}\}
+    - pattern-regex: \{\{[^}]*\|\s*safeseq\s*\}\}
+  - pattern-not-regex: \|\s*(?:escape|force_escape|e)\b
+  - pattern-not-regex: (?m)^\s*(?:\{#|<!--)
+  metadata:
+    category: xss
+    cwe:
+    - 79
+    original_engine: neuroscan
+    rule_name: Template value rendered unescaped
+    fix: Drop the |safe filter, or sanitize the value with bleach.clean() (or the framework's sanitizer) before it reaches
+      the template.
+    residual:
+    - sanitizer
+  paths:
+    include:
+    - '*.html'
+    - '*.htm'
+    - '*.jinja'
+    - '*.jinja2'
+    - '*.j2'
+- id: NS-TPL-003
+  languages:
+  - generic
+  severity: WARNING
+  message: 'CSRF protection is disabled for this form. A cross-origin page can
+
+    submit it on behalf of a logged-in user.'
+  patterns:
+  - pattern-regex: \{%-?\s*csrf_exempt\s*-?%\}
+  metadata:
+    category: auth
+    cwe:
+    - 352
+    original_engine: neuroscan
+    rule_name: Django csrf_token exempted in template form
+    fix: Remove the exemption and include {% csrf_token %} in the form.
+  paths:
+    include:
+    - '*.html'
+    - '*.htm'
+    - '*.jinja'
+    - '*.jinja2'
+    - '*.j2'

@@ -1,0 +1,70 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build
+      - run: python scripts/check_distribution.py dist/*.whl
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dist
+          path: dist/
+
+  # Install the exact wheel the build job produced into a clean environment,
+  # install the engine, and run one real scan that must find a planted bug.
+  # A wheel that does not run must never reach PyPI.
+  smoke-test:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+      - name: Install the built wheel and the engine, then scan
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/rowan-smoke
+          /tmp/rowan-smoke/bin/pip install dist/*.whl
+          /tmp/rowan-smoke/bin/rowan --version
+          /tmp/rowan-smoke/bin/rowan install-engine --prefix "$HOME/.local"
+          export PATH="$HOME/.local/bin:$PATH"
+          /tmp/rowan-smoke/bin/rowan self-test
+          mkdir -p /tmp/target
+          printf 'import os\nfrom flask import request\ndef f():\n    os.system("cat " + request.args["p"])\n' > /tmp/target/app.py
+          /tmp/rowan-smoke/bin/rowan scan /tmp/target --no-sca -f json -o /tmp/out.json
+          python -c "import json,sys; d=json.load(open('/tmp/out.json')); sys.exit(0 if d['findings'] and not d['summary']['degraded'] else 1)"
+
+  publish:
+    needs: [build, smoke-test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+      # Trusted publishing: no API token is stored anywhere. PyPI must list
+      # this repository and workflow as a trusted publisher for rowan-sast.
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

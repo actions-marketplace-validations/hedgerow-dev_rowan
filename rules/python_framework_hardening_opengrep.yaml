@@ -1,0 +1,407 @@
+# Structural companions to python_framework_hardening_taint.yaml. These flag
+# dangerous configurations and validation/fetch splits even when the external
+# trust boundary lives in another file or process.
+
+rules:
+  - id: PY-FWK-UNCONFINED-CONFIG-PATH-001
+    message: >
+      A path taken from a configuration mapping is opened without an
+      evident confinement check. If the config can be influenced by an
+      untrusted source, absolute paths or parent components may escape the
+      intended prompt or resource directory. Reject absolute and parent paths,
+      or resolve and enforce containment before reading the file.
+    severity: WARNING
+    languages: [python]
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "**/test_*.py"
+        - "**/integration_tests/**"
+        - "**/unit_tests/**"
+    metadata:
+      cwe: [22]
+      category: path_traversal
+      fix: "Validate config-derived paths before filesystem reads; reject absolute/parent paths or enforce resolved-root containment."
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern: |
+                  $PATH = Path($CONFIG.pop($KEY))
+                  ...
+                  $PATH.read_text(...)
+              - pattern-not-inside: |
+                  def $FUNC(...):
+                    ...
+                    $PATH = Path($CONFIG.pop($KEY))
+                    ...
+                    $VALIDATOR($PATH)
+                    ...
+                    $PATH.read_text(...)
+                    ...
+          - patterns:
+              - pattern: |
+                  $PATH = Path($CONFIG[$KEY])
+                  ...
+                  with $PATH.open(...) as $FILE:
+                    ...
+              - pattern-not-inside: |
+                  def $FUNC(...):
+                    ...
+                    $PATH = Path($CONFIG[$KEY])
+                    ...
+                    $VALIDATOR($PATH)
+                    ...
+                    with $PATH.open(...) as $FILE:
+                      ...
+                    ...
+          - patterns:
+              - pattern: $LOADER($CONFIG.pop("example_prompt_path"))
+              - metavariable-regex:
+                  metavariable: $LOADER
+                  regex: ^(?:load|read)_(?:prompt|config|file|template|resource).*$
+
+  - id: PY-FWK-UNVALIDATED-FORMAT-FIELD-001
+    message: >
+      This template-field extractor returns Python Formatter field names without
+      rejecting attribute or index traversal. If a caller accepts untrusted
+      template structure and formats richer objects, fields such as
+      {user.__class__} can read object internals. Validate every parsed field
+      as a simple identifier before accepting the template.
+    severity: WARNING
+    languages: [python]
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "**/test_*.py"
+        - "**/integration_tests/**"
+        - "**/unit_tests/**"
+    metadata:
+      cwe: [1336]
+      category: template_injection
+      fix: "Reject parsed Formatter fields containing attribute access or indexing before returning them as accepted template variables."
+    patterns:
+      - pattern: |
+          $VARS = { $VAR for _, $VAR, _, _ in Formatter().parse($TEMPLATE) if $VAR is not None }
+      - pattern-not-inside: |
+          def $FUNC(...):
+            ...
+            if "." in $FIELD or "[" in $FIELD or "]" in $FIELD:
+              ...
+            ...
+      - pattern-not-inside: |
+          def $FUNC(...):
+            ...
+            if not $FIELD.isidentifier():
+              ...
+            ...
+
+  - id: PY-FWK-DISCARDED-FORMAT-SPEC-001
+    message: >
+      A template validator inspects top-level Formatter field names but
+      discards the format specifier. Nested replacement fields inside a format
+      specifier can therefore bypass a top-level attribute/index check and be
+      evaluated later. Parse and reject nested replacement fields before the
+      template is used with untrusted structure.
+    severity: WARNING
+    languages: [python]
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "**/test_*.py"
+        - "**/integration_tests/**"
+        - "**/unit_tests/**"
+    metadata:
+      cwe: [1336]
+      category: template_injection
+      fix: "Inspect format_spec from Formatter.parse and reject nested replacement fields in untrusted templates."
+    patterns:
+      - pattern: |
+          $VARS = { $VAR for _, $VAR, _, _ in Formatter().parse($TEMPLATE) if $VAR is not None }
+      - pattern-inside: |
+          def $FUNC(...):
+            ...
+            if "." in $FIELD or "[" in $FIELD or "]" in $FIELD:
+              ...
+            ...
+
+  - id: PY-FWK-UNESCAPED-OBJECT-MARKER-001
+    message: >
+      A JSON serializer passes the original object graph directly to json.dumps
+      while its default handler serializes custom objects through to_json().
+      If to_json() emits object markers and a matching loader revives them,
+      plain user dictionaries with the same shape may be confused with trusted
+      objects. Verify the loader contract, then escape or reject marker-shaped
+      dictionaries before JSON encoding and restrict instantiation.
+    severity: WARNING
+    languages: [python]
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "**/test_*.py"
+        - "**/integration_tests/**"
+        - "**/unit_tests/**"
+    metadata:
+      cwe: [502]
+      category: deserialization
+      fix: "Escape user dictionaries that can be confused with object markers before calling json.dumps."
+    patterns:
+      - pattern: |
+          def $DEFAULT($VALUE):
+            ...
+            if isinstance($VALUE, $SERIALIZABLE):
+              return $VALUE.to_json()
+            ...
+          ...
+          def $DUMP($INPUT, ...):
+            ...
+            return json.dumps($INPUT, default=$DEFAULT, ...)
+
+  - id: PY-FWK-BROAD-ALLOWLIST-001
+    message: >
+      An object loader is configured to accept every registered object type.
+      This turns structured input into an object-construction language and can
+      revive capabilities the caller did not intend. Use an explicit minimal
+      allowlist for the specific runtime path.
+    severity: WARNING
+    languages: [python]
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "**/test_*.py"
+        - "**/integration_tests/**"
+        - "**/unit_tests/**"
+    metadata:
+      cwe: [502]
+      category: deserialization
+      fix: "Replace the broad allowlist with the smallest explicit set of inert types required by this code path."
+    patterns:
+      - pattern-either:
+          - pattern: $LOAD(..., allowed_objects="all", ...)
+          - pattern: $LOAD(..., allowed_types="all", ...)
+          - pattern: $LOAD(..., allow_all=True, ...)
+
+  - id: PY-FWK-SSRF-TOCTOU-001
+    message: >
+      A URL is validated and then fetched by a separate HTTP operation. The
+      fetch performs another DNS resolution and may follow redirects, allowing
+      DNS rebinding or a redirect to a private address after validation. Use a
+      guarded transport that connects to the validated address and revalidates
+      every redirect.
+    severity: WARNING
+    languages: [python]
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "**/test_*.py"
+        - "**/integration_tests/**"
+        - "**/unit_tests/**"
+    metadata:
+      cwe: [367, 918]
+      category: ssrf
+      fix: "Combine validation and connection in one guarded fetch operation; pin the resolved public address and validate every redirect hop."
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              def $FUNC(...):
+                ...
+                validate_safe_url($URL, ...)
+                ...
+                requests.get($URL, ...)
+                ...
+          - pattern-inside: |
+              def $FUNC(...):
+                ...
+                validate_safe_url($URL, ...)
+                ...
+                httpx.get($URL, ...)
+                ...
+          - pattern-inside: |
+              def $FUNC(...):
+                ...
+                validate_url($URL, ...)
+                ...
+                requests.get($URL, ...)
+                ...
+          - pattern-inside: |
+              def $FUNC(...):
+                ...
+                validate_url($URL, ...)
+                ...
+                httpx.get($URL, ...)
+                ...
+          - patterns:
+              - pattern-inside: |
+                  def $FUNC(...):
+                    ...
+                    $VALIDATOR($URL, ...)
+                    ...
+                    requests.get($URL, ...)
+                    ...
+              - metavariable-regex:
+                  metavariable: $VALIDATOR
+                  regex: ^(is_safe_url|is_allowed_url|host_allowed|url_allowed)$
+          - patterns:
+              - pattern-inside: |
+                  def $FUNC(...):
+                    ...
+                    if not $VALIDATOR($URL):
+                      ...
+                    ...
+                    requests.get($URL, ...)
+                    ...
+              - metavariable-regex:
+                  metavariable: $VALIDATOR
+                  regex: ^(is_safe_url|is_allowed_url|host_allowed|url_allowed)$
+          - patterns:
+              - pattern-inside: |
+                  def $FUNC(...):
+                    ...
+                    if not $VALIDATOR($URL):
+                      ...
+                    ...
+                    httpx.get($URL, ...)
+                    ...
+              - metavariable-regex:
+                  metavariable: $VALIDATOR
+                  regex: ^(is_safe_url|is_allowed_url|host_allowed|url_allowed)$
+          - patterns:
+              - pattern-inside: |
+                  def $FUNC(...):
+                    ...
+                    $VALIDATOR($URL, ...)
+                    ...
+                    httpx.get($URL, ...)
+                    ...
+              - metavariable-regex:
+                  metavariable: $VALIDATOR
+                  regex: ^(is_safe_url|is_allowed_url|host_allowed|url_allowed)$
+
+  - id: PY-FWK-URL-PARAM-FETCH-001
+    message: >
+      A reusable helper accepts a URL parameter and dereferences it directly.
+      When any caller can influence that argument, the helper becomes an SSRF
+      primitive. Route the request through a guarded transport that validates
+      and pins the destination and revalidates redirects.
+    severity: WARNING
+    languages: [python]
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "**/test_*.py"
+        - "**/integration_tests/**"
+        - "**/unit_tests/**"
+        - "**/.github/**"
+        - "**/scripts/**"
+    metadata:
+      cwe: [918]
+      category: ssrf
+      fix: "Replace the direct HTTP call with a guarded fetch operation that validates and pins a public destination address."
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern-inside: |
+                  def $FUNC(..., $URL, ...):
+                    ...
+              - pattern: requests.get($URL, ...)
+          - patterns:
+              - pattern-inside: |
+                  def $FUNC(..., $URL, ...):
+                    ...
+              - pattern: httpx.get($URL, ...)
+      - pattern-not-inside: |
+          def $FUNC(..., $URL, ...):
+            ...
+            validate_safe_url($URL, ...)
+            ...
+      - pattern-not-inside: |
+          def $FUNC(..., $URL, ...):
+            ...
+            validate_url($URL, ...)
+            ...
+      - pattern-not-inside: |
+          def $FUNC(..., $URL, ...):
+            ...
+            is_safe_url($URL, ...)
+            ...
+      - pattern-not-inside: |
+          def $FUNC(..., $URL, ...):
+            ...
+            host_allowed($URL, ...)
+            ...
+      - pattern-not-inside: |
+          def $FUNC(..., $URL, ...):
+            ...
+            if not host_allowed($URL):
+              ...
+            ...
+      - pattern-not-inside: |
+          def $FUNC(..., $URL, ...):
+            ...
+            if not is_safe_url($URL):
+              ...
+            ...
+      - pattern-not-inside: |
+          def $FUNC(..., $URL, ...):
+            ...
+            socket.getaddrinfo(...)
+            ...
+      - pattern-not-inside: |
+          def $FUNC(..., $URL, ...):
+            ...
+            return safe_fetch($URL, ...)
+
+  - id: PY-FWK-GLOB-UNCONFINED-MATCH-001
+    message: >
+      A glob result is used after an is_file check without verifying that the
+      resolved target remains under the trusted root. Glob parent components
+      and symlinks can expose files outside the intended directory. Resolve
+      each match and enforce path-segment containment before using it.
+    severity: WARNING
+    languages: [python]
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "**/test_*.py"
+        - "**/integration_tests/**"
+        - "**/unit_tests/**"
+        - "**/.ci/**"
+    metadata:
+      cwe: [22, 59]
+      category: path_traversal
+      fix: "Reject parent/absolute glob patterns and check every resolved match with Path.is_relative_to on the resolved root."
+    patterns:
+      - pattern: |
+          for $MATCH in $BASE.glob($PATTERN):
+            ...
+            if $MATCH.is_file():
+              ...
+
+  - id: PY-FWK-RAW-PATH-PREFIX-001
+    message: >
+      A path authorization check compares raw string prefixes. A sibling path
+      with the same leading characters can pass. Compare resolved path segments
+      or require the exact prefix or a slash-delimited descendant.
+    severity: WARNING
+    languages: [python]
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "**/test_*.py"
+        - "**/integration_tests/**"
+        - "**/unit_tests/**"
+    metadata:
+      cwe: [22]
+      category: path_traversal
+      fix: "Use resolved Path.is_relative_to(root), or compare exact prefix and prefix + '/' boundaries."
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern: any($PATH.startswith($PREFIX) for $PREFIX in $PREFIXES)
+              - metavariable-regex:
+                  metavariable: $PREFIXES
+                  regex: ^(?:self\.)?allowed_prefixes$
+          - patterns:
+              - pattern: any($PATH.startswith($PREFIX) or $PATH == $PREFIX.rstrip("/") for $PREFIX in $PREFIXES)
+              - metavariable-regex:
+                  metavariable: $PREFIXES
+                  regex: ^(?:self\.)?allowed_prefixes$

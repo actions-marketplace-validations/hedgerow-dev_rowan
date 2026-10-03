@@ -1,0 +1,220 @@
+# Guardrail enforcement rules (issue #186, epic #183).
+#
+# Everything else in the AI corpus asks "is there a dangerous flow?". These
+# three ask the inverse question -- "a guardrail was CALLED, but is its verdict
+# actually acted on?" -- which is the same structural inversion `AuthzPass`
+# (#169) applies to authorization: we are detecting *absent* enforcement, not a
+# present sink.
+#
+# Why these live in a `*_opengrep.yaml` file rather than alongside the ns-aiml-* regex
+# rules in ai_security.yaml: the NeuroScan engine matches line-by-line
+# (rowan/core/rules.py), and every property here spans statements -- a
+# try/except body, an if-branch and whether any path out of it terminates. The
+# ns-aiml-* ID prefix is kept because these belong to that category for
+# reporting and triage purposes.
+#
+# Motivating defect: DEF-43 (see BACKLOG.md). `TNT-AIML-004` treated
+# `moderation`/`content_filter`/`prompt_guard`/`LlamaGuard` as taint sanitizers,
+# which is unsound in principle -- a guardrail that returns a *verdict* does not
+# transform the value, so no dataflow rule can tell an enforced verdict from an
+# ignored one. That property is control flow, and it is what these rules cover.
+#
+# Guard-call vocabulary is expressed as a `metavariable-regex` on the callee
+# rather than an enumerated `pattern-either`. The multi-statement templates
+# below would otherwise multiply (guard shapes x exclusion variants) into
+# something unreviewable, and the regex form picks up house-named wrappers
+# (`check_prompt_safety`, `run_moderation`) that an enumeration never would.
+
+rules:
+  # ---------------------------------------------------------------------------
+  # ns-aiml-156: guardrail result discarded
+  # ---------------------------------------------------------------------------
+  - id: ns-aiml-156
+    name: Guardrail called but its result is discarded
+    message: >
+      A content-moderation / prompt-injection guardrail is invoked as a bare
+      expression statement -- its return value is never bound, returned, or
+      tested. The call costs a round-trip and appears in review as a safety
+      control, but nothing branches on the verdict, so a flagged prompt reaches
+      the model exactly as an unflagged one does. Bind the result and act on it
+      (see ns-aiml-158 for the "checked but not enforced" case).
+      Engine limitation: this detects a result that is never BOUND. A result
+      assigned to a variable that is then never read is not caught here --
+      Opengrep has no liveness analysis -- so a `result = guard(...)` with no
+      subsequent use of `result` is a known residual gap.
+    severity: WARNING
+    languages: [python]
+    patterns:
+      - pattern: $GUARD(...)
+      - metavariable-regex:
+          metavariable: $GUARD
+          # Anchored on the guardrail vocabulary: OpenAI moderations, Llama
+          # Guard, Guardrails AI, NeMo Guardrails, LLM Guard, plus the
+          # house-named wrappers those APIs are usually hidden behind.
+          regex: (?i).*(moderat|content_filter|\bguard\b|prompt_guard|llama_?guard|guardrail|llm_guard|scan_prompt|prompt_injection|jailbreak|toxicity|safety_check|check_safety)
+      # A result that IS consumed is not this rule's concern. These must be
+      # `pattern-not-inside` rather than `pattern-not`: the match above is the
+      # call node, while an assignment/return is a strictly larger node, and a
+      # `pattern-not` whose range doesn't contain the match never excludes
+      # anything (DEF-8).
+      - pattern-not-inside: $R = $GUARD(...)
+      - pattern-not-inside: return $GUARD(...)
+      - pattern-not-inside: |
+          if <... $GUARD(...) ...>:
+              ...
+      # A discarded call inside try/except is ns-aiml-157's finding; excluding
+      # it here keeps the two from double-reporting the same line (DEF-10).
+      - pattern-not-inside: |
+          try:
+              ...
+          except ...:
+              ...
+    metadata:
+      mode: opengrep
+      cwe: [754]
+      category: ai_ml
+      fix: "Bind the guardrail's return value and branch on it, terminating the request on a flagged verdict: `result = client.moderations.create(input=text)` then `if result.results[0].flagged: raise HTTPException(400)`. A guardrail whose verdict is discarded provides no protection at all."
+      references:
+        - https://github.com/hedgerow-dev/rowan/issues/186
+
+  # ---------------------------------------------------------------------------
+  # ns-aiml-157: guardrail fails open
+  # ---------------------------------------------------------------------------
+  - id: ns-aiml-157
+    name: Guardrail wrapped in a try/except that fails open
+    message: >
+      A guardrail call sits inside a try/except whose handler neither raises nor
+      returns -- it swallows the exception (`pass`), or only logs, and execution
+      continues to the model call. Every way the guard can fail (provider
+      outage, rate limit, timeout, malformed response) therefore becomes an
+      automatic allow. This is the standard fail-open shape and it is reachable
+      by an attacker who can induce a guard error, not merely by bad luck.
+      Guardrails must fail CLOSED: on error, block.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern: |
+          try:
+              ...
+              $GUARD(...)
+              ...
+          except ...:
+              ...
+      - metavariable-regex:
+          metavariable: $GUARD
+          regex: (?i).*(moderat|content_filter|\bguard\b|prompt_guard|llama_?guard|guardrail|llm_guard|scan_prompt|prompt_injection|jailbreak|toxicity|safety_check|check_safety)
+      # A handler that re-raises or returns is failing closed -- correct.
+      # `raise` and `raise ...` are distinct patterns: a bare re-raise has no
+      # argument and is not matched by `raise ...`.
+      - pattern-not: |
+          try:
+              ...
+          except ...:
+              ...
+              raise
+      - pattern-not: |
+          try:
+              ...
+          except ...:
+              ...
+              raise ...
+      - pattern-not: |
+          try:
+              ...
+          except ...:
+              ...
+              return
+      - pattern-not: |
+          try:
+              ...
+          except ...:
+              ...
+              return ...
+      - pattern-not: |
+          try:
+              ...
+          except ...:
+              ...
+              sys.exit(...)
+      - pattern-not: |
+          try:
+              ...
+          except ...:
+              ...
+              abort(...)
+    metadata:
+      mode: opengrep
+      cwe: [636, 754]
+      category: ai_ml
+      fix: "Fail closed: the exception handler must stop the request rather than fall through to the model call. Replace `except Exception: pass` with `except Exception: raise HTTPException(503, 'safety check unavailable')`, or return a refusal. If degraded-mode operation is a deliberate product decision, make it explicit and rate-limited rather than an empty handler."
+      references:
+        - https://github.com/hedgerow-dev/rowan/issues/186
+
+  # ---------------------------------------------------------------------------
+  # ns-aiml-158: guardrail verdict checked but not enforced
+  # ---------------------------------------------------------------------------
+  - id: ns-aiml-158
+    name: Guardrail verdict checked but never enforced
+    message: >
+      A guardrail's result is bound and tested in a conditional, but no path out
+      of that branch terminates the request -- the branch only logs, increments
+      a metric, or falls through, and execution continues to the model call. The
+      verdict is observed and then ignored, which reads as enforcement in review
+      while behaving identically to having no guardrail.
+      Engine limitation: only single-target assignments are matched. A guard
+      whose API returns a tuple (`sanitized, results, score = scan_prompt(q)`,
+      LLM Guard's documented shape) is a known residual gap.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern: |
+          $R = $GUARD(...)
+          ...
+          if <... $R ...>:
+              ...
+      - metavariable-regex:
+          metavariable: $GUARD
+          regex: (?i).*(moderat|content_filter|\bguard\b|prompt_guard|llama_?guard|guardrail|llm_guard|scan_prompt|prompt_injection|jailbreak|toxicity|safety_check|check_safety)
+      - pattern-not: |
+          $R = $GUARD(...)
+          ...
+          if <... $R ...>:
+              ...
+              raise
+      - pattern-not: |
+          $R = $GUARD(...)
+          ...
+          if <... $R ...>:
+              ...
+              raise ...
+      - pattern-not: |
+          $R = $GUARD(...)
+          ...
+          if <... $R ...>:
+              ...
+              return
+      - pattern-not: |
+          $R = $GUARD(...)
+          ...
+          if <... $R ...>:
+              ...
+              return ...
+      - pattern-not: |
+          $R = $GUARD(...)
+          ...
+          if <... $R ...>:
+              ...
+              abort(...)
+      - pattern-not: |
+          $R = $GUARD(...)
+          ...
+          if <... $R ...>:
+              ...
+              sys.exit(...)
+    metadata:
+      mode: opengrep
+      cwe: [754, 390]
+      category: ai_ml
+      fix: "Make the flagged branch terminate: `raise`, `return` a refusal, or `abort()`. Logging or emitting a metric on a flagged prompt and then continuing to the model call is equivalent to not checking at all."
+      references:
+        - https://github.com/hedgerow-dev/rowan/issues/186

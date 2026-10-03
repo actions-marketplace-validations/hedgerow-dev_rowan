@@ -1,0 +1,314 @@
+rules:
+  - id: tnt-ja-ai-toolexec-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A parameter of an LLM tool method (@Tool) flows into a command execution call.
+      The model chooses the argument value, so whoever controls the prompt (a user,
+      a retrieved document, a tool result) controls the command that runs.
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      confidence: HIGH
+      category: security
+      source_kind: tool_param
+      fix: "Do not expose a shell to the model. If a command tool is required, allowlist the executable and pass model-chosen values as separate ProcessBuilder arguments, never through `sh -c` or a shell-interpolated string."
+    pattern-sources:
+      # rowan-registry:begin source=llm_tool_param_java
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @Tool
+                      $RET $METHOD(..., $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @Tool(...)
+                      $RET $METHOD(..., $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @ToolParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @ToolParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $REQ
+                  - pattern-inside: |
+                      $RESP apply($REQT $REQ) {
+                        ...
+                      }
+                  - pattern-inside: |
+                      class $CLS implements Function<$A, $B> {
+                        ...
+                      }
+      # rowan-registry:end source=llm_tool_param_java
+    pattern-sinks:
+      - pattern: Runtime.getRuntime().exec(...)
+      - pattern: new ProcessBuilder(...)
+      - pattern: ProcessBuilder(...)
+      - pattern: (ProcessBuilder $PB).command(...)
+    pattern-sanitizers:
+      - pattern: StringUtils.isAlphanumeric(...)
+
+  - id: tnt-ja-ai-toolpath-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A parameter of an LLM tool method (@Tool) flows into a filesystem path.
+      The model chooses the argument value, so whoever controls the prompt (a user,
+      a retrieved document, a tool result) can pick the file that is read or written.
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+      confidence: HIGH
+      category: security
+      source_kind: tool_param
+      fix: "Resolve the model-chosen name under a fixed base directory with Path.normalize() and reject the result unless it still startsWith the base's real path, or use FilenameUtils.getName() to discard directory components entirely."
+    pattern-sources:
+      # rowan-registry:begin source=llm_tool_param_java
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @Tool
+                      $RET $METHOD(..., $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @Tool(...)
+                      $RET $METHOD(..., $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @ToolParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @ToolParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $REQ
+                  - pattern-inside: |
+                      $RESP apply($REQT $REQ) {
+                        ...
+                      }
+                  - pattern-inside: |
+                      class $CLS implements Function<$A, $B> {
+                        ...
+                      }
+      # rowan-registry:end source=llm_tool_param_java
+    pattern-sinks:
+      - pattern: new File(...)
+      - pattern: Paths.get(...)
+      - pattern: Files.readAllBytes(...)
+      - pattern: Files.readString(...)
+      # Only the path argument: the bytes/text being written are not a path.
+      - patterns:
+          - pattern: Files.write($PATH, ...)
+          - focus-metavariable: $PATH
+      - patterns:
+          - pattern: Files.writeString($PATH, ...)
+          - focus-metavariable: $PATH
+      - pattern: (Path $P).resolve(...)
+      - pattern: Paths.get(...).resolve(...)
+      - pattern: new FileInputStream(...)
+      - pattern: new FileOutputStream(...)
+      - pattern: new FileReader(...)
+      - pattern: new FileWriter(...)
+      # hutool (common in Chinese Spring AI apps: yu-ai-agent, aideepin).
+      - pattern: FileUtil.readUtf8String(...)
+      - pattern: FileUtil.readBytes(...)
+      - patterns:
+          - pattern: FileUtil.writeUtf8String($CONTENT, $PATH)
+          - focus-metavariable: $PATH
+      - patterns:
+          - pattern: FileUtil.writeBytes($CONTENT, $PATH)
+          - focus-metavariable: $PATH
+    pattern-sanitizers:
+      - pattern: FilenameUtils.getName(...)
+      - pattern: (String $S).replace("..", "")
+
+  - id: tnt-ja-ai-toolsql-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A parameter of an LLM tool method (@Tool) flows into SQL query text without
+      parameterization. The model chooses the argument value, so whoever controls the
+      prompt (a user, a retrieved document, a tool result) controls the query.
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      confidence: HIGH
+      category: security
+      source_kind: tool_param
+      fix: "Keep the SQL text constant and bind the model-chosen value as a parameter (PreparedStatement setString/setInt, or JdbcTemplate's args parameter), or route the tool through a typed repository method instead of raw SQL."
+    pattern-sources:
+      # rowan-registry:begin source=llm_tool_param_java
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @Tool
+                      $RET $METHOD(..., $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @Tool(...)
+                      $RET $METHOD(..., $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @ToolParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @ToolParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $REQ
+                  - pattern-inside: |
+                      $RESP apply($REQT $REQ) {
+                        ...
+                      }
+                  - pattern-inside: |
+                      class $CLS implements Function<$A, $B> {
+                        ...
+                      }
+      # rowan-registry:end source=llm_tool_param_java
+    pattern-sinks:
+      - pattern: (Statement $S).executeQuery(...)
+      - pattern: (Statement $S).executeUpdate(...)
+      - pattern: (Statement $S).execute(...)
+      - pattern: (Connection $C).prepareStatement(...)
+      - pattern: $C.prepareStatement(...)
+      - pattern: $C.createStatement().executeQuery(...)
+      - pattern: $C.createStatement().executeUpdate(...)
+      - pattern: $C.createStatement().execute(...)
+      - pattern: $EM.createQuery(...)
+      # JdbcTemplate: only the SQL-text argument is a sink, so a constant query
+      # with the tool parameter bound through `args` does not fire.
+      - patterns:
+          - pattern: (JdbcTemplate $J).$METHOD($SQL, ...)
+          - metavariable-regex:
+              metavariable: $METHOD
+              regex: ^(query|queryForList|queryForObject|queryForMap|queryForRowSet|update|execute|batchUpdate)$
+          - focus-metavariable: $SQL
+    pattern-sanitizers:
+      - pattern: (PreparedStatement $PS).setString(...)
+      - pattern: (PreparedStatement $PS).setInt(...)
+      - pattern: Integer.parseInt(...)
+      - pattern: Long.parseLong(...)
+
+  - id: tnt-ja-ai-toolssrf-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A parameter of an LLM tool method (@Tool) flows into an outbound HTTP request
+      URL. The model chooses the argument value, so whoever controls the prompt (a
+      user, a retrieved document, a tool result) can point the server at internal
+      hosts or metadata endpoints.
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery (SSRF)"
+      confidence: HIGH
+      category: security
+      source_kind: tool_param
+      fix: "Validate the model-chosen destination host against an explicit allowlist of permitted domains/IPs before making the request, and block private and link-local ranges."
+    pattern-sources:
+      # rowan-registry:begin source=llm_tool_param_java
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @Tool
+                      $RET $METHOD(..., $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @Tool(...)
+                      $RET $METHOD(..., $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @ToolParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @ToolParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $REQ
+                  - pattern-inside: |
+                      $RESP apply($REQT $REQ) {
+                        ...
+                      }
+                  - pattern-inside: |
+                      class $CLS implements Function<$A, $B> {
+                        ...
+                      }
+      # rowan-registry:end source=llm_tool_param_java
+    pattern-sinks:
+      - pattern: new URL(...)
+      - pattern: URI.create(...)
+      - pattern: (RestTemplate $RT).getForObject(...)
+      # Only the URL argument: a tool value in the body, headers or uriVariables
+      # (URL-encoded on expansion) does not choose the destination host.
+      - patterns:
+          - pattern: (RestTemplate $RT).$METHOD($URL, ...)
+          - metavariable-regex:
+              metavariable: $METHOD
+              regex: ^(getForEntity|postForObject|postForEntity|exchange|put|delete)$
+          - focus-metavariable: $URL
+      - pattern: (WebClient $WC).get()
+      - pattern: (WebClient $WC). ... .uri(...)
+      - pattern: Jsoup.connect(...)
+      - pattern: HttpRequest.newBuilder(...)
+      - pattern: (HttpClient $HC).send(...)
+      - pattern: (HttpClient $HC).sendAsync(...)
+      # hutool (common in Chinese Spring AI apps: yu-ai-agent, aideepin).
+      - patterns:
+          - pattern: HttpUtil.$METHOD($URL, ...)
+          - metavariable-regex:
+              metavariable: $METHOD
+              regex: ^(get|post|downloadFile|downloadString|downloadBytes)$
+          - focus-metavariable: $URL

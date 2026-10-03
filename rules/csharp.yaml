@@ -1,0 +1,191 @@
+# C# / .NET Security Rules
+rules:
+
+  - id: CS-INJECT-001
+    name: Process.Start command injection
+    severity: high
+    category: command_injection
+    cwe: [78]
+    languages: [csharp]
+    patterns:
+      - 'Process\.Start\s*\('
+    pattern-not:
+      - 'UseShellExecute\s*=\s*false'
+      - '(?m)^\s*//.*'
+    message: |
+      Process.Start() with shell execution is a command injection sink.
+      Use ProcessStartInfo with UseShellExecute=false and argument array.
+
+  - id: CS-INJECT-002
+    name: SQL injection via string concat
+    severity: high
+    category: injection
+    cwe: [89]
+    languages: [csharp]
+    patterns:
+      - 'SqlCommand\(.*\+'
+      - '\.CommandText\s*=.*\+'
+    pattern-not:
+      - 'SqlParameter\b'
+      - '\.Parameters\.Add\('
+      - '(?m)^\s*//.*'
+    message: |
+      SQL query constructed via string concatenation. Use SqlParameter
+      with @param placeholders for parameterized queries.
+
+  - id: CS-DESER-001
+    name: Unsafe binary deserialization
+    severity: critical
+    category: deserialization
+    cwe: [502]
+    fix: "Avoid BinaryFormatter/insecure deserializers on untrusted data; use System.Text.Json or a restricted XmlSerializer with a known target type."
+    languages: [csharp]
+    patterns:
+      - 'BinaryFormatter.*\.Deserialize\s*\('
+      - 'NetDataContractSerializer.*\.Deserialize\s*\('
+      - 'LosFormatter.*\.Deserialize\s*\('
+      # Construction and Deserialize commonly occur on separate lines.
+      # These formatter types are themselves obsolete unsafe serializers;
+      # detecting construction avoids depending on a same-line variable name.
+      - 'new\s+BinaryFormatter\s*\('
+      - 'new\s+NetDataContractSerializer\s*\('
+      - 'new\s+LosFormatter\s*\('
+    pattern-not:
+      - '(?m)^\s*//.*'
+    message: |
+      Unsafe binary deserialization. Known RCE gadget. Use System.Text.Json
+      or XmlSerializer with type whitelist.
+
+  - id: CS-XXE-001
+    name: XML parser without DTD protection
+    severity: high
+    category: injection
+    cwe: [611]
+    languages: [csharp]
+    patterns:
+      - 'new\s+XmlDocument\s*\(\s*\)'
+      - 'XDocument\.(Load|Parse)\s*\('
+    pattern-not:
+      - 'DtdProcessing\.(Prohibit|Ignore)'
+      - '(?m)^\s*//.*'
+    message: |
+      XML parser without DTD processing disabled. XXE risk. Set
+      XmlReaderSettings.DtdProcessing = DtdProcessing.Prohibit.
+
+  - id: CS-CRYPTO-001
+    name: Weak hash algorithm
+    severity: medium
+    category: crypto
+    cwe: [328]
+    languages: [csharp]
+    patterns:
+      - '(MD5|SHA1|SHA1Managed)\.Create\s*\('
+    pattern-not:
+      - '(?m)^\s*//.*'
+    message: |
+      MD5 and SHA1 are cryptographically broken. Use SHA256.Create().
+
+  - id: CS-CRYPTO-002
+    name: System.Random for security
+    severity: medium
+    category: crypto
+    cwe: [330]
+    languages: [csharp]
+    patterns:
+      - 'new\s+Random\s*\('
+    pattern-not:
+      - 'RNGCryptoServiceProvider'
+      - 'RandomNumberGenerator\.'
+      - '(?m)^\s*//.*'
+    message: |
+      System.Random is predictable. Use RNGCryptoServiceProvider or
+      RandomNumberGenerator for cryptographic contexts.
+
+  - id: CS-XSS-001
+    name: Response.Write XSS
+    severity: high
+    category: xss
+    cwe: [79]
+    languages: [csharp]
+    patterns:
+      - 'Response\.Write\s*\('
+    pattern-not:
+      - 'HttpUtility\.HtmlEncode\s*\('
+      - 'Server\.HtmlEncode\s*\('
+      - '(?m)^\s*//.*'
+    message: |
+      Response.Write() with unsanitized input is reflected XSS. Use
+      HttpUtility.HtmlEncode() or Razor auto-escaping.
+
+  - id: CS-PATH-001
+    name: User-controlled file path
+    severity: high
+    category: path_traversal
+    cwe: [22]
+    languages: [csharp]
+    # DEF-27: `.*Request`/`.*User` matched those words as a SUBSTRING
+    # anywhere after the file API call, not as a standalone identifier.
+    # Confirmed on a real corpus scan (jellyfin): 3/5 fires were
+    # `UserConfigurationDirectoryPath` (an internal, hardcoded config
+    # path property -- "User" is a substring of a longer compound name,
+    # not a reference to request/user-supplied data) and
+    # `m.RequestUri` (System.Net.Http.HttpRequestMessage's property, used
+    # in test-mock HTTP responses -- "Request" is a substring of
+    # "RequestUri", an unrelated .NET networking API). `\b` word
+    # boundaries require "Request"/"User" to appear as a standalone
+    # token, matching genuine references like `Request.QueryString[...]`
+    # or `HttpContext.User...` while excluding compound identifiers.
+    patterns:
+      - '(File\.(Open|ReadAllBytes|ReadAllText|WriteAllBytes|WriteAllText)|Path\.Combine)\(.*\bRequest\b'
+      - '(File\.(Open|ReadAllBytes|ReadAllText)|Path\.Combine)\(.*\bUser\b'
+    pattern-not:
+      - '(?m)^\s*//.*'
+    message: |
+      User-controlled filesystem path. Sanitize with Path.GetFullPath()
+      and validate root directory.
+
+  - id: CS-SSRF-001
+    name: Unvalidated outbound HTTP
+    severity: high
+    category: ssrf
+    cwe: [918]
+    languages: [csharp]
+    patterns:
+      - 'HttpClient\.(Get|Post|Put)\w*\s*\('
+      - 'WebRequest\.Create\s*\('
+    pattern-not:
+      - '(?m)^\s*//.*'
+    message: |
+      Outbound HTTP with user-controlled URL enables SSRF. Validate
+      destination against allowlist before making requests.
+
+  - id: CS-CONFIG-001
+    name: HttpClient without timeout
+    severity: low
+    category: config
+    cwe: [400]
+    languages: [csharp]
+    patterns:
+      - 'new\s+HttpClient\s*\(\s*\)'
+    pattern-not:
+      - '\.Timeout\s*='
+      - 'IHttpClientFactory\.CreateClient\s*\('
+      - '(?m)^\s*//.*'
+    message: |
+      HttpClient without timeout can hang indefinitely. Use
+      IHttpClientFactory and set a timeout.
+
+  - id: CS-INJECT-003
+    name: LDAP injection
+    severity: medium
+    category: injection
+    cwe: [90]
+    languages: [csharp]
+    patterns:
+      - 'DirectorySearcher\s*\(.*\+'
+      - 'DirectoryEntry\s*\(.*\+'
+    pattern-not:
+      - '(?m)^\s*//.*'
+    message: |
+      LDAP filter built from user input enables LDAP injection.
+      Escape special characters: * ( ) \ & |.

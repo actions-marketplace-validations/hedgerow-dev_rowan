@@ -1,0 +1,70 @@
+# Server-rendered template rules (issue #268).
+#
+# Template files were never opened before this file existed -- the language
+# maps had no html/jinja entry -- so the entire "escaping was turned off in
+# the template" class was invisible regardless of how good the Python-side
+# taint analysis was.
+#
+# These are `languages: [html]`, a pseudo-language: opengrep has no html
+# language id, so the converter emits `languages: [generic]` plus a
+# paths.include glob list (same mechanism as markdown/ai_instructions).
+# Generic mode is regex over text, so there is no dataflow here and every
+# finding is pattern-only by construction -- which is exactly what the
+# messages claim. The dataflow half of this class lives in the Python-side
+# TNT-XSS-002 (mark_safe/format_html sinks) in web_taint.yaml.
+#
+# Deliberately NOT included: a rule for `{{ variable }}` inside <script>.
+# Every template with any JS templating fires it, the escaping context is
+# undecidable from the template alone, and the result would be exactly the
+# evidence-free noise the evidence-tier work exists to stop.
+
+rules:
+  - id: NS-TPL-001
+    name: Jinja autoescape disabled
+    severity: high
+    category: xss
+    cwe: [79]
+    languages: [html]
+    patterns:
+      - '\{%-?\s*autoescape\s+(?:false|off)\s*-?%\}'
+    message: |
+      Autoescaping is switched off for this block, so any variable rendered
+      inside it is written to the page unescaped. Anything reaching those
+      variables from user input is stored or reflected XSS.
+    fix: "Remove the autoescape block and escape the specific value you meant to trust with |safe, rather than disabling escaping for the whole block."
+
+  - id: NS-TPL-002
+    name: Template value rendered unescaped
+    severity: medium
+    category: xss
+    cwe: [79]
+    languages: [html]
+    patterns:
+      # Jinja/Django |safe, Jinja's Markup-equivalent |escape bypasses, and
+      # Django's {% autoescape off %} sibling filter.
+      - '\{\{[^}]*\|\s*safe\s*\}\}'
+      - '\{\{[^}]*\|\s*safeseq\s*\}\}'
+    pattern-not:
+      # A literal filter chain ending in escape/forceescape is explicit and
+      # safe; so is a comment.
+      - '\|\s*(?:escape|force_escape|e)\b'
+      - '(?m)^\s*(?:\{#|<!--)'
+    message: |
+      This value is rendered with escaping bypassed (|safe). The filter is
+      correct only when the value is HTML the application itself built. If
+      any part of it comes from user input, this is XSS. Whether it does is
+      not decidable from the template alone -- verify the source.
+    fix: "Drop the |safe filter, or sanitize the value with bleach.clean() (or the framework's sanitizer) before it reaches the template."
+
+  - id: NS-TPL-003
+    name: Django csrf_token exempted in template form
+    severity: medium
+    category: auth
+    cwe: [352]
+    languages: [html]
+    patterns:
+      - '\{%-?\s*csrf_exempt\s*-?%\}'
+    message: |
+      CSRF protection is disabled for this form. A cross-origin page can
+      submit it on behalf of a logged-in user.
+    fix: "Remove the exemption and include {% csrf_token %} in the form."

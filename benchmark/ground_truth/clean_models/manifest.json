@@ -1,0 +1,61 @@
+{
+  "description": "Real, small, popular, known-good model files, verified by SHA-256. Expected MFV scan result for every entry: 0 findings. Not committed to git -- run `scripts/fetch_clean_models.py` to download into cache/ before running the benchmark.",
+  "notes": {
+    "why_pickle_entries_exist": "The safetensors entries cannot exercise the pickle engine at all -- safetensors has no opcode stream. Measuring the false-positive rate of MFV-PICKLE-004/005 (the unknown-global bucket and its argument-evidence re-triage) requires real, benign, pickle-format weights, which is what the pytorch_model.bin entries below provide. Filenames are kept exactly as HuggingFace serves them; renaming a .bin to .pt would make it scannable and thereby hide a real coverage gap (see known_gaps).",
+    "known_gaps": [
+      ".bin is not in ModelFileScanner._format_map, so scan_file() returns [] for the three zip-format entries below without reading a byte. pytorch_model.bin is the most common PyTorch weight filename on HuggingFace. These entries currently measure nothing and are here to make that measurable.",
+      "sshleifer/tiny-gpt2 is in torch's LEGACY (non-zip) save format: several concatenated pickles, where the real state_dict is pickle #4. _resolve_pickle_globals walks via pickletools.genops, which stops at the first STOP opcode, so only the 14-byte magic-number pickle is examined -- 0.0006% of the file."
+    ]
+  },
+  "models": [
+    {
+      "name": "hf-internal-testing/tiny-random-bert",
+      "format": "safetensors",
+      "url": "https://huggingface.co/hf-internal-testing/tiny-random-bert/resolve/main/model.safetensors",
+      "sha256": "965f02b6a7e5520fc12f710e4e3b6132f697f1c8f648819553c5ade86752d2de",
+      "cache_filename": "tiny-random-bert.safetensors"
+    },
+    {
+      "name": "hf-internal-testing/tiny-random-gpt2",
+      "format": "safetensors",
+      "url": "https://huggingface.co/hf-internal-testing/tiny-random-gpt2/resolve/main/model.safetensors",
+      "sha256": "8111d5afb0715dbf5a31396d31432cb56370ba23f6650a035ea0fc8a20b4e500",
+      "cache_filename": "tiny-random-gpt2.safetensors"
+    },
+    {
+      "name": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+      "format": "safetensors",
+      "url": "https://huggingface.co/hf-internal-testing/tiny-random-LlamaForCausalLM/resolve/main/model.safetensors",
+      "sha256": "49c20f32c6c597480fcaec5df2f86c645eabea765cbea1e67886dbae45e5c992",
+      "cache_filename": "tiny-random-llama.safetensors"
+    },
+    {
+      "name": "hf-internal-testing/tiny-random-bert (pickle)",
+      "format": "pickle-zip",
+      "url": "https://huggingface.co/hf-internal-testing/tiny-random-bert/resolve/main/pytorch_model.bin",
+      "sha256": "9922e8996d0c7e24c7f4e7a5d9c5b7303549f4ee94de0f1138b103014b51be13",
+      "cache_filename": "tiny-random-bert.pytorch_model.bin"
+    },
+    {
+      "name": "hf-internal-testing/tiny-random-t5 (pickle)",
+      "format": "pickle-zip",
+      "url": "https://huggingface.co/hf-internal-testing/tiny-random-t5/resolve/main/pytorch_model.bin",
+      "sha256": "ee24a75c56a0f32c871229a719e24cdb57e56a879dd3cff15bbd478b70073bdc",
+      "cache_filename": "tiny-random-t5.pytorch_model.bin"
+    },
+    {
+      "name": "hf-internal-testing/tiny-random-distilbert (pickle)",
+      "format": "pickle-zip",
+      "url": "https://huggingface.co/hf-internal-testing/tiny-random-distilbert/resolve/main/pytorch_model.bin",
+      "sha256": "41b67d400d12ed556232eef03bcf9b49b60859c27ff206c043225e141305fdb6",
+      "cache_filename": "tiny-random-distilbert.pytorch_model.bin"
+    },
+    {
+      "name": "sshleifer/tiny-gpt2 (pickle, legacy non-zip)",
+      "format": "pickle-legacy",
+      "url": "https://huggingface.co/sshleifer/tiny-gpt2/resolve/main/pytorch_model.bin",
+      "sha256": "b706b24034032bdfe765ded5ab6403d201d295a995b790cb24c74becca5c04e6",
+      "cache_filename": "sshleifer-tiny-gpt2.pytorch_model.bin"
+    }
+  ]
+}

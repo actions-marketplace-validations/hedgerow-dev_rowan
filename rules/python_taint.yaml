@@ -1,0 +1,505 @@
+# Python-specific taint rules: ported from Rowan's PY-TAINT rule knowledge
+# These cover vulnerability classes beyond the core AI/ML + web taint sets.
+
+rules:
+
+  # ---------------------------------------------------------------------------
+  # Log Injection (Rowan PY-TAINT-010, CWE-117)
+  # ---------------------------------------------------------------------------
+  - id: TNT-LOG-001
+    mode: taint
+    message: >
+      User input flows to a log statement without newline sanitization.
+      Attackers can inject fake log entries to obscure audit trails
+      or exploit log viewers vulnerable to log forging.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [117]
+      category: injection
+      fix: "Strip or encode newline/CR characters before writing user input to a log entry, so a single log line can't be forged."
+    pattern-sources:
+      # rowan-registry:begin source=web_request
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=web_request
+
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: logging.debug(...)
+              - pattern: logging.info(...)
+              - pattern: logging.warning(...)
+              - pattern: logging.warn(...)
+              - pattern: logging.error(...)
+              - pattern: logging.critical(...)
+              - pattern: logging.exception(...)
+              - pattern: logging.log(...)
+              - pattern: $LOGGER.debug(...)
+              - pattern: $LOGGER.info(...)
+              - pattern: $LOGGER.warning(...)
+              - pattern: $LOGGER.error(...)
+              - pattern: $LOGGER.critical(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              # Single-quoted YAML (no escape processing) so this matches a
+              # real newline/CR escape in the target source, e.g.
+              # `val.replace("\n", "")`. The previous double-quoted
+              # "\\n"/"\\r" spelling YAML-unescaped to a literal 2-character
+              # backslash-n/backslash-r, which only matched the unusual
+              # already-double-escaped case and silently never matched the
+              # normal `.replace("\n", "")` idiom at all -- confirmed
+              # empirically (see docs/taint-sanitizer-audit.md). C#'s
+              # `$S.Replace("\n", "")` and Java's `(String $S).replace("\n",
+              # "")` already use the correct single-backslash form.
+              - pattern: '$STR.replace(''\n'', ...)'
+              - pattern: '$STR.replace(''\r'', ...)'
+              - pattern: repr(...)
+              - pattern: json.dumps(...)
+              # NOT re.sub(...): its neutralizing effect depends entirely on
+              # caller-supplied regex/replacement args, which this pattern
+              # doesn't pin down -- re.sub(r"foo", "bar", tainted_val) clears
+              # taint here even though it does nothing to remove \n/\r.
+              # Confirmed empirically: an equivalent rule produced 0 findings
+              # for `val = re.sub(r"foo","bar",val); logging.info(val)`
+              # despite the newline payload passing through untouched. See
+              # docs/taint-sanitizer-audit.md.
+              #
+              # NOT $STR.strip(): only trims leading/trailing whitespace, not
+              # an embedded newline (the actual log-forging shape, e.g.
+              # "x\nFAKE: admin logged in"). Confirmed empirically the same
+              # way -- 0 findings for `val = val.strip(); logging.info(val)`
+              # with an embedded-newline payload.
+
+  # ---------------------------------------------------------------------------
+  # Header / CRLF Injection (Rowan PY-TAINT-011, CWE-113)
+  # ---------------------------------------------------------------------------
+  - id: TNT-HEADER-001
+    mode: taint
+    message: >
+      User input flows to an HTTP response header without CRLF sanitization.
+      Attackers can inject additional headers or split the response to perform
+      cache poisoning, cookie injection, or open redirect attacks.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [113]
+      category: injection
+      fix: "Reject or strip CR/LF characters from values written into HTTP response headers before setting them."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.form.get(...)
+              - pattern: request.json.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.POST.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: input(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: response.headers[$KEY] = $VAL
+              - pattern: $RESP.headers[$KEY] = $VAL
+              - pattern: set_header(...)
+              - pattern: add_header(...)
+      # Cookie APIs accept a name and a value. Only the value can inject
+      # response-header bytes; taint in the name or an unrelated option must
+      # not satisfy this sink.
+      - patterns:
+          - pattern-either:
+              - pattern: $RESP.set_cookie($KEY, $VAL, ...)
+              - pattern: $RESP.set_cookie(key=$KEY, value=$VAL, ...)
+          - focus-metavariable: $VAL
+      # Flask accepts response headers as the final element of a response
+      # tuple. Focus taint on that element, never on the response body.
+      - patterns:
+          - pattern: make_response($BODY, $STATUS, $HEADERS)
+          - focus-metavariable: $HEADERS
+      - patterns:
+          - pattern: make_response(($BODY, $STATUS, $HEADERS))
+          - focus-metavariable: $HEADERS
+      - patterns:
+          - pattern: make_response(($BODY, $HEADERS))
+          - focus-metavariable: $HEADERS
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $STR.replace("\r\n", ...)
+              - pattern: urlparse(...)
+              - pattern: url_for(...)
+              - pattern: is_safe_url(...)
+              - pattern: validate_redirect(...)
+              # These encoders produce restricted-alphabet values with no
+              # literal CR/LF bytes. This is specific to header injection;
+              # signature verification or generic parsing is not a sanitizer.
+              - pattern: jwt.encode(...)
+              - pattern: base64.urlsafe_b64encode(...)
+              - pattern: urlsafe_b64encode(...)
+
+  # ---------------------------------------------------------------------------
+  # LDAP Injection (Rowan PY-TAINT-012, CWE-90)
+  # ---------------------------------------------------------------------------
+  - id: TNT-LDAP-001
+    mode: taint
+    message: >
+      User input flows to an LDAP search filter or DN without escaping.
+      Attackers can manipulate the filter to bypass authentication or
+      retrieve unauthorized directory entries.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [90]
+      category: injection
+      fix: "Escape LDAP special characters in filters/DNs with a dedicated escaping helper (e.g. ldap3's escape_filter_chars), or use a parameterized query API."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.form.get(...)
+              - pattern: request.json.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.POST.get(...)
+              - pattern: input(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $CONN.search(...)
+              - pattern: ldap.search(...)
+              - pattern: $L.search_s(...)
+              - pattern: $L.search_ext(...)
+              - pattern: $L.search(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: escape_filter_chars(...)
+              - pattern: escape_dn_chars(...)
+              - pattern: ldap3.utils.conv.escape_filter_chars(...)
+              - pattern: ldap_escape(...)
+
+  # ---------------------------------------------------------------------------
+  # Argument Injection: shell=False bypass (Rowan PY-TAINT-014, CWE-88)
+  # ---------------------------------------------------------------------------
+  - id: TNT-ARG-001
+    mode: taint
+    message: >
+      User input flows into a subprocess argument list (shell=False context).
+      shell=False prevents shell metacharacter injection but does not prevent
+      argument injection: an attacker can supply whitespace-delimited flags
+      like -exec, --upload-pack, or --output.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [88]
+      category: command_injection
+      fix: "Validate/allowlist subprocess arguments built from user input even with shell=False -- an unexpected flag (e.g. a leading '-') can still change program behavior."
+    pattern-sources:
+      # rowan-registry:begin source=web_request
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=web_request
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: subprocess.Popen([$CMD, ...])
+              - pattern: subprocess.run([$CMD, ...])
+              - pattern: subprocess.call([$CMD, ...])
+              - pattern: subprocess.check_output([$CMD, ...])
+              - pattern: subprocess.check_call([$CMD, ...])
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: shlex.quote(...)
+              - pattern: int(...)
+              - pattern: float(...)
+
+  # ---------------------------------------------------------------------------
+  # Network Pickle Deserialization (Rowan PY-TAINT-016, CWE-502)
+  # ---------------------------------------------------------------------------
+  - id: TNT-DESER-004
+    mode: taint
+    message: >
+      Data received from a network socket or ZMQ channel flows to
+      pickle.loads() without authentication. Any peer that can connect
+      achieves remote code execution via pickle deserialization.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [502]
+      category: deserialization
+      fix: "Use pickle.loads only on trusted data; for data read from a socket or message queue, use a safe format (json, protobuf) with a known schema."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: $SOCK.recv(...)
+              - pattern: $CONN.recv(...)
+              - pattern: $S.recv(...)
+              - pattern: socket.recv(...)
+              - pattern: $CHANNEL.recv(...)
+              - pattern: $SOCK.recv_multipart(...)
+              - pattern: $SOCK.recv_string(...)
+              - pattern: $SOCK.recv_json(...)
+              - pattern: $SOCK.recv_pyobj(...)
+              # A bare `$READER.read()` is also every local file, ZipExtFile,
+              # BytesIO and archive member. Only keep the common asyncio
+              # network-reader shape when its origin is proven by the
+              # connection constructor in the same scope.
+              - patterns:
+                  - pattern-inside: |
+                      $READER, $WRITER = await asyncio.open_connection(...)
+                      ...
+                  - pattern: await $READER.read(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: pickle.loads(...)
+              - pattern: pickle.load(...)
+              - pattern: cPickle.loads(...)
+              - pattern: cPickle.load(...)
+              - pattern: _pickle.loads(...)
+              - pattern: pickle.Unpickler(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: hmac.compare_digest(...)
+              - pattern: hmac.new(...)
+              - pattern: verify_hmac(...)
+              - pattern: verify_signature(...)
+              - pattern: json.loads(...)
+              - pattern: msgpack.unpackb(...)
+
+  # ---------------------------------------------------------------------------
+  # Jinja2 SSTI: precise (Rowan PY-TAINT-018, CWE-1336)
+  # ---------------------------------------------------------------------------
+  - id: TNT-SSTI-002
+    mode: taint
+    message: >
+      User-controlled input flows to Jinja2 template compilation or rendering
+      from a string. Attackers can inject Jinja2 template syntax to traverse
+      the Python object hierarchy and achieve remote code execution.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [1336, 94]
+      category: ssti
+      fix: "Render user-controlled content as data, not as a template string; if templates must be dynamic, use jinja2.sandbox.SandboxedEnvironment."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.form.get(...)
+              - pattern: request.json.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.POST.get(...)
+              - pattern: input(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: flask.render_template_string(...)
+              - pattern: render_template_string(...)
+              - pattern: jinja2.Template(...)
+              - pattern: $ENV.from_string(...)
+              - pattern: jinja2.Environment().from_string(...)
+              - pattern: django.template.Template(...)
+              - pattern: mako.template.Template(...)
+              - pattern: tornado.template.Template(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: SandboxedEnvironment(...)
+              - pattern: int(...)
+              - pattern: float(...)
+
+  # ---------------------------------------------------------------------------
+  # Stored / Second-Order Injection (Rowan PY-TAINT-013, CWE-79/89)
+  # ---------------------------------------------------------------------------
+  - id: TNT-STORED-001
+    mode: taint
+    message: >
+      User-controlled input is persisted to the database via an ORM write
+      without HTML-escaping or validation. If this data is later rendered
+      without escaping it creates Stored XSS; if used in a raw query it
+      creates Second-Order SQL Injection.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [79, 89]
+      category: injection
+      fix: "HTML-escape user input at render time (Jinja2's autoescaping, or markupsafe.escape()) rather than assuming it's safe because it passed through the database."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.form.get(...)
+              - pattern: request.json.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.POST.get(...)
+              - pattern: input(...)
+              - pattern: json.loads(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $OBJ.save()
+              - pattern: $MGR.objects.create(...)
+              - pattern: $MGR.objects.update(...)
+              - pattern: $MGR.objects.bulk_create(...)
+              - pattern: $MGR.objects.get_or_create(...)
+              - pattern: $MGR.objects.update_or_create(...)
+              - pattern: session.add(...)
+              - pattern: session.add_all(...)
+              - pattern: session.merge(...)
+              - pattern: db_session.add(...)
+              - pattern: db_session.add_all(...)
+              - pattern: db_session.merge(...)
+              - pattern: $DB.session.add(...)
+              - pattern: $DB.session.add_all(...)
+              - pattern: $DB.session.merge(...)
+              - pattern: db.session.add(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: html.escape(...)
+              - pattern: bleach.clean(...)
+              - pattern: markupsafe.escape(...)
+              - pattern: int(...)
+              - pattern: float(...)
+              - pattern: bool(...)
+              - pattern: validate(...)
+
+  # ---------------------------------------------------------------------------
+  # Additional Deserialization (marshal, dill, shelve, jsonpickle)
+  # (Rowan PY-TAINT-005/BB057, CWE-502)
+  # ---------------------------------------------------------------------------
+  - id: TNT-DESER-005
+    mode: taint
+    message: >
+      User-controlled data flows to a deserialization function beyond pickle.
+      marshal.loads, dill.loads, shelve.open, and jsonpickle.decode all
+      allow arbitrary code execution with untrusted input.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [502]
+      category: deserialization
+      fix: "Avoid marshal/dill/other unsafe deserializers on untrusted data; use a safe format (json) with a known schema."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              # rowan-registry:begin source=web_request
+              - patterns:
+                  - pattern-either:
+                      - pattern: request.args.get(...)
+                      - pattern: request.args[...]
+                      - pattern: request.form.get(...)
+                      - pattern: request.form[...]
+                      - pattern: request.json.get(...)
+                      - pattern: request.json[...]
+                      - pattern: request.data
+                      - pattern: request.values.get(...)
+                      - pattern: request.files.get(...)
+                      - pattern: request.cookies.get(...)
+                      - pattern: request.headers.get(...)
+                      - pattern: request.GET.get(...)
+                      - pattern: request.GET[...]
+                      - pattern: request.POST.get(...)
+                      - pattern: request.POST[...]
+                      - pattern: request.body
+                      - pattern: request.query_params
+                      - pattern: input(...)
+                      - pattern: sys.argv
+                      - pattern: os.environ[...]
+                      - pattern: os.getenv(...)
+                      - pattern: await request.json(...)
+                      - pattern: await request.form(...)
+                      - pattern: await request.body(...)
+                      - pattern: await websocket.recv(...)
+                      - pattern: await websocket.receive_text(...)
+                      - pattern: st.chat_input(...)
+                      - pattern: st.text_input(...)
+                      - pattern: st.file_uploader(...)
+                      - pattern: gr.File(...)
+                      - pattern: gr.UploadButton(...)
+              # rowan-registry:end source=web_request
+              - pattern: $SOCK.recv(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: marshal.loads(...)
+              - pattern: marshal.load(...)
+              - pattern: dill.loads(...)
+              - pattern: dill.load(...)
+              - pattern: cloudpickle.loads(...)
+              - pattern: cloudpickle.load(...)
+              - pattern: joblib.load(...)
+              - pattern: shelve.open(...)
+              - pattern: jsonpickle.decode(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: hmac.compare_digest(...)
+              - pattern: json.loads(...)
+              - pattern: msgpack.unpackb(...)

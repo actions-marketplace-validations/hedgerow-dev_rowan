@@ -1,0 +1,638 @@
+{
+  "description": "Published MCP-server advisories whose bug is a tool argument reaching a file path, shell command or URL. Each case pins the advisory's fix commit; the vulnerable tree is its first parent. A case is caught when a dataflow finding (TNT-*, CF-* or structural boundary rule such as AGENT-TOOL-001, advisory CWE class) in a file the fix changed disappears at the fix commit, matched by rule, file and flagged line text. Pattern-only rules do not count. Checkouts are fetched into cache/ and not committed.",
+  "cases": [
+    {
+      "id": "GHSA-jjhp-8crj-mppq",
+      "cve": "CVE-2026-61647",
+      "repo": "https://github.com/roomi-fields/notebooklm-mcp",
+      "fix_commit": "13828d9ff3933839ce14c1797d3b20a6bb7694a6",
+      "cwe": [
+        22,
+        23,
+        73
+      ],
+      "summary": "vault.batch path traversal: arbitrary file write outside the vault",
+      "advisory": "https://github.com/advisories/GHSA-jjhp-8crj-mppq",
+      "license": "MIT",
+      "note": "The fix confines vault_dir only when NOTEBOOKLM_VAULT_ROOT is set; by default any path is still accepted, so the fixed tree stays vulnerable and flagging both trees is correct."
+    },
+    {
+      "id": "GHSA-cv3r-c5h8-f4g5",
+      "cve": "CVE-2026-61560",
+      "repo": "https://github.com/zereight/gitlab-mcp",
+      "fix_commit": "7d19ebf6f41596a442b6eacc66f12fc5f10cd41e",
+      "cwe": [
+        22,
+        23,
+        73
+      ],
+      "summary": "upload_markdown file_path: arbitrary file read (PR #482 part of the fix)",
+      "advisory": "https://github.com/advisories/GHSA-cv3r-c5h8-f4g5",
+      "note": "PR #482 refuses file_path only in remote mode; local mode still reads any path, so a static scan flags both trees.",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-2h44-8472-frjj",
+      "cve": "CVE-2026-61559",
+      "repo": "https://github.com/zereight/gitlab-mcp",
+      "fix_commit": "404a993ef5f86e99db693e8075fdb3a63625f1bd",
+      "cwe": [
+        918
+      ],
+      "summary": "server-side request forgery",
+      "advisory": "https://github.com/advisories/GHSA-2h44-8472-frjj",
+      "note": "The source is the X-GitLab-API-URL HTTP header, stored in per-session state and used for every later API call: a second-order header flow, not a tool argument. Pinned to #553 (restrict dynamic GitLab API hosts), which shipped in 2.1.27; the advisory's own commit reference (6ffb4cc) only reworded error messages. The tool-argument SSRF findings in both trees put arguments into the path or query of the fixed GitLab host, not the host itself.",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-m9mq-7m7q-xc6p",
+      "cve": "CVE-2026-55557",
+      "repo": "https://github.com/That1Drifter/browse-mcp",
+      "fix_commit": "5352a4a56f626254b445bfa07e4bb48c5aad15c1",
+      "cwe": [
+        22,
+        23,
+        73
+      ],
+      "summary": "arbitrary file write via unconfined download and state paths",
+      "advisory": "https://github.com/advisories/GHSA-m9mq-7m7q-xc6p",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-49mq-fc6q-3h46",
+      "cve": "CVE-2026-55157",
+      "repo": "https://github.com/ooples/token-optimizer-mcp",
+      "fix_commit": "b4ee96dac799cbfba0a9f9c17844ce9d613cbcc7",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "OS command injection via username in smart_user",
+      "advisory": "https://github.com/advisories/GHSA-49mq-fc6q-3h46",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-f7wf-v2vw-mpcx",
+      "cve": "CVE-2026-54561",
+      "repo": "https://github.com/mkreyman/mcp-memory-keeper",
+      "fix_commit": "84f6dfa692736a34ff36e2d2cf2188b71facf73b",
+      "cwe": [
+        22,
+        23,
+        73
+      ],
+      "summary": "context_import filePath: arbitrary local file read",
+      "advisory": "https://github.com/advisories/GHSA-f7wf-v2vw-mpcx",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-xc9g-j69q-37xw",
+      "cve": "CVE-2026-55609",
+      "repo": "https://github.com/ruvnet/sublinear-time-solver",
+      "fix_commit": "a701296e363192be863e79d788fa268095e3d229",
+      "cwe": [
+        22,
+        23,
+        73
+      ],
+      "summary": "saveVectorToFile/loadVectorFromFile: arbitrary file write/read",
+      "advisory": "https://github.com/advisories/GHSA-xc9g-j69q-37xw",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-2xhg-73j7-rrgx",
+      "cve": "CVE-2026-53957",
+      "repo": "https://github.com/contentful/contentful-mcp-server",
+      "fix_commit": "fa7477ee48515f4248bc91a025eab0ca83423fe0",
+      "cwe": [
+        918
+      ],
+      "summary": "export_space/import_space host/proxy args redirect the CMA client",
+      "advisory": "https://github.com/advisories/GHSA-2xhg-73j7-rrgx",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-8q49-2h5h-434x",
+      "cve": "-",
+      "repo": "https://github.com/agentfront/frontmcp",
+      "fix_commit": "077201e109bf6f45dbc85c36d6bd77ded18ab13e",
+      "cwe": [
+        918
+      ],
+      "summary": "FrontMCP: Server-Side Request Forgery (SSRF) in the OpenAPI adapter spec-change poller",
+      "advisory": "https://github.com/advisories/GHSA-8q49-2h5h-434x",
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "note": "The fix swaps fetch for safeFetch (private-address and redirect guard) on an operator-configured spec URL; the findings in both trees are presence-only matches on unchanged fetch calls."
+    },
+    {
+      "id": "GHSA-86hp-qxqp-w9wv",
+      "cve": "CVE-2026-7446",
+      "repo": "https://github.com/VetCoders/mcp-server-semgrep",
+      "fix_commit": "141335da044e53c3f5b315e0386e01238405b771",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "mcp-server-semgrep has a Command Injection issue",
+      "advisory": "https://github.com/advisories/GHSA-86hp-qxqp-w9wv",
+      "ecosystem": "npm",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-p3h2-2j4p-p83g",
+      "cve": "-",
+      "repo": "https://github.com/samanhappy/mcphub",
+      "fix_commit": "af5b013c09bb0add6b7ad9aaa5b875cf150d2a7c",
+      "cwe": [
+        22,
+        23,
+        73
+      ],
+      "summary": "MCPHub has Path Traversal via Malicious MCPB Manifest Name",
+      "advisory": "https://github.com/advisories/GHSA-p3h2-2j4p-p83g",
+      "ecosystem": "npm",
+      "license": "Apache-2.0",
+      "note": "The source is the name in an uploaded archive's manifest.json (file content), which no tool here treats as untrusted input; the finding in both trees is a generic archive-extraction pattern."
+    },
+    {
+      "id": "GHSA-wx4p-jr66-jfp9",
+      "cve": "CVE-2026-5602",
+      "repo": "https://github.com/Nor2-io/heim-mcp",
+      "fix_commit": "c321d8af25f77668781e6ccb43a1336f9185df37",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "@nor2/heim-mcp vulnerable to command injection",
+      "advisory": "https://github.com/advisories/GHSA-wx4p-jr66-jfp9",
+      "ecosystem": "npm",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-xqv9-qr76-hfq2",
+      "cve": "CVE-2026-5603",
+      "repo": "https://github.com/elgentos/magento2-dev-mcp",
+      "fix_commit": "aa1ffcc0aea1b212c69787391783af27df15ae9d",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "@elgentos/magento2-dev-mcp vulnerable to command injection",
+      "advisory": "https://github.com/advisories/GHSA-xqv9-qr76-hfq2",
+      "ecosystem": "npm",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-prmx-7v35-7q82",
+      "cve": "CVE-2026-5323",
+      "repo": "https://github.com/priyankark/a11y-mcp",
+      "fix_commit": "e3e11c9e8482bd06b82fd9fced67be4856f0dffc",
+      "cwe": [
+        918
+      ],
+      "summary": "a11y-mcp: Server-Side Request Forgery (SSRF) vulnerability in A11yServer function",
+      "advisory": "https://github.com/advisories/GHSA-prmx-7v35-7q82",
+      "ecosystem": "npm",
+      "license": "MPL-2.0"
+    },
+    {
+      "id": "GHSA-3p2m-h2v6-g9mx",
+      "cve": "CVE-2026-33989",
+      "repo": "https://github.com/mobile-next/mobile-mcp",
+      "fix_commit": "f5e32295903128c1e71cf915ae6c0b76c7b0153b",
+      "cwe": [
+        22,
+        23,
+        73
+      ],
+      "summary": "@mobilenext/mobile-mcp alllows arbitrary file write via Path Traversal in mobile screen capture tools",
+      "advisory": "https://github.com/advisories/GHSA-3p2m-h2v6-g9mx",
+      "ecosystem": "npm",
+      "license": "Apache-2.0"
+    },
+    {
+      "id": "GHSA-xc68-rrqc-qgq3",
+      "cve": "CVE-2026-3484",
+      "repo": "https://github.com/PhialsBasement/nmap-mcp-server",
+      "fix_commit": "30a6b9e1c7fa6146f51e28d6ab83a2568d9a3488",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "MCP NMAP Server has an Injection vulnerability",
+      "advisory": "https://github.com/advisories/GHSA-xc68-rrqc-qgq3",
+      "ecosystem": "npm",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-84fx-pwf3-7777",
+      "cve": "CVE-2026-2178",
+      "repo": "https://github.com/r-huijts/xcode-mcp-server",
+      "fix_commit": "11f8d6bacadd153beee649f92a78a9dad761f56f",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "xcode-mcp-server vulnerable to Command Injection",
+      "advisory": "https://github.com/advisories/GHSA-84fx-pwf3-7777",
+      "ecosystem": "npm",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-2g7v-hghf-grg4",
+      "cve": "CVE-2026-2130",
+      "repo": "https://github.com/BurtTheCoder/mcp-maigret",
+      "fix_commit": "b1ae073c4b3e789ab8de36dc6ca8111ae9399e7a",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "mcp-maigret vulnerable to command injection",
+      "advisory": "https://github.com/advisories/GHSA-2g7v-hghf-grg4",
+      "ecosystem": "npm",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-8jx2-rhfh-q928",
+      "cve": "CVE-2026-25546",
+      "repo": "https://github.com/Coding-Solo/godot-mcp",
+      "fix_commit": "21c785d923cfdb471ea60323c13807d62dfecc5a",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "godot-mcp has Command Injection via unsanitized projectPath",
+      "advisory": "https://github.com/advisories/GHSA-8jx2-rhfh-q928",
+      "ecosystem": "npm",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-mwr6-3gp8-9jmj",
+      "cve": "CVE-2026-22785",
+      "repo": "https://github.com/orval-labs/orval",
+      "fix_commit": "80b5fe73b94f120a3a5561952d6d4b0f8d7e928d",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "orval MCP client is vulnerable to a code injection attack.",
+      "advisory": "https://github.com/advisories/GHSA-mwr6-3gp8-9jmj",
+      "ecosystem": "npm",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-wmg3-h8mf-wgvr",
+      "cve": "CVE-2026-61459",
+      "repo": "https://github.com/Flux159/mcp-server-kubernetes",
+      "fix_commit": "d7890f50a4567bf5d9842541ba6f41e180227f9a",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "mcp-server-kubernetes argument injection can expose Kubernetes cluster credentials",
+      "advisory": "https://github.com/advisories/GHSA-wmg3-h8mf-wgvr",
+      "ecosystem": "pip",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-27m7-ffhq-jqrm",
+      "cve": "CVE-2025-66401",
+      "repo": "https://github.com/kapilduraphe/mcp-watch",
+      "fix_commit": "e7da78c5b4b960f8b66c254059ad9ebc544a91a6",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "MCP Watch has a Critical Command Injection in cloneRepo allows Remote Code Execution (RCE) via malicious URL",
+      "advisory": "https://github.com/advisories/GHSA-27m7-ffhq-jqrm",
+      "ecosystem": "npm",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-gxw4-4fc5-9gr5",
+      "cve": "CVE-2025-53967",
+      "repo": "https://github.com/GLips/Figma-Context-MCP",
+      "fix_commit": "7f4b5859454b0567c2121ff22c69a0344680b124",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "figma-developer-mcp vulnerable to command injection in get_figma_data tool",
+      "advisory": "https://github.com/advisories/GHSA-gxw4-4fc5-9gr5",
+      "ecosystem": "npm",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-54j7-grvr-9xwg",
+      "cve": "CVE-2025-59834",
+      "repo": "https://github.com/srmorete/adb-mcp",
+      "fix_commit": "041729c0b25432df3199ff71b3163a307cf4c28c",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "Command Injection in adb-mcp MCP Server",
+      "advisory": "https://github.com/advisories/GHSA-54j7-grvr-9xwg",
+      "ecosystem": "npm",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-9pw5-wx67-q964",
+      "cve": "CVE-2025-10619",
+      "repo": "https://github.com/sequa-ai/sequa-mcp",
+      "fix_commit": "e569815854166db5f71c2e722408f8957fb9e804",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "@sequa-ai/sequa-mcp has Command Injection vulnerability",
+      "advisory": "https://github.com/advisories/GHSA-9pw5-wx67-q964",
+      "ecosystem": "npm",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-g5cg-6c7v-mmpw",
+      "cve": "CVE-2025-59155",
+      "repo": "https://github.com/yuna0x0/hackmd-mcp",
+      "fix_commit": "43936c78a5bb3dedc74e8f080607a1125caa8c13",
+      "cwe": [
+        918
+      ],
+      "summary": "HackMD MCP Server has Server-Side Request Forgery (SSRF) vulnerability",
+      "advisory": "https://github.com/advisories/GHSA-g5cg-6c7v-mmpw",
+      "ecosystem": "npm",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-3ch2-jxxc-v4xf",
+      "cve": "CVE-2025-54994",
+      "repo": "https://github.com/akoskm/create-mcp-server-stdio",
+      "fix_commit": "48c26bbe1f8c62764e4592f33c8300d1cadd2eac",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "@akoskm/create-mcp-server-stdio is vulnerable to MCP Server Command Injection through `exec` API",
+      "advisory": "https://github.com/advisories/GHSA-3ch2-jxxc-v4xf",
+      "ecosystem": "npm",
+      "license": "ISC (package.json; no LICENSE file)"
+    },
+    {
+      "id": "GHSA-frq9-3hp2-xvxg",
+      "cve": "CVE-2025-5276",
+      "repo": "https://github.com/zcaceres/markdownify-mcp",
+      "fix_commit": "0284aa8f34d32c65e20d8cda2d429b7943c9af03",
+      "cwe": [
+        918
+      ],
+      "summary": "Markdownify MCP Server allows Server-Side Request Forgery (SSRF) via the Markdownify.get() function",
+      "advisory": "https://github.com/advisories/GHSA-frq9-3hp2-xvxg",
+      "ecosystem": "npm",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-p6rm-483j-37jf",
+      "cve": "CVE-2025-9262",
+      "repo": "https://github.com/wong2/mcp-cli",
+      "fix_commit": "35629664cc5d3aea4c3d083d075fe26e7c346b59",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "wong2 mcp-cli Command Injection Vulnerability",
+      "advisory": "https://github.com/advisories/GHSA-p6rm-483j-37jf",
+      "ecosystem": "npm",
+      "license": "GPL-3.0"
+    },
+    {
+      "id": "GHSA-vf9j-h32g-2764",
+      "cve": "CVE-2025-54073",
+      "repo": "https://github.com/sammcj/mcp-package-docs",
+      "fix_commit": "cb4ad49615275379fd6f2f1cf1ec4731eec56eb9",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "mcp-package-docs vulnerable to command injection in several tools",
+      "advisory": "https://github.com/advisories/GHSA-vf9j-h32g-2764",
+      "ecosystem": "npm",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-xj5p-8h7g-76m7",
+      "cve": "CVE-2025-53832",
+      "repo": "https://github.com/translated/lara-mcp",
+      "fix_commit": "e534ef690adf390e4ac862a200b2a83f6cf45944",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "@translated/lara-mcp vulnerable to command injection in import_tmx tool",
+      "advisory": "https://github.com/advisories/GHSA-xj5p-8h7g-76m7",
+      "ecosystem": "npm",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-6xpm-ggf7-wc3p",
+      "cve": "CVE-2025-6514",
+      "repo": "https://github.com/geelen/mcp-remote",
+      "fix_commit": "607b226a356cb61a239ffaba2fb3db1c9dea4bac",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "mcp-remote exposed to OS command injection via untrusted MCP server connections",
+      "advisory": "https://github.com/advisories/GHSA-6xpm-ggf7-wc3p",
+      "ecosystem": "npm",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-3q26-f695-pp76",
+      "cve": "CVE-2025-53107",
+      "repo": "https://github.com/cyanheads/git-mcp-server",
+      "fix_commit": "0dbd6995ccdf76ab770b58013034365b2d06c4d9",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "@cyanheads/git-mcp-server vulnerable to command injection in several tools",
+      "advisory": "https://github.com/advisories/GHSA-3q26-f695-pp76",
+      "ecosystem": "npm",
+      "license": "Apache-2.0"
+    },
+    {
+      "id": "GHSA-6f6r-m9pv-67jw",
+      "cve": "CVE-2025-52573",
+      "repo": "https://github.com/joshuayoes/ios-simulator-mcp",
+      "fix_commit": "eb53a4f2cc8bbeb13e8d6d930f00167befcdb809",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "iOS Simulator MCP Command Injection allowed via exec API",
+      "advisory": "https://github.com/advisories/GHSA-6f6r-m9pv-67jw",
+      "ecosystem": "npm",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-7r34-79r5-rcc9",
+      "cve": "CVE-2026-27826",
+      "repo": "https://github.com/sooperset/mcp-atlassian",
+      "fix_commit": "5cd697dfce9116ef330b8dc7a91291640e0528d9",
+      "cwe": [
+        918
+      ],
+      "summary": "MCP Atlassian has SSRF via unvalidated X-Atlassian-Jira-Url / X-Atlassian-Confluence-Url headers",
+      "advisory": "https://github.com/advisories/GHSA-7r34-79r5-rcc9",
+      "ecosystem": "pip",
+      "license": "MIT",
+      "note": "Header -> ASGI scope state in middleware -> get_jira_fetcher reads request.state -> JiraConfig(url=) -> JiraFetcher -> Jira(url=self.config.url) in another file (atlassian-python-api). Needs a request-state channel plus value flow through object fields and a third-party client sink; the fix validates in the middleware before the state write."
+    },
+    {
+      "id": "GHSA-mw6r-2hvm-4rp2",
+      "cve": "CVE-2026-55546",
+      "repo": "https://github.com/QWED-AI/qwed-mcp",
+      "fix_commit": "362e61892052e250c56cb1ee852024d6f98c467b",
+      "cwe": [
+        94,
+        95,
+        1336
+      ],
+      "summary": "qwed-mcp has Unsafe SymPy `parse_expr()` Remote Code Execution via Unsanitized Math Expression Input",
+      "advisory": "https://github.com/advisories/GHSA-mw6r-2hvm-4rp2",
+      "ecosystem": "pip",
+      "license": "Apache-2.0",
+      "note": "At the pinned commit no MCP tool calls verify_math_expression (the server exposes execute_python_code and verification_status); only tests and examples reach parse_expr, so a source-based tool has nothing to trace."
+    },
+    {
+      "id": "GHSA-c5px-58j2-7fqp",
+      "cve": "CVE-2026-54785",
+      "repo": "https://github.com/eLyiN/gemini-bridge",
+      "fix_commit": "8f3b85afd02b692c4bc974b5176e12fb277ea801",
+      "cwe": [
+        22,
+        23,
+        73
+      ],
+      "summary": "gemini-bridge vulnerable to arbitrary local file read via consult_gemini_with_files inline mode",
+      "advisory": "https://github.com/advisories/GHSA-c5px-58j2-7fqp",
+      "ecosystem": "pip",
+      "license": "MIT",
+      "note": "The fix confines files to `directory`, but `directory` is also a tool argument checked only with is_dir(), so directory=\"/\" still reads any file; flagging both trees is correct."
+    },
+    {
+      "id": "GHSA-2956-977x-2w3r",
+      "cve": "CVE-2026-67429",
+      "repo": "https://github.com/flytohub/flyto-core",
+      "fix_commit": "d5f89d71303e3c1e6418d347c5c55fcd173cc8cc",
+      "cwe": [
+        22,
+        23,
+        73
+      ],
+      "summary": "Flyto2 Core: Arbitrary file write via image.download (and other file-writing modules)",
+      "advisory": "https://github.com/advisories/GHSA-2956-977x-2w3r",
+      "ecosystem": "pip",
+      "license": "Apache-2.0",
+      "note": "The vulnerable containment check compares output_path against output_dir, which the caller also supplies, so it is a no-op; recognising that needs a check whose base is itself tainted."
+    },
+    {
+      "id": "GHSA-cw73-5f7h-m4gv",
+      "cve": "CVE-2026-30625",
+      "repo": "https://github.com/Upsonic/Upsonic",
+      "fix_commit": "855053fce0662227d9246268ff4a0844b481a305",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "Upsonic: remote code execution vulnerability in its MCP server/task creation functionality",
+      "advisory": "https://github.com/advisories/GHSA-cw73-5f7h-m4gv",
+      "ecosystem": "pip",
+      "license": "MIT",
+      "note": "The fix only prints a trust warning before MCP stdio initialization; behaviour is unchanged, so no scanner can separate the trees."
+    },
+    {
+      "id": "GHSA-j98m-w3xp-9f56",
+      "cve": "CVE-2026-40576",
+      "repo": "https://github.com/haris-musa/excel-mcp-server",
+      "fix_commit": "f51340ecd5778952405044b203d3a2d4c8a46833",
+      "cwe": [
+        22,
+        23,
+        73
+      ],
+      "summary": "excel-mcp-server has a Path Traversal issue",
+      "advisory": "https://github.com/advisories/GHSA-j98m-w3xp-9f56",
+      "ecosystem": "pip",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-9gm9-c8mq-vq7m",
+      "cve": "CVE-2026-34935",
+      "repo": "https://github.com/MervinPraison/PraisonAI",
+      "fix_commit": "47bff65413beaa3c21bf633c1fae4e684348368c",
+      "cwe": [
+        77,
+        78,
+        88
+      ],
+      "summary": "PraisonAI: OS Command Injection in MCPHandler.parse_mcp_command()",
+      "advisory": "https://github.com/advisories/GHSA-9gm9-c8mq-vq7m",
+      "ecosystem": "pip",
+      "license": "MIT"
+    },
+    {
+      "id": "GHSA-vv7q-7jx5-f767",
+      "cve": "CVE-2026-32871",
+      "repo": "https://github.com/PrefectHQ/fastmcp",
+      "fix_commit": "40bdfb6b1de0ce30609ee9ba5bb95ecd04a9fb71",
+      "cwe": [
+        918
+      ],
+      "summary": "FastMCP OpenAPI Provider has an SSRF & Path Traversal Vulnerability",
+      "advisory": "https://github.com/advisories/GHSA-vv7q-7jx5-f767",
+      "ecosystem": "pip",
+      "license": "Apache-2.0",
+      "note": "OpenAPITool.run(arguments) -> self._director.build() -> _build_url pastes path params unencoded into urljoin -> httpx.Request, sent later by self._client.send(). Needs method calls on attribute-held objects and flow through returned request objects."
+    },
+    {
+      "id": "GHSA-5cgr-j3jf-jw3v",
+      "cve": "CVE-2025-68143",
+      "repo": "https://github.com/modelcontextprotocol/servers",
+      "fix_commit": "eac56e7bcde48fb64d5a973924d05d69a7d876e6",
+      "cwe": [
+        22,
+        23,
+        73
+      ],
+      "summary": "mcp-server-git's unrestricted git_init tool allows repository creation at arbitrary filesystem locations",
+      "advisory": "https://github.com/advisories/GHSA-5cgr-j3jf-jw3v",
+      "ecosystem": "pip",
+      "license": "MIT / Apache-2.0 (transition)"
+    }
+  ],
+  "selection": "Cases 1-8 were chosen by hand on 2026-09-24. The rest were selected mechanically on 2026-09-25 from reviewed npm and pip advisories published since 2025-01-01 that mention MCP and carry a path, command, code or SSRF CWE: advisories describing a bypass or incomplete fix of an earlier advisory, auth, XSS, sandbox, config-override, redirect, cache or code-generator issues were excluded; one advisory per repository (the earliest eligible); TypeScript, JavaScript or Python repositories under 150 MB; pinned to the advisory's same-repository commit that changes the most non-test source lines. Three advisories without such a commit were dropped. On 2026-09-25 the set was restricted to repositories released under an OSI-approved licence at the pinned commits, which CodeQL's licence requires for analysis; this removed GHSA-45gf-fjxp-cjpq (meta-ads-mcp, Business Source License 1.1) and GHSA-rwc2-f344-q6w6 (serverless, commercial customer agreement) for every tool."
+}

@@ -1,0 +1,221 @@
+rules:
+- id: RS-INJECT-001
+  languages:
+  - rust
+  severity: ERROR
+  message: 'std::process::Command with string input may allow command injection.
+
+    .arg() does not prevent injection: it passes arguments including
+
+    dangerous ones. Sanitize inputs or use fixed command paths.'
+  patterns:
+  - pattern-regex: Command::new\s*\(
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: '#\[test\]|#\[cfg\(test\)\]'
+  metadata:
+    category: command_injection
+    cwe:
+    - 78
+    original_engine: neuroscan
+    rule_name: Command injection via Command::new
+    residual:
+    - sanitizer
+- id: RS-UNSAFE-001
+  languages:
+  - rust
+  severity: WARNING
+  message: 'Unsafe block bypasses Rust memory safety guarantees. Must be
+
+    justified with a SAFETY comment explaining the invariants upheld.'
+  patterns:
+  - pattern-regex: unsafe\s*\{
+  - pattern-not-regex: 'unsafe\s*\{\s*\/\/\s*SAFETY:'
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: general
+    cwe:
+    - 242
+    original_engine: neuroscan
+    rule_name: Unsafe block without documentation
+    residual:
+    - sanitizer
+- id: RS-UNSAFE-002
+  languages:
+  - rust
+  severity: WARNING
+  message: 'transmute reinterprets bits arbitrarily. Can create undefined behavior
+
+    or invalid enums. Prefer safe conversions or From/Into traits.'
+  patterns:
+  - pattern-regex: std::mem::transmute\b
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: general
+    cwe:
+    - 704
+    original_engine: neuroscan
+    rule_name: std::mem::transmute usage
+    residual:
+    - sanitizer
+- id: RS-PATH-001
+  languages:
+  - rust
+  severity: ERROR
+  message: 'Filesystem operations with user-controlled path. Use
+
+    Path::canonicalize() and validate prefix against allowed directory.'
+  patterns:
+  - pattern-regex: std::fs::(read|write|read_to_string|create_dir_all)\s*\(
+  - pattern-not-regex: \.canonicalize\s*\(\s*\)
+  - pattern-not-regex: \.starts_with\s*\(
+  - pattern-not-regex: \.strip_prefix\s*\(
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: path_traversal
+    cwe:
+    - 22
+    original_engine: neuroscan
+    rule_name: User-controlled filesystem operation
+    residual:
+    - sanitizer
+- id: RS-CRYPTO-001
+  languages:
+  - rust
+  severity: WARNING
+  message: 'Weak hash function detected. Use SHA-256/SHA-512 from sha2 crate
+
+    or BLAKE3.'
+  patterns:
+  - pattern-regex: \b(md5|Sha1|Md4|Md5)\b
+  - pattern-not-regex: sha2::Sha256
+  - pattern-not-regex: sha2::Sha512
+  - pattern-not-regex: blake3
+  - pattern-not-regex: ring::digest
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: crypto
+    cwe:
+    - 328
+    original_engine: neuroscan
+    rule_name: Weak hash import
+- id: RS-INJECT-002
+  languages:
+  - rust
+  severity: ERROR
+  message: 'SQL query built with format!() is SQL-injectable. Use sqlx::query_as!()
+
+    with compile-time checking or $1 bind parameters.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: sqlx::query\(.*format!\(
+    - pattern-regex: \.(execute|fetch_one)\(.*format!\(
+  - pattern-not-regex: sqlx::query_as!\(
+  - pattern-not-regex: \$\d+
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: injection
+    cwe:
+    - 89
+    original_engine: neuroscan
+    rule_name: SQL injection via format! in query
+    residual:
+    - sanitizer
+- id: RS-CRYPTO-002
+  languages:
+  - rust
+  severity: WARNING
+  message: 'Non-cryptographic or weak RNG detected. rand::thread_rng is safe
+
+    (ChaCha12 CSPRNG). This rule flags only weak_rng, mock::StepRng,
+
+    and rand::random which is not guaranteed CSPRNG.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: rand::random
+    - pattern-regex: rand::weak_rng
+    - pattern-regex: rand::rngs::mock::StepRng
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: '#\[test\]|#\[cfg\(test\)\]'
+  metadata:
+    category: crypto
+    cwe:
+    - 330
+    original_engine: neuroscan
+    rule_name: rand::random for cryptographic use
+- id: RS-SSRF-001
+  languages:
+  - rust
+  severity: ERROR
+  message: 'Unrestricted outbound HTTP enables SSRF. Disable redirects or
+
+    whitelist destination hosts.'
+  patterns:
+  - pattern-regex: reqwest::(get|Client::new\s*\(\s*\)\.(get|post))\s*\(
+  - pattern-not-regex: \.redirect\s*\(reqwest::redirect::Policy::none\s*\(\s*\)\s*\)
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: ssrf
+    cwe:
+    - 918
+    original_engine: neuroscan
+    rule_name: Unrestricted HTTP client
+    residual:
+    - sanitizer
+- id: RS-SUPPLY-001
+  languages:
+  - rust
+  severity: WARNING
+  message: 'Dynamic path in include! macro may read arbitrary files at compile
+
+    time. Use static paths.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: include!\(concat!\(env!\("OUT_DIR"\)
+    - pattern-regex: include_str!\(\s*[^'"]
+    - pattern-regex: include_bytes!\(\s*[^'"]
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: supply_chain
+    cwe:
+    - 829
+    original_engine: neuroscan
+    rule_name: Dynamic include in build
+- id: RS-CONFIG-001
+  languages:
+  - rust
+  severity: INFO
+  message: 'unwrap() panics on None/Err in production. Use ? operator,
+
+    .context()?, or .unwrap_or_else() with proper error handling.'
+  patterns:
+  - pattern-regex: \.unwrap\s*\(\s*\)
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: config
+    cwe:
+    - 248
+    original_engine: neuroscan
+    original_severity: low
+    rule_name: unwrap() in production code
+  paths:
+    exclude:
+    - /tests/
+    - /test/
+- id: RS-UNSAFE-003
+  languages:
+  - rust
+  severity: WARNING
+  message: 'FFI function returning raw pointer without documented lifetime.
+
+    Use-after-free risk. Document ownership semantics or return a safe wrapper.'
+  patterns:
+  - pattern-regex: extern\s+"C"\s*fn.*->\s*\*
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: general
+    cwe:
+    - 416
+    original_engine: neuroscan
+    rule_name: FFI raw pointer without ownership doc
+    residual:
+    - sanitizer

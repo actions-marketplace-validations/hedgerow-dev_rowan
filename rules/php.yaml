@@ -1,0 +1,199 @@
+# PHP Security Rules
+rules:
+
+  - id: PHP-INJECT-001
+    name: eval() code injection
+    severity: critical
+    category: injection
+    cwe: [95]
+    fix: "Never call eval() on untrusted input; use a proper parser for the expected format."
+    languages: [php]
+    patterns:
+      - 'eval\(\s*\$'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+    message: |
+      eval() with variable input executes arbitrary PHP code. Avoid
+      evaluating dynamic strings at runtime.
+
+  - id: PHP-INJECT-002
+    name: Shell command injection
+    severity: high
+    category: command_injection
+    cwe: [78]
+    languages: [php]
+    patterns:
+      - '(system|exec|shell_exec|passthru|popen|proc_open|pcntl_exec)\(\s*\$'
+      - '(system|exec|shell_exec|passthru|popen|proc_open|pcntl_exec)\([^)]*\$_(GET|POST|REQUEST|COOKIE)'
+    pattern-not:
+      - 'escapeshellarg\s*\('
+      - 'escapeshellcmd\s*\('
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+    message: |
+      User input in shell execution function enables RCE. Use
+      escapeshellarg() and escapeshellcmd() on all arguments.
+
+  - id: PHP-INJECT-003
+    name: LFI via include/require
+    severity: high
+    category: path_traversal
+    cwe: [98]
+    languages: [php]
+    patterns:
+      - '(include|require)(_once)?\s*\(?\s*\$'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+    message: |
+      User-controlled path in include/require enables LFI/RFI. Use
+      a whitelist of allowed files instead of dynamic inclusion.
+
+  - id: PHP-DESER-001
+    name: Unsafe unserialize()
+    severity: critical
+    category: deserialization
+    cwe: [502]
+    fix: "Avoid unserialize() on untrusted input; use json_decode() instead, or unserialize() with the `allowed_classes` option restricted to a known allowlist."
+    languages: [php]
+    patterns:
+      - 'unserialize\(\s*\$'
+    pattern-not:
+      - '\.allowed_classes\b'
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+    message: |
+      unserialize() with user input enables PHP object injection leading
+      to RCE. Use JSON instead, or restrict allowed_classes.
+
+  - id: PHP-SSTI-001
+    name: extract() on superglobal
+    severity: high
+    category: ssti
+    cwe: [94]
+    languages: [php]
+    patterns:
+      - 'extract\(\$_(GET|POST|REQUEST|COOKIE)\)'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+    message: |
+      extract() on user superglobal overwrites arbitrary variables in
+      scope. Variable injection can lead to code execution.
+
+  - id: PHP-INJECT-004
+    name: create_function() usage
+    severity: high
+    category: injection
+    cwe: [94]
+    languages: [php]
+    patterns:
+      - 'create_function\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+    message: |
+      Deprecated create_function() is eval() under the hood. Use
+      anonymous functions / closures instead (PHP 5.3+).
+
+  - id: PHP-INJECT-005
+    name: assert() with string argument
+    severity: high
+    category: injection
+    cwe: [94]
+    languages: [php]
+    patterns:
+      - '\bassert\(\s*\$'
+    pattern-not:
+      - '\bassert\(\s*(!|[a-z]+\()|is_'
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+    message: |
+      assert() with string argument evaluates as code (pre-PHP 8).
+      Remove string assertions or ensure they are not user-controlled.
+
+  - id: PHP-INJECT-006
+    name: SQL injection via raw query
+    severity: high
+    category: injection
+    cwe: [89]
+    languages: [php]
+    patterns:
+      - '(mysql_query|mysqli_query|pg_query|sqlite_query)\(\s*.*\$'
+    pattern-not:
+      - 'mysqli_prepare\s*\('
+      - 'PDO::prepare\s*\('
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+    message: |
+      Raw SQL query with variable concatenation is SQL-injectable. Use
+      PDO prepared statements or mysqli_prepare().
+
+  - id: PHP-XSS-001
+    name: Reflected XSS via echo
+    severity: high
+    category: xss
+    cwe: [79]
+    languages: [php]
+    patterns:
+      - 'echo\s+\$_(GET|POST|REQUEST)'
+    pattern-not:
+      - 'htmlspecialchars\s*\('
+      - 'htmlentities\s*\('
+      - 'strip_tags\s*\('
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+    message: |
+      Direct output of $_GET/$_POST is reflected XSS. Always use
+      htmlspecialchars($var, ENT_QUOTES, 'UTF-8').
+
+  - id: PHP-SSRF-001
+    name: SSRF via file_get_contents
+    severity: high
+    category: ssrf
+    cwe: [918]
+    languages: [php]
+    patterns:
+      - 'file_get_contents\(\s*\$'
+    pattern-not:
+      - 'filter_var.*FILTER_VALIDATE_URL'
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+    message: |
+      User-supplied URL to file_get_contents() enables SSRF. Validate
+      URLs with filter_var($url, FILTER_VALIDATE_URL).
+
+  - id: PHP-CONFIG-001
+    name: Error display in production
+    severity: medium
+    category: config
+    cwe: [489]
+    languages: [php]
+    patterns:
+      - 'ini_set\(["\x27]display_errors["\x27],\s*["\x27]?(1|on|true)["\x27]?\)'
+      - 'error_reporting\(\s*-1\b'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+    message: |
+      Stack traces exposed in production leak internal paths, versions,
+      and query structures. Set display_errors=Off in php.ini.
+
+  - id: PHP-CRYPTO-001
+    name: Weak password hashing
+    severity: medium
+    category: crypto
+    cwe: [328]
+    languages: [php]
+    patterns:
+      - '(md5|sha1)\(\s*\$'
+    pattern-not:
+      - 'hash\([''"]sha256[''"]'
+      - 'password_hash\s*\('
+      - 'password_verify\s*\('
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+    message: |
+      MD5/SHA1 used for password hashing. Use password_hash() with
+      PASSWORD_BCRYPT or PASSWORD_ARGON2ID.

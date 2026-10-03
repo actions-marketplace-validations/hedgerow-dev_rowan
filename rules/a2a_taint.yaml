@@ -1,0 +1,215 @@
+# Agent-to-Agent (A2A) protocol taint rules (issue #289).
+#
+# Rowan has deep MCP coverage but no coverage of the A2A protocol (Google
+# Agent2Agent: agent cards, task delegation, peer agents). These rules model
+# the three A2A dataflow shapes with Opengrep's interprocedural taint engine
+# and are anchored on A2A-specific identifiers (AgentCard, A2AServer,
+# A2AClient, A2ACardResolver, send_task, task.artifacts, message.parts) so
+# they fire on any project that uses the A2A library this way rather than on
+# generic Starlette/FastAPI code. The trust model is the same shape that
+# produced 40+ MCP CVEs in early 2026: untrusted peer endpoints, task payloads
+# deserialized without validation, and inbound peer text used as an
+# instruction channel.
+
+rules:
+
+  # ── TNT-A2A-001: SSRF into internal agents ──────────────────────
+  # A request/config-derived value, or a peer-advertised agent-card `url`,
+  # flows into an outbound A2A peer-client construction. The sink is
+  # A2A-specific (A2AClient / A2ACardResolver), so this never fires on
+  # generic HTTP code that TNT-SSRF-001 already owns; the novelty is that an
+  # attacker who controls a discovered agent card's `url` field (or a
+  # request param that names the peer) can point a delegating agent at
+  # internal services (169.254.169.254, cluster-internal admin APIs).
+  - id: TNT-A2A-001
+    mode: taint
+    message: |
+      A request/config-derived value or a peer-advertised agent-card url
+      flows into an outbound A2A peer-client construction (A2AClient /
+      A2ACardResolver) with no SSRF guard. An attacker who controls the peer
+      endpoint can make the delegating agent reach internal-only services
+      (cloud metadata, cluster admin APIs) -- the A2A analogue of classic
+      SSRF, reached through the agent-discovery/delegation path.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [918]
+      category: ssrf
+      fix: "Validate the peer/agent-card url against an explicit allowlist of trusted agent hosts before constructing an A2AClient/A2ACardResolver (e.g. validate_url_for_ssrf(url)); never build a peer client from a raw request value or an unvalidated agent-card url."
+    pattern-sources:
+      # rowan-registry:begin source=web_request
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=web_request
+      # Peer-advertised agent-card url: an attacker who controls a discovered
+      # AgentCard controls the endpoint the client is built against.
+      - patterns:
+          - pattern-either:
+              - pattern: $CARD.url
+              - pattern: agent_card.url
+              - pattern: card.url
+              - pattern: AgentCard(...).url
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: A2AClient(url=$U)
+              - pattern: A2AClient($U)
+              - pattern: A2AClient(base_url=$U)
+              - pattern: A2AClient(..., url=$U, ...)
+              - pattern: A2ACardResolver($U)
+              - pattern: A2ACardResolver(base_url=$U)
+              - pattern: A2ACardResolver(..., base_url=$U, ...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: validate_url_for_ssrf(...)
+              - pattern: validate_url(...)
+              - pattern: is_allowed_agent_url(...)
+              - pattern: is_allowed_domain(...)
+
+  # ── TNT-A2A-002: untrusted-peer deserialization -> RCE ──────────
+  # An inbound A2A task/message payload (task.artifacts, message.parts, a
+  # Part's data field, RequestContext.get_user_input) flows to a dangerous
+  # deserializer. This is the A2A analogue of the MCP deserialization CVEs:
+  # the payload is authored by a *peer agent*, not the local process, so it
+  # is untrusted the moment it crosses the A2A boundary.
+  - id: TNT-A2A-002
+    mode: taint
+    message: |
+      An inbound A2A task/message payload (task.artifacts / message.parts /
+      a Part's data / RequestContext input) flows into an unsafe deserializer
+      (pickle.loads, yaml.unsafe_load, eval, torch.load). A malicious peer
+      agent controls this payload, so this is remote code execution across
+      the A2A trust boundary -- the A2A analogue of the MCP deserialization
+      CVEs.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [502]
+      category: deserialization
+      fix: "Never deserialize an A2A peer payload with pickle/yaml.unsafe_load/eval/torch.load. Use a safe, schema-validated format (json.loads / yaml.safe_load / torch.load(..., weights_only=True)) and validate the parsed structure before use."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: $T.artifacts[...]
+              - pattern: $T.artifacts
+              - pattern: $M.parts[...]
+              - pattern: $M.parts
+              - pattern: $CTX.get_user_input(...)
+              # `.message` is a near-universal attribute (exceptions, log
+              # records, ORM rows); constrain the receiver to an A2A
+              # request-context shape so this stays off unrelated `.message`.
+              - patterns:
+                  - pattern: $CTX.message
+                  - metavariable-regex:
+                      metavariable: $CTX
+                      regex: (?i).*(ctx|context|task|request).*
+              - pattern: task.message
+              - pattern: task.status.message
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: pickle.loads($D)
+              - pattern: pickle.load($D)
+              - pattern: cPickle.loads($D)
+              - pattern: dill.loads($D)
+              - pattern: yaml.unsafe_load($D)
+              - pattern: yaml.load($D)
+              - pattern: eval($D)
+              - pattern: exec($D)
+              - pattern: torch.load($D)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: yaml.safe_load(...)
+              - pattern: json.loads(...)
+              - pattern: torch.load(..., weights_only=True)
+
+  # ── TNT-A2A-003: cross-agent prompt injection ───────────────────
+  # Inbound A2A task/message TEXT -- authored by a peer agent, not the end
+  # user -- flows into a system-prompt slot or a tool-dispatch sink. The
+  # differentiator from TNT-AIML-002 / TNT-ML-005 is the SOURCE: this is the
+  # peer/task channel specifically (message.parts[...].text, a delegated
+  # task's artifacts, RequestContext.get_user_input), NOT request.* which the
+  # existing rules already own. Treating a peer agent as an untrusted
+  # instruction source is the novel surface.
+  - id: TNT-A2A-003
+    mode: taint
+    message: |
+      Text from an inbound A2A task/message (authored by a peer agent) flows
+      into a system-prompt slot or a tool-dispatch sink. A malicious or
+      compromised peer agent can override the local agent's system
+      instructions or steer its tool calls -- cross-agent prompt injection.
+      The untrusted source here is the peer/task channel, not an end-user
+      HTTP request.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [94]
+      category: prompt_injection
+      fix: "Treat inbound A2A peer text as untrusted content, never as instructions: keep it in a clearly delimited user-role slot, never concatenate it into the system prompt, and never let it select or parameterize a tool call without an explicit allowlist check."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: $M.parts[...]
+              - pattern: $M.parts[...].text
+              - pattern: $M.parts[...].root.text
+              - pattern: $T.artifacts[...]
+              - pattern: $CTX.get_user_input(...)
+              - pattern: $CTX.message
+              - pattern: task.status.message
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              # system-prompt slots
+              - pattern: $LLM.generate($INPUT, system_prompt=$PROMPT)
+              - pattern: $LLM.generate(..., system_prompt=$PROMPT)
+              - pattern: |
+                  $LLM.chat([{"role": "system", "content": $PROMPT}, ...])
+              - pattern: |
+                  openai.ChatCompletion.create(messages=[{"role": "system", "content": $PROMPT}, ...])
+              - pattern: |
+                  $CLIENT.chat.completions.create(messages=[{"role": "system", "content": $PROMPT}, ...])
+              - pattern: PromptTemplate.from_template($PROMPT)
+              - pattern: ChatPromptTemplate.from_template($PROMPT)
+              # tool-dispatch slots
+              - pattern: subprocess.run($CMD, shell=True, ...)
+              - pattern: os.system($CMD)
+              - pattern: eval($CMD)
+              - pattern: exec($CMD)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: shlex.quote(...)
+              - pattern: is_allowed_tool(...)

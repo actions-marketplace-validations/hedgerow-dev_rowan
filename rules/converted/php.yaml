@@ -1,0 +1,247 @@
+rules:
+- id: PHP-INJECT-001
+  languages:
+  - php
+  severity: ERROR
+  message: 'eval() with variable input executes arbitrary PHP code. Avoid
+
+    evaluating dynamic strings at runtime.'
+  patterns:
+  - pattern-regex: eval\(\s*\$
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: injection
+    cwe:
+    - 95
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: eval() code injection
+    fix: Never call eval() on untrusted input; use a proper parser for the expected format.
+    residual:
+    - sanitizer
+- id: PHP-INJECT-002
+  languages:
+  - php
+  severity: ERROR
+  message: 'User input in shell execution function enables RCE. Use
+
+    escapeshellarg() and escapeshellcmd() on all arguments.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (system|exec|shell_exec|passthru|popen|proc_open|pcntl_exec)\(\s*\$
+    - pattern-regex: (system|exec|shell_exec|passthru|popen|proc_open|pcntl_exec)\([^)]*\$_(GET|POST|REQUEST|COOKIE)
+  - pattern-not-regex: escapeshellarg\s*\(
+  - pattern-not-regex: escapeshellcmd\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: command_injection
+    cwe:
+    - 78
+    original_engine: neuroscan
+    rule_name: Shell command injection
+    residual:
+    - sanitizer
+- id: PHP-INJECT-003
+  languages:
+  - php
+  severity: ERROR
+  message: 'User-controlled path in include/require enables LFI/RFI. Use
+
+    a whitelist of allowed files instead of dynamic inclusion.'
+  patterns:
+  - pattern-regex: (include|require)(_once)?\s*\(?\s*\$
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: path_traversal
+    cwe:
+    - 98
+    original_engine: neuroscan
+    rule_name: LFI via include/require
+    residual:
+    - sanitizer
+- id: PHP-DESER-001
+  languages:
+  - php
+  severity: ERROR
+  message: 'unserialize() with user input enables PHP object injection leading
+
+    to RCE. Use JSON instead, or restrict allowed_classes.'
+  patterns:
+  - pattern-regex: unserialize\(\s*\$
+  - pattern-not-regex: \.allowed_classes\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: Unsafe unserialize()
+    fix: Avoid unserialize() on untrusted input; use json_decode() instead, or unserialize() with the `allowed_classes` option
+      restricted to a known allowlist.
+    residual:
+    - sanitizer
+- id: PHP-SSTI-001
+  languages:
+  - php
+  severity: ERROR
+  message: 'extract() on user superglobal overwrites arbitrary variables in
+
+    scope. Variable injection can lead to code execution.'
+  patterns:
+  - pattern-regex: extract\(\$_(GET|POST|REQUEST|COOKIE)\)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: ssti
+    cwe:
+    - 94
+    original_engine: neuroscan
+    rule_name: extract() on superglobal
+    residual:
+    - sanitizer
+- id: PHP-INJECT-004
+  languages:
+  - php
+  severity: ERROR
+  message: 'Deprecated create_function() is eval() under the hood. Use
+
+    anonymous functions / closures instead (PHP 5.3+).'
+  patterns:
+  - pattern-regex: create_function\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: injection
+    cwe:
+    - 94
+    original_engine: neuroscan
+    rule_name: create_function() usage
+    residual:
+    - sanitizer
+- id: PHP-INJECT-005
+  languages:
+  - php
+  severity: ERROR
+  message: 'assert() with string argument evaluates as code (pre-PHP 8).
+
+    Remove string assertions or ensure they are not user-controlled.'
+  patterns:
+  - pattern-regex: \bassert\(\s*\$
+  - pattern-not-regex: \bassert\(\s*(!|[a-z]+\()|is_
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: injection
+    cwe:
+    - 94
+    original_engine: neuroscan
+    rule_name: assert() with string argument
+    residual:
+    - sanitizer
+- id: PHP-INJECT-006
+  languages:
+  - php
+  severity: ERROR
+  message: 'Raw SQL query with variable concatenation is SQL-injectable. Use
+
+    PDO prepared statements or mysqli_prepare().'
+  patterns:
+  - pattern-regex: (mysql_query|mysqli_query|pg_query|sqlite_query)\(\s*.*\$
+  - pattern-not-regex: mysqli_prepare\s*\(
+  - pattern-not-regex: PDO::prepare\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: injection
+    cwe:
+    - 89
+    original_engine: neuroscan
+    rule_name: SQL injection via raw query
+    residual:
+    - sanitizer
+- id: PHP-XSS-001
+  languages:
+  - php
+  severity: ERROR
+  message: 'Direct output of $_GET/$_POST is reflected XSS. Always use
+
+    htmlspecialchars($var, ENT_QUOTES, ''UTF-8'').'
+  patterns:
+  - pattern-regex: echo\s+\$_(GET|POST|REQUEST)
+  - pattern-not-regex: htmlspecialchars\s*\(
+  - pattern-not-regex: htmlentities\s*\(
+  - pattern-not-regex: strip_tags\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: xss
+    cwe:
+    - 79
+    original_engine: neuroscan
+    rule_name: Reflected XSS via echo
+    residual:
+    - sanitizer
+- id: PHP-SSRF-001
+  languages:
+  - php
+  severity: ERROR
+  message: 'User-supplied URL to file_get_contents() enables SSRF. Validate
+
+    URLs with filter_var($url, FILTER_VALIDATE_URL).'
+  patterns:
+  - pattern-regex: file_get_contents\(\s*\$
+  - pattern-not-regex: filter_var.*FILTER_VALIDATE_URL
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: ssrf
+    cwe:
+    - 918
+    original_engine: neuroscan
+    rule_name: SSRF via file_get_contents
+    residual:
+    - sanitizer
+- id: PHP-CONFIG-001
+  languages:
+  - php
+  severity: WARNING
+  message: 'Stack traces exposed in production leak internal paths, versions,
+
+    and query structures. Set display_errors=Off in php.ini.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: ini_set\(["\x27]display_errors["\x27],\s*["\x27]?(1|on|true)["\x27]?\)
+    - pattern-regex: error_reporting\(\s*-1\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: config
+    cwe:
+    - 489
+    original_engine: neuroscan
+    rule_name: Error display in production
+- id: PHP-CRYPTO-001
+  languages:
+  - php
+  severity: WARNING
+  message: 'MD5/SHA1 used for password hashing. Use password_hash() with
+
+    PASSWORD_BCRYPT or PASSWORD_ARGON2ID.'
+  patterns:
+  - pattern-regex: (md5|sha1)\(\s*\$
+  - pattern-not-regex: hash\(['"]sha256['"]
+  - pattern-not-regex: password_hash\s*\(
+  - pattern-not-regex: password_verify\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: crypto
+    cwe:
+    - 328
+    original_engine: neuroscan
+    rule_name: Weak password hashing

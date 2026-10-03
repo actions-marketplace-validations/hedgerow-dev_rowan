@@ -1,0 +1,14 @@
+{
+  "description": "Paired framework-vulnerability corpus derived from the nine LangChain advisories published from November 2025 through June 2026. Each bug shape is expressed without depending on LangChain package names and is paired with a fixed control. A passing run requires the expected rule on every vulnerable file and no same-rule finding on its fixed pair.",
+  "cases": [
+    {"id":"CVE-2025-65106","cwe":1336,"expected_rule_id":"TNT-PY-FWK-TEMPLATE-001","vulnerable":"python/cve_2025_65106_vulnerable.py","fixed":"python/cve_2025_65106_fixed.py","class":"dynamic format-program traversal"},
+    {"id":"CVE-2025-68664","cwe":502,"expected_rule_id":"TNT-PY-FWK-DESER-001","vulnerable":"python/cve_2025_68664_vulnerable.py","fixed":"python/cve_2025_68664_fixed.py","class":"structured object injection round trip"},
+    {"id":"CVE-2026-26013","cwe":918,"expected_rule_id":"TNT-PY-FWK-IMAGECOUNT-001","vulnerable":"python/cve_2026_26013_vulnerable.py","fixed":"python/cve_2026_26013_fixed.py","class":"indirect media URL fetch"},
+    {"id":"CVE-2026-34070","cwe":22,"expected_rule_id":"TNT-PY-FWK-PATH-001","vulnerable":"python/cve_2026_34070_vulnerable.py","fixed":"python/cve_2026_34070_fixed.py","class":"framework loader path traversal"},
+    {"id":"CVE-2026-40087","cwe":1336,"expected_rule_id":"TNT-PY-FWK-TEMPLATE-001","vulnerable":"python/cve_2026_40087_vulnerable.py","fixed":"python/cve_2026_40087_fixed.py","class":"nested format-spec template injection"},
+    {"id":"CVE-2026-41481","cwe":918,"expected_rule_id":"TNT-PY-FWK-URLFETCH-001","vulnerable":"python/cve_2026_41481_vulnerable.py","fixed":"python/cve_2026_41481_fixed.py","class":"URL helper redirect SSRF"},
+    {"id":"CVE-2026-41488","cwe":918,"expected_rule_id":"TNT-PY-FWK-IMAGECOUNT-001","vulnerable":"python/cve_2026_41488_vulnerable.py","fixed":"python/cve_2026_41488_fixed.py","class":"image token-counting DNS-rebinding SSRF"},
+    {"id":"CVE-2026-44843","cwe":502,"expected_rule_id":"PY-FWK-BROAD-ALLOWLIST-001","vulnerable":"python/cve_2026_44843_vulnerable.py","fixed":"python/cve_2026_44843_fixed.py","class":"overbroad object allowlist"},
+    {"id":"CVE-2026-55443","cwe":22,"expected_rule_id":"TNT-PY-FWK-PATH-001","vulnerable":"python/cve_2026_55443_vulnerable.py","fixed":"python/cve_2026_55443_fixed.py","class":"file-search sandbox escape"}
+  ]
+}

@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hedgerow-dev/rowan/blob/main/docs/schema/finding.schema.json",
+  "title": "Rowan Finding",
+  "description": "A single vulnerability finding produced by the Rowan SAST scanner.",
+  "type": "object",
+  "required": ["rule_id", "message", "severity", "category", "file", "line"],
+  "properties": {
+    "rule_id": {
+      "type": "string",
+      "description": "Unique rule identifier (e.g., TNT-SSRF-001, NS-DESER-001).",
+      "examples": ["TNT-SSRF-001", "NS-DESER-001", "CF-SINK-001"]
+    },
+    "message": {
+      "type": "string",
+      "description": "Human-readable description of the vulnerability."
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low", "info"],
+      "description": "Severity level of the finding."
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "injection",
+        "deserialization",
+        "ssrf",
+        "ssti",
+        "xss",
+        "command_injection",
+        "path_traversal",
+        "secrets",
+        "supply_chain",
+        "ai_ml",
+        "prompt_injection",
+        "nosql_injection",
+        "prototype_pollution",
+        "auth",
+        "crypto",
+        "config",
+        "general"
+      ],
+      "description": "Vulnerability category."
+    },
+    "file": {
+      "type": "string",
+      "description": "Path to the file containing the vulnerability."
+    },
+    "line": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "1-indexed start line number. 0 for dependency (SCA) findings that are not tied to a source line."
+    },
+    "end_line": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "1-indexed end line number."
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Confidence score. 0.0 = no confidence, 1.0 = certain."
+    },
+    "cwe": {
+      "type": "array",
+      "items": { "type": "integer" },
+      "description": "CWE identifiers (e.g., [502, 94])."
+    },
+    "engine": {
+      "type": "string",
+      "enum": [
+        "authz",
+        "crossfile",
+        "depguard",
+        "js_authz",
+        "llm-discovery",
+        "mcpconfig",
+        "mfv",
+        "multiagent",
+        "neuroscan",
+        "opengrep",
+        "serialization-scope",
+        "siblinggate"
+      ],
+      "description": "Scan engine that produced this finding."
+    },
+    "evidence_tier": {
+      "type": "string",
+      "enum": ["taint-flow", "taint-flow-unresolved", "engine", "source-context", "self-evident", "pattern-only"],
+      "description": "What was actually computed to support this finding. 'taint-flow': a source-to-sink dataflow, attached as taint_flow. 'taint-flow-unresolved': a trace enters a service call whose returned value was not resolved; the finding is capped below HIGH pending review. 'engine': model-file opcode or authz-graph analysis. 'source-context': legacy tier accepted for older reports; new scans do not emit it because file context is not source-to-sink evidence. 'self-evident': the matched text is the whole claim (hardcoded secret, weak crypto); no dataflow asserted. 'pattern-only': an unverified pattern match. A hypothesis, not a fact, capped below HIGH for dataflow-claiming categories."
+    },
+    "rule_class": {
+      "type": "string",
+      "enum": ["vulnerability", "inventory"],
+      "description": "'vulnerability' for findings that assert a bug; 'inventory' for attack-surface/hygiene presence signals (e.g. an API being present) with no dataflow claim."
+    },
+    "taint_flow": {
+      "oneOf": [
+        { "$ref": "#/$defs/TaintFlow" },
+        { "type": "null" }
+      ],
+      "description": "Source-to-sink dataflow path. Present for taint and crossfile findings."
+    },
+    "reachability": {
+      "type": ["string", "null"],
+      "description": "SCA reachability verdict for a dependency finding, e.g. 'reachable' or 'unreachable'. Null when not computed."
+    },
+    "reachability_evidence": {
+      "type": ["string", "null"],
+      "description": "Supporting evidence for the reachability verdict."
+    },
+    "vuln_func_source": {
+      "type": ["string", "null"],
+      "description": "Source snippet of the vulnerable function, for SCA reachability findings."
+    },
+    "direct": {
+      "type": ["boolean", "null"],
+      "description": "Whether the vulnerable dependency is a direct dependency (true) or transitive (false). Null when not applicable."
+    },
+    "dependency_chain": {
+      "type": ["array", "null"],
+      "items": { "type": "string" },
+      "description": "Path of package names from a direct dependency down to the vulnerable transitive dependency. Null/absent when not applicable."
+    },
+    "version_indeterminate": {
+      "type": "boolean",
+      "description": "True when the installed version of a dependency could not be determined precisely."
+    },
+    "fixed_version": {
+      "type": ["string", "null"],
+      "description": "Version that fixes the vulnerability, if known."
+    },
+    "epss": {
+      "type": ["number", "null"],
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "EPSS exploit prediction score for the CVE, if available."
+    },
+    "epss_percentile": {
+      "type": ["number", "null"],
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "EPSS percentile for the CVE, if available."
+    },
+    "phantom_dependency": {
+      "type": "boolean",
+      "description": "True when the vulnerable package is imported but not declared in the project's dependency manifest."
+    },
+    "malicious": {
+      "type": "boolean",
+      "description": "True when the dependency itself is flagged as a known-malicious package, not just vulnerable."
+    }
+  },
+  "$defs": {
+    "TaintNode": {
+      "type": "object",
+      "required": ["file", "line"],
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "File containing this taint node."
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Line number."
+        },
+        "snippet": {
+          "type": "string",
+          "description": "Source code snippet at this node."
+        }
+      }
+    },
+    "TaintFlow": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "oneOf": [
+            { "$ref": "#/$defs/TaintNode" },
+            { "type": "null" }
+          ],
+          "description": "Where user input enters."
+        },
+        "sink": {
+          "oneOf": [
+            { "$ref": "#/$defs/TaintNode" },
+            { "type": "null" }
+          ],
+          "description": "Where the dangerous function is called."
+        },
+        "intermediate": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TaintNode" },
+          "description": "Intermediate hops between source and sink."
+        }
+      }
+    }
+  }
+}

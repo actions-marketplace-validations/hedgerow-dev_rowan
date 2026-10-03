@@ -1,0 +1,96 @@
+{
+  "ai_apps_decoy_fps": 3,
+  "ai_apps_go_recall": 0.9090909090909091,
+  "ai_apps_java_recall": 0.8571428571428571,
+  "ai_apps_python_recall": 0.23076923076923078,
+  "ai_cases_holdout": 0.16666666666666666,
+  "ai_cases_recall": 0.7222222222222222,
+  "ai_cases_regression": 1.0,
+  "authz_bola_precision": 1.0,
+  "authz_bola_recall": 1.0,
+  "clean_code": {
+    "PrestaShop": {
+      "high_critical": 0,
+      "total": 471
+    },
+    "autogen": {
+      "high_critical": 8,
+      "total": 257
+    },
+    "chainlit": {
+      "high_critical": 0,
+      "total": 55
+    },
+    "crewai": {
+      "high_critical": 1,
+      "total": 216
+    },
+    "discourse": {
+      "high_critical": 1,
+      "total": 633
+    },
+    "dubbo": {
+      "high_critical": 0,
+      "total": 28
+    },
+    "eShop": {
+      "high_critical": 0,
+      "total": 14
+    },
+    "flashrag": {
+      "high_critical": 0,
+      "total": 54
+    },
+    "haystack": {
+      "high_critical": 0,
+      "total": 158
+    },
+    "jellyfin": {
+      "high_critical": 7,
+      "total": 39
+    },
+    "langchain": {
+      "high_critical": 0,
+      "total": 529
+    },
+    "langflow": {
+      "high_critical": 3,
+      "total": 1052
+    },
+    "letta": {
+      "high_critical": 26,
+      "total": 594
+    },
+    "llamaindex": {
+      "high_critical": 0,
+      "total": 567
+    },
+    "llmware": {
+      "high_critical": 3,
+      "total": 158
+    },
+    "ragflow": {
+      "high_critical": 19,
+      "total": 1157
+    },
+    "vllm": {
+      "high_critical": 4,
+      "total": 1575
+    }
+  },
+  "clean_models_findings": 0,
+  "js_authz_decoy_fps": 0,
+  "js_authz_recall": 1.0,
+  "vuln_app_category_mismatches": 20,
+  "vuln_app_cwe_mismatches": 12,
+  "vuln_app_decoy_fps": 0,
+  "vuln_app_distinct_decoy_fps": 0,
+  "vuln_app_distinct_tp": 62,
+  "vuln_app_precision": 1.0,
+  "vuln_app_raw_duplicates": 40,
+  "vuln_app_recall": 0.7682926829268293,
+  "vuln_app_unmatched_findings": 82,
+  "vuln_cases_recall": 0.9032258064516129,
+  "vuln_cases_recall_holdout": 0.75,
+  "vuln_cases_recall_regression": 1.0
+}

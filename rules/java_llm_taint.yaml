@@ -1,0 +1,710 @@
+rules:
+  # --- JG-05: LLM output flows into a dangerous sink -----------------------
+  # Sink blocks are copied verbatim from the matching rules/java_taint.yaml
+  # rule (tnt-ja-sqli-001, -cmdi-001, -ssrf-001, -path-001, -el-001,
+  # -deser-001) so behaviour matches; -xss-001 and -spel-001 add sinks beyond
+  # their mirror per BACKLOG.md JG-05.
+
+  - id: tnt-ja-ai-llmout-sql-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      Model output flows into a SQL query without parameterization; whoever
+      controls the prompt or the retrieved context controls this value.
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      confidence: HIGH
+      category: security
+      source_kind: llm_output
+      fix: "Never execute model-produced text as SQL. Keep the query text constant and bind any model-derived value as a parameter (PreparedStatement setString/setInt), or route through a typed repository method instead."
+    pattern-sources:
+      # rowan-registry:begin source=llm_output_java
+      - patterns:
+          - pattern-either:
+              - pattern: $CLIENT.prompt(...). ... .call().content()
+              - pattern: $CLIENT.prompt(...). ... .call().chatResponse().getResult().getOutput().getText()
+              - pattern: $RESP.getResult().getOutput().getText()
+              - pattern: $RESP.getResult().getOutput().getContent()
+              - pattern: (ChatLanguageModel $M).chat(...)
+              - pattern: (ChatModel $M).chat(...)
+              - pattern: (ChatLanguageModel $M).generate(...)
+              - pattern: (AiMessage $M).text()
+              - pattern: (Result<$T> $R).content()
+              - pattern: $RESPONSE.aiMessage().text()
+              - pattern: $COMPLETION.choices().get($I).message().content()
+              - pattern: $COMPLETION.choices().get($I).message().content().orElse(...)
+              - pattern: $COMPLETION.choices().get($I).message().content().get()
+              - pattern: $MSG.content().get($I).text().get().text()
+      # rowan-registry:end source=llm_output_java
+    pattern-sinks:
+      - pattern: (Statement $S).executeQuery(...)
+      - pattern: (Statement $S).executeUpdate(...)
+      - pattern: (Statement $S).execute(...)
+      - pattern: (Connection $C).prepareStatement(...)
+      - pattern: $C.prepareStatement(...)
+      - pattern: $C.createStatement().executeQuery(...)
+      - pattern: $C.createStatement().executeUpdate(...)
+      - pattern: $C.createStatement().execute(...)
+      - pattern: $EM.createQuery(...)
+      # JdbcTemplate: only the SQL-text argument is a sink, so a constant
+      # query with model output bound through `args` does not fire. Missing
+      # this was why two ai_apps seeds (JA-05, JA-13) missed (ADR-0005).
+      - patterns:
+          - pattern: (JdbcTemplate $J).$METHOD($SQL, ...)
+          - metavariable-regex:
+              metavariable: $METHOD
+              regex: ^(query|queryForList|queryForObject|queryForMap|queryForRowSet|update|execute|batchUpdate)$
+          - focus-metavariable: $SQL
+    pattern-sanitizers:
+      - pattern: (PreparedStatement $PS).setString(...)
+      - pattern: (PreparedStatement $PS).setInt(...)
+      - pattern: Integer.parseInt(...)
+      - pattern: Long.parseLong(...)
+
+  - id: tnt-ja-ai-llmout-exec-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      Model output flows into a command execution call; whoever controls the
+      prompt or the retrieved context controls this value.
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      confidence: HIGH
+      category: security
+      source_kind: llm_output
+      fix: "Do not run model output as a shell command. If the model must trigger an action, map its output to a fixed, allowlisted set of operations instead of passing text to ProcessBuilder/Runtime.exec()."
+    pattern-sources:
+      # rowan-registry:begin source=llm_output_java
+      - patterns:
+          - pattern-either:
+              - pattern: $CLIENT.prompt(...). ... .call().content()
+              - pattern: $CLIENT.prompt(...). ... .call().chatResponse().getResult().getOutput().getText()
+              - pattern: $RESP.getResult().getOutput().getText()
+              - pattern: $RESP.getResult().getOutput().getContent()
+              - pattern: (ChatLanguageModel $M).chat(...)
+              - pattern: (ChatModel $M).chat(...)
+              - pattern: (ChatLanguageModel $M).generate(...)
+              - pattern: (AiMessage $M).text()
+              - pattern: (Result<$T> $R).content()
+              - pattern: $RESPONSE.aiMessage().text()
+              - pattern: $COMPLETION.choices().get($I).message().content()
+              - pattern: $COMPLETION.choices().get($I).message().content().orElse(...)
+              - pattern: $COMPLETION.choices().get($I).message().content().get()
+              - pattern: $MSG.content().get($I).text().get().text()
+      # rowan-registry:end source=llm_output_java
+    pattern-sinks:
+      - pattern: Runtime.getRuntime().exec(...)
+      - pattern: new ProcessBuilder(...)
+      - pattern: (ProcessBuilder $PB).command(...)
+    pattern-sanitizers:
+      - pattern: StringUtils.isAlphanumeric(...)
+
+  - id: tnt-ja-ai-llmout-ssrf-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      Model output flows into an outbound HTTP request URL; whoever controls
+      the prompt or the retrieved context controls this value.
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery (SSRF)"
+      confidence: HIGH
+      category: security
+      source_kind: llm_output
+      fix: "Validate any model-chosen destination host against an explicit allowlist of permitted domains/IPs before making the request, and block private and link-local ranges."
+    pattern-sources:
+      # rowan-registry:begin source=llm_output_java
+      - patterns:
+          - pattern-either:
+              - pattern: $CLIENT.prompt(...). ... .call().content()
+              - pattern: $CLIENT.prompt(...). ... .call().chatResponse().getResult().getOutput().getText()
+              - pattern: $RESP.getResult().getOutput().getText()
+              - pattern: $RESP.getResult().getOutput().getContent()
+              - pattern: (ChatLanguageModel $M).chat(...)
+              - pattern: (ChatModel $M).chat(...)
+              - pattern: (ChatLanguageModel $M).generate(...)
+              - pattern: (AiMessage $M).text()
+              - pattern: (Result<$T> $R).content()
+              - pattern: $RESPONSE.aiMessage().text()
+              - pattern: $COMPLETION.choices().get($I).message().content()
+              - pattern: $COMPLETION.choices().get($I).message().content().orElse(...)
+              - pattern: $COMPLETION.choices().get($I).message().content().get()
+              - pattern: $MSG.content().get($I).text().get().text()
+      # rowan-registry:end source=llm_output_java
+    pattern-sinks:
+      - pattern: new URL(...)
+      - pattern: (RestTemplate $RT).getForObject(...)
+      - pattern: (WebClient $WC).get()
+
+  - id: tnt-ja-ai-llmout-path-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      Model output flows into a filesystem path; whoever controls the prompt
+      or the retrieved context controls this value.
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+      confidence: HIGH
+      category: security
+      source_kind: llm_output
+      fix: "Resolve any model-chosen name under a fixed base directory with Path.normalize() and reject the result unless it still startsWith the base's real path, or use FilenameUtils.getName() to discard directory components entirely."
+    pattern-sources:
+      # rowan-registry:begin source=llm_output_java
+      - patterns:
+          - pattern-either:
+              - pattern: $CLIENT.prompt(...). ... .call().content()
+              - pattern: $CLIENT.prompt(...). ... .call().chatResponse().getResult().getOutput().getText()
+              - pattern: $RESP.getResult().getOutput().getText()
+              - pattern: $RESP.getResult().getOutput().getContent()
+              - pattern: (ChatLanguageModel $M).chat(...)
+              - pattern: (ChatModel $M).chat(...)
+              - pattern: (ChatLanguageModel $M).generate(...)
+              - pattern: (AiMessage $M).text()
+              - pattern: (Result<$T> $R).content()
+              - pattern: $RESPONSE.aiMessage().text()
+              - pattern: $COMPLETION.choices().get($I).message().content()
+              - pattern: $COMPLETION.choices().get($I).message().content().orElse(...)
+              - pattern: $COMPLETION.choices().get($I).message().content().get()
+              - pattern: $MSG.content().get($I).text().get().text()
+      # rowan-registry:end source=llm_output_java
+    pattern-sinks:
+      - pattern: new File(...)
+      - pattern: Paths.get(...)
+      - pattern: Files.readAllBytes(...)
+      - pattern: (Path $P).resolve(...)
+      - pattern: Paths.get(...).resolve(...)
+    pattern-sanitizers:
+      - pattern: FilenameUtils.getName(...)
+      - pattern: (String $S).replace("..", "")
+
+  - id: tnt-ja-ai-llmout-xss-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      Model output flows into an HTML response without encoding; whoever
+      controls the prompt or the retrieved context controls this value.
+    metadata:
+      cwe:
+        - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
+      confidence: HIGH
+      category: security
+      source_kind: llm_output
+      fix: "HTML-encode model output with StringEscapeUtils.escapeHtml4()/Encode.forHtml() before writing it into an HTTP response, the same as any other untrusted text."
+    pattern-sources:
+      # rowan-registry:begin source=llm_output_java
+      - patterns:
+          - pattern-either:
+              - pattern: $CLIENT.prompt(...). ... .call().content()
+              - pattern: $CLIENT.prompt(...). ... .call().chatResponse().getResult().getOutput().getText()
+              - pattern: $RESP.getResult().getOutput().getText()
+              - pattern: $RESP.getResult().getOutput().getContent()
+              - pattern: (ChatLanguageModel $M).chat(...)
+              - pattern: (ChatModel $M).chat(...)
+              - pattern: (ChatLanguageModel $M).generate(...)
+              - pattern: (AiMessage $M).text()
+              - pattern: (Result<$T> $R).content()
+              - pattern: $RESPONSE.aiMessage().text()
+              - pattern: $COMPLETION.choices().get($I).message().content()
+              - pattern: $COMPLETION.choices().get($I).message().content().orElse(...)
+              - pattern: $COMPLETION.choices().get($I).message().content().get()
+              - pattern: $MSG.content().get($I).text().get().text()
+      # rowan-registry:end source=llm_output_java
+    # Only the servlet-response writer, per BACKLOG.md JG-05: the bare
+    # $OUT.print/println form (also in tnt-ja-xss-001) is too easily any
+    # PrintStream, not necessarily an HTTP response, and Spring's
+    # ResponseEntity.ok(String) is not itself an XSS sink.
+    pattern-sinks:
+      - pattern: (HttpServletResponse $R).getWriter().print(...)
+      - pattern: (HttpServletResponse $R).getWriter().println(...)
+      - pattern: (HttpServletResponse $R).getWriter().write(...)
+    pattern-sanitizers:
+      - pattern: StringEscapeUtils.escapeHtml4(...)
+      - pattern: HtmlUtils.htmlEscape(...)
+      - pattern: Encode.forHtml(...)
+
+  - id: tnt-ja-ai-llmout-spel-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      Model output flows into an expression-language or template evaluation;
+      whoever controls the prompt or the retrieved context controls this
+      value.
+    metadata:
+      cwe:
+        - "CWE-917: Improper Neutralization of Special Elements used in an Expression Language Statement ('Expression Language Injection')"
+      confidence: HIGH
+      category: security
+      source_kind: llm_output
+      fix: "Never evaluate a SpEL/OGNL/MVEL expression, a script, or a template built from model output. If dynamic lookups are required, resolve them through an explicit allowlist of permitted expressions/beans instead."
+    pattern-sources:
+      # rowan-registry:begin source=llm_output_java
+      - patterns:
+          - pattern-either:
+              - pattern: $CLIENT.prompt(...). ... .call().content()
+              - pattern: $CLIENT.prompt(...). ... .call().chatResponse().getResult().getOutput().getText()
+              - pattern: $RESP.getResult().getOutput().getText()
+              - pattern: $RESP.getResult().getOutput().getContent()
+              - pattern: (ChatLanguageModel $M).chat(...)
+              - pattern: (ChatModel $M).chat(...)
+              - pattern: (ChatLanguageModel $M).generate(...)
+              - pattern: (AiMessage $M).text()
+              - pattern: (Result<$T> $R).content()
+              - pattern: $RESPONSE.aiMessage().text()
+              - pattern: $COMPLETION.choices().get($I).message().content()
+              - pattern: $COMPLETION.choices().get($I).message().content().orElse(...)
+              - pattern: $COMPLETION.choices().get($I).message().content().get()
+              - pattern: $MSG.content().get($I).text().get().text()
+      # rowan-registry:end source=llm_output_java
+    pattern-sinks:
+      # tnt-ja-el-001's sinks, verbatim.
+      - pattern: $PARSER.parseExpression(...)
+      - pattern: Ognl.getValue(...)
+      - pattern: MVEL.eval(...)
+      # JG-05 additions: typed SpEL parser, scripting engine, Freemarker.
+      - pattern: (SpelExpressionParser $P).parseExpression(...)
+      - pattern: (ExpressionParser $P).parseExpression(...)
+      - pattern: (ScriptEngine $E).eval(...)
+      - pattern: (Template $T).process(...)
+      - patterns:
+          - pattern: new Template($NAME, $SRC, ...)
+          - focus-metavariable: $SRC
+    pattern-sanitizers:
+      - pattern: StringUtils.isAlphanumeric(...)
+
+  - id: tnt-ja-ai-llmout-deser-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      Model output flows into a deserialization call; whoever controls the
+      prompt or the retrieved context controls this value.
+    metadata:
+      cwe:
+        - "CWE-502: Deserialization of Untrusted Data"
+      confidence: HIGH
+      category: security
+      source_kind: llm_output
+      fix: "Never deserialize model output. Avoid Java native deserialization (ObjectInputStream) and XStream.fromXML on it entirely, or parse it as data only (a JSON library into a known target type) rather than as a serialized object graph."
+    pattern-sources:
+      # rowan-registry:begin source=llm_output_java
+      - patterns:
+          - pattern-either:
+              - pattern: $CLIENT.prompt(...). ... .call().content()
+              - pattern: $CLIENT.prompt(...). ... .call().chatResponse().getResult().getOutput().getText()
+              - pattern: $RESP.getResult().getOutput().getText()
+              - pattern: $RESP.getResult().getOutput().getContent()
+              - pattern: (ChatLanguageModel $M).chat(...)
+              - pattern: (ChatModel $M).chat(...)
+              - pattern: (ChatLanguageModel $M).generate(...)
+              - pattern: (AiMessage $M).text()
+              - pattern: (Result<$T> $R).content()
+              - pattern: $RESPONSE.aiMessage().text()
+              - pattern: $COMPLETION.choices().get($I).message().content()
+              - pattern: $COMPLETION.choices().get($I).message().content().orElse(...)
+              - pattern: $COMPLETION.choices().get($I).message().content().get()
+              - pattern: $MSG.content().get($I).text().get().text()
+      # rowan-registry:end source=llm_output_java
+    pattern-sinks:
+      - pattern: (ObjectInputStream $OIS).readObject()
+      - pattern: new ObjectInputStream(...)
+      - pattern: $XSTREAM.fromXML(...)
+      - pattern: new Yaml().load(...)
+      - pattern: (Yaml $Y).load(...)
+    pattern-sanitizers:
+      - pattern: (ObjectInputFilter $F).checkInput(...)
+
+  # --- JG-06: request to system prompt, config to MCP transport ------------
+
+  - id: tnt-ja-ai-sysprompt-001
+    mode: taint
+    languages: [java]
+    severity: WARNING
+    message: >-
+      A web request value flows into the system prompt or a prompt template
+      given to the model. Whoever controls the request can override the
+      application's own instructions to the model (prompt injection).
+    metadata:
+      cwe:
+        - "CWE-20: Improper Input Validation"
+      confidence: MEDIUM
+      category: security
+      source_kind: http_input
+      fix: "Keep the system prompt / prompt template a fixed constant. If request data must appear in the prompt, place it in a clearly delimited user-content section, never in the system instructions or the template text itself."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_java
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).getParameter(...)
+              - pattern: request.getParameter(...)
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @$MAPPING(...)
+                      $RET $METHOD(..., String $PARAM, ...) {
+                        ...
+                      }
+                  - metavariable-regex:
+                      metavariable: $MAPPING
+                      regex: ^(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping|PatchMapping)$
+      # rowan-registry:end source=web_request_java
+    pattern-sinks:
+      # Spring AI
+      - pattern: $CLIENT.prompt(...). ... .system(...)
+      - pattern: new SystemMessage(...)
+      - pattern: new SystemPromptTemplate(...)
+      - patterns:
+          - pattern: new PromptTemplate($TEMPLATE, ...)
+          - focus-metavariable: $TEMPLATE
+      # LangChain4j
+      - pattern: SystemMessage.from(...)
+      - pattern: PromptTemplate.from(...)
+
+  - id: tnt-ja-ai-mcpcmd-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A request or environment value reaches the command/args or transport
+      URL used to start or connect to an MCP server. Whoever controls that
+      value controls what process the server executes or where it connects.
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      confidence: HIGH
+      category: security
+      source_kind: config
+      fix: "Never build an MCP stdio command, its arguments, or a remote transport URL from request or environment data. Keep the server command and endpoint fixed configuration, chosen by the operator, not derived from a request."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_java
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).getParameter(...)
+              - pattern: request.getParameter(...)
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @$MAPPING(...)
+                      $RET $METHOD(..., String $PARAM, ...) {
+                        ...
+                      }
+                  - metavariable-regex:
+                      metavariable: $MAPPING
+                      regex: ^(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping|PatchMapping)$
+      # rowan-registry:end source=web_request_java
+      # Deliberately kept after EXT-19 moved System.getenv out of
+      # web_request_java: this rule treats the environment as a config
+      # source (source_kind: config), see the message.
+      - pattern: System.getenv(...)
+    pattern-sinks:
+      # LangChain4j's builder is the nested StdioMcpTransport.Builder class
+      # (dev.langchain4j.mcp.client.transport.stdio.StdioMcpTransport), the
+      # aideepin UserMcpService shape; the bare-type form is kept for other
+      # SDKs that expose `command`/`args` directly on the transport.
+      - pattern: (StdioMcpTransport.Builder $T).command(...)
+      - pattern: (StdioMcpTransport.Builder $T).args(...)
+      - pattern: (StdioMcpTransport $T).command(...)
+      - pattern: (StdioMcpTransport $T).args(...)
+      - pattern: ServerParameters.builder(...)
+      - pattern: new StdioClientTransport(...)
+      - pattern: McpClient.sync(HttpClientSseClientTransport.builder(...))
+
+  - id: tnt-ja-ai-yaml-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      A web request value flows into a SnakeYAML load call whose Yaml
+      instance is not restricted to safe types, enabling remote code
+      execution via a crafted YAML document (SnakeYAML CVE-2022-1471 class).
+    metadata:
+      cwe:
+        - "CWE-502: Deserialization of Untrusted Data"
+      confidence: HIGH
+      category: security
+      source_kind: http_input
+      fix: "Construct the Yaml instance with a SafeConstructor (new Yaml(new SafeConstructor())), or migrate to SnakeYAML >= 2.0's default safe behaviour, before loading request-derived YAML."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_java
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).getParameter(...)
+              - pattern: request.getParameter(...)
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @$MAPPING(...)
+                      $RET $METHOD(..., String $PARAM, ...) {
+                        ...
+                      }
+                  - metavariable-regex:
+                      metavariable: $MAPPING
+                      regex: ^(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping|PatchMapping)$
+      # rowan-registry:end source=web_request_java
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: new Yaml().load(...)
+              # Typed: a bare `$Y.load(...)` also matched `Properties.load`,
+              # `ClassLoader.load` and friends (6 FPs on apache/dubbo, ADR-0005).
+              - pattern: (Yaml $Y).load(...)
+              - pattern: (Yaml $Y).loadAs(...)
+              - pattern: (Yaml $Y).loadAll(...)
+              - pattern: new Yaml().loadAs(...)
+              - pattern: new Yaml().loadAll(...)
+          - pattern-not: new Yaml(new SafeConstructor(...)).load(...)
+          - pattern-not: new Yaml(new SafeConstructor(...)).loadAs(...)
+          - pattern-not: new Yaml(new SafeConstructor(...)).loadAll(...)
+          - pattern-not-inside: |
+              $Y = new Yaml(new SafeConstructor(...));
+              ...
+          - pattern-not-inside: |
+              $T $Y = new Yaml(new SafeConstructor(...));
+              ...
+
+  - id: tnt-ja-ai-vectorq-001
+    mode: taint
+    languages: [java]
+    severity: WARNING
+    message: >-
+      A web request value flows into a vector-store metadata filter or a
+      graph (Cypher) query built by string formatting, enabling filter/query
+      injection against the vector or graph store.
+    metadata:
+      cwe:
+        - "CWE-943: Improper Neutralization of Special Elements in Data Query Logic"
+      confidence: MEDIUM
+      category: security
+      source_kind: http_input
+      fix: "Build vector-store filter expressions and Cypher queries with the driver's own parameter binding (Session.run(query, params)) instead of interpolating request data into the expression/query text."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_java
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).getParameter(...)
+              - pattern: request.getParameter(...)
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @$MAPPING(...)
+                      $RET $METHOD(..., String $PARAM, ...) {
+                        ...
+                      }
+                  - metavariable-regex:
+                      metavariable: $MAPPING
+                      regex: ^(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping|PatchMapping)$
+      # rowan-registry:end source=web_request_java
+    # Deliberately excludes (Statement $S).executeQuery(...): the aideepin
+    # ApacheAgeGraphStore shape (.formatted() Cypher through
+    # Statement.executeQuery) is already caught by tnt-ja-sqli-001's generic
+    # executeQuery sink when sourced from a request (both rules share the
+    # web_request_java source); adding it here would double-report the
+    # identical flow. Neo4j's driver API (Session.run) is a distinct sink
+    # tnt-ja-sqli-001 does not cover.
+    pattern-sinks:
+      # LangChain4j
+      - pattern: EmbeddingSearchRequest.builder(). ... .filter(...)
+      # Spring AI
+      - pattern: SearchRequest.query(...). ... .filterExpression(...)
+      # Neo4j Cypher
+      - pattern: (Session $SESSION).run(...)

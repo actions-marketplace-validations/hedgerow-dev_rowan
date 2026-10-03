@@ -1,0 +1,224 @@
+rules:
+- id: RB-INJECT-001
+  languages:
+  - ruby
+  severity: ERROR
+  message: 'Kernel#eval executes arbitrary Ruby from a string. Avoid evaluating
+
+    user-controlled input.'
+  patterns:
+  - pattern-regex: \beval\b
+  - pattern-not-regex: (?m)^\s*#
+  metadata:
+    category: injection
+    cwe:
+    - 95
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: eval() code injection
+    fix: Never call eval() on untrusted input; use a proper parser for the expected format.
+    residual:
+    - sanitizer
+- id: RB-INJECT-002
+  languages:
+  - ruby
+  severity: ERROR
+  message: 'system(), exec(), backticks, and %x() are shell execution sinks.
+
+    Use array form or Open3.capture3 with separate arguments.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bsystem\s*\(
+    - pattern-regex: (?<![.\w])exec\s*\(
+    - pattern-regex: '`[^`]+\$\{[^`]+`'
+    - pattern-regex: '%x\s*\('
+  - pattern-not-regex: system\s*\(\s*\[
+  - pattern-not-regex: def exec\b
+  - pattern-not-regex: (?m)^\s*#
+  metadata:
+    category: command_injection
+    cwe:
+    - 78
+    original_engine: neuroscan
+    rule_name: Shell command injection
+    residual:
+    - sanitizer
+- id: RB-INJECT-003
+  languages:
+  - ruby
+  severity: ERROR
+  message: 'ActiveRecord raw SQL or string interpolation in where() is SQL-injectable.
+
+    Use parameterized queries with ? placeholders.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.find_by_sql\s*\(
+    - pattern-regex: \.(where|having)\s*\(.*#\{
+  - pattern-not-regex: (?m)^\s*#
+  metadata:
+    category: injection
+    cwe:
+    - 89
+    original_engine: neuroscan
+    rule_name: SQL injection in ActiveRecord
+    residual:
+    - sanitizer
+- id: RB-DESER-001
+  languages:
+  - ruby
+  severity: ERROR
+  message: 'Unsafe YAML.load() or Marshal.load() enables arbitrary object
+
+    deserialization leading to RCE. Use YAML.safe_load().'
+  patterns:
+  - pattern-either:
+    - pattern-regex: YAML\.load\s*\(
+    - pattern-regex: Marshal\.load\s*\(
+    - pattern-regex: Oj\.load\s*\(
+  - pattern-not-regex: YAML\.safe_load\s*\(
+  - pattern-not-regex: Marshal\.load\s*\(\s*Marshal\.dump\s*\(
+  - pattern-not-regex: (?m)^.*mode:\s*:strict
+  - pattern-not-regex: (?m)^.*mode:\s*:compat
+  - pattern-not-regex: (?m)^\s*#
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: Unsafe YAML/Marshal deserialization
+    fix: Replace YAML.load()/Marshal.load() with YAML.safe_load() (or Marshal with a trusted source only) for untrusted data.
+    residual:
+    - sanitizer
+- id: RB-SSTI-001
+  languages:
+  - ruby
+  severity: ERROR
+  message: 'ERB.new() with user-supplied template enables server-side template
+
+    injection. Sanitize template input or use a sandboxed renderer.'
+  patterns:
+  - pattern-regex: ERB\.new\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  metadata:
+    category: ssti
+    cwe:
+    - 94
+    original_engine: neuroscan
+    rule_name: ERB template injection
+    residual:
+    - sanitizer
+- id: RB-INJECT-004
+  languages:
+  - ruby
+  severity: ERROR
+  message: 'Kernel#open() with pipe character opens a subprocess. If input is
+
+    user-controlled, this is command injection. Use File.open() or URI.open().'
+  patterns:
+  - pattern-regex: \bopen\s*\(\s*\|
+  - pattern-not-regex: (?m)^\s*#
+  metadata:
+    category: command_injection
+    cwe:
+    - 78
+    original_engine: neuroscan
+    rule_name: Kernel#open injection
+    residual:
+    - sanitizer
+- id: RB-PATH-001
+  languages:
+  - ruby
+  severity: ERROR
+  message: 'Filesystem access whose path argument was not analysed for user control
+
+    (no Ruby dataflow support yet). Verify the path cannot be influenced by
+
+    request input; File.basename/File.join on user input prevents traversal.'
+  patterns:
+  - pattern-regex: (?<!\w::)(?<![\w.])(File\.(open|read|write|delete)|Dir\.(chdir|glob))\s*\(
+  - pattern-not-regex: File\.basename\s*\(
+  - pattern-not-regex: File\.join\s*\(
+  - pattern-not-regex: (File\.(open|read|write|delete)|Dir\.(chdir|glob))\s*\(\s*'[^']*'\s*[,)]
+  - pattern-not-regex: (File\.(open|read|write|delete)|Dir\.(chdir|glob))\s*\(\s*"(?:[^"#]|#[^{])*"\s*[,)]
+  - pattern-not-regex: (?m)^.*Rails\.root\.join\(\s*['"]
+  - pattern-not-regex: (?m)^.*(?:__dir__|__FILE__)
+  - pattern-not-regex: (?m)^\s*#
+  metadata:
+    category: path_traversal
+    cwe:
+    - 22
+    original_engine: neuroscan
+    rule_name: Unanalysed file path at filesystem sink
+    residual:
+    - sanitizer
+- id: RB-SSRF-001
+  languages:
+  - ruby
+  severity: ERROR
+  message: 'Outbound HTTP with unvalidated URL enables SSRF. Validate
+
+    destination hosts against an allowlist.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: Net::HTTP\.(get|post|start|new)\s*\(
+    - pattern-regex: HTTParty\.(get|post)\s*\(
+    - pattern-regex: RestClient\.(get|post)\s*\(
+    - pattern-regex: Faraday\.new\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  metadata:
+    category: ssrf
+    cwe:
+    - 918
+    original_engine: neuroscan
+    rule_name: Unvalidated HTTP client
+    residual:
+    - sanitizer
+- id: RB-CONFIG-001
+  languages:
+  - ruby
+  severity: WARNING
+  message: 'force_ssl = false disables HSTS and HTTPS enforcement. Set to true
+
+    in production.'
+  patterns:
+  - pattern-regex: config\.force_ssl\s*=\s*false
+  - pattern-not-regex: (?m)^\s*#
+  metadata:
+    category: config
+    cwe:
+    - 319
+    original_engine: neuroscan
+    rule_name: force_ssl disabled
+- id: RB-AUTH-001
+  languages:
+  - ruby
+  severity: ERROR
+  message: 'permit! allows all parameters through: mass assignment vulnerability.
+
+    Use explicit permit(:attr1, :attr2) to whitelist allowed attributes.'
+  patterns:
+  - pattern-regex: \.permit!
+  - pattern-not-regex: (?m)^\s*#
+  metadata:
+    category: auth
+    cwe:
+    - 915
+    original_engine: neuroscan
+    rule_name: Mass assignment via permit!
+- id: RB-CONFIG-002
+  languages:
+  - ruby
+  severity: WARNING
+  message: 'CORS origins ''*'' allows any domain to make authenticated cross-origin
+
+    requests. Restrict to explicit allowed origins.'
+  patterns:
+  - pattern-regex: origins\s+['"]\*['"]
+  - pattern-not-regex: (?m)^\s*#
+  metadata:
+    category: config
+    cwe:
+    - 942
+    original_engine: neuroscan
+    rule_name: CORS wildcard origin

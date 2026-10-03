@@ -1,0 +1,58 @@
+{
+  "description": "Version-pinned framework implementation pairs. Findings are credited only by exact rule ID in the vulnerable source snapshot, with no same-rule hit in the patched snapshot.",
+  "cases": [
+    {
+      "id": "CVE-2025-65106",
+      "class": "unvalidated Formatter field traversal",
+      "expected_rule_id": "PY-FWK-UNVALIDATED-FORMAT-FIELD-001",
+      "vulnerable": "python/cve_2025_65106_vulnerable.py",
+      "fixed": "python/cve_2025_65106_fixed.py",
+      "upstream_repository": "https://github.com/langchain-ai/langchain",
+      "upstream_path": "libs/core/langchain_core/prompts/string.py",
+      "vulnerable_version": "langchain-core==1.0.6",
+      "vulnerable_commit": "6f677ef5c1088de3366f37fca66ac8a454a27f96",
+      "fixed_version": "langchain-core==1.0.7",
+      "fixed_commit": "525d5c0169225f4a56d732be0dad8ad5c78b7265"
+    },
+    {
+      "id": "CVE-2025-68664",
+      "class": "unescaped object-marker dictionaries in JSON serialization",
+      "expected_rule_id": "PY-FWK-UNESCAPED-OBJECT-MARKER-001",
+      "vulnerable": "python/cve_2025_68664_vulnerable.py",
+      "fixed": "python/cve_2025_68664_fixed.py",
+      "upstream_repository": "https://github.com/langchain-ai/langchain",
+      "upstream_path": "libs/core/langchain_core/load/dump.py",
+      "vulnerable_version": "langchain-core==1.2.4",
+      "vulnerable_commit": "10087ac0248a9fef0e73a5388fae0ded63b8b0f2",
+      "fixed_version": "langchain-core==1.2.5",
+      "fixed_commit": "2e0bed6a21610618b7040cebc6b3b927e120a51a",
+      "patch_commit": "5ec0fa69de31bbe3d76e4cf9cd65a6accb8466c8"
+    },
+    {
+      "id": "CVE-2026-34070",
+      "class": "unconfined config-derived prompt-loader paths",
+      "expected_rule_id": "PY-FWK-UNCONFINED-CONFIG-PATH-001",
+      "vulnerable": "python/cve_2026_34070_vulnerable.py",
+      "fixed": "python/cve_2026_34070_fixed.py",
+      "upstream_repository": "https://github.com/langchain-ai/langchain",
+      "upstream_path": "libs/core/langchain_core/prompts/loading.py",
+      "vulnerable_version": "langchain-core==1.2.21",
+      "vulnerable_commit": "19f81cf6f1d73f7adf156491ba0617497a526b8c",
+      "fixed_version": "langchain-core==1.2.22",
+      "fixed_commit": "d22df94537e4267f72dc1bbfc8e3849baf20d9f7"
+    },
+    {
+      "id": "CVE-2026-40087",
+      "class": "discarded nested Formatter format specifier",
+      "expected_rule_id": "PY-FWK-DISCARDED-FORMAT-SPEC-001",
+      "vulnerable": "python/cve_2026_40087_vulnerable.py",
+      "fixed": "python/cve_2026_40087_fixed.py",
+      "upstream_repository": "https://github.com/langchain-ai/langchain",
+      "upstream_path": "libs/core/langchain_core/prompts/string.py",
+      "vulnerable_version": "langchain-core==1.2.27",
+      "vulnerable_commit": "64864041168606535dfbd39055c0dca3dd61b5ba",
+      "fixed_version": "langchain-core==1.2.28",
+      "fixed_commit": "dd7c3eb3a4acfc834b038ec9dbde94478c66776e"
+    }
+  ]
+}

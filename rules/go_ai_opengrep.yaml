@@ -1,0 +1,99 @@
+# Go AI-surface search-mode rules (BACKLOG.md JG-10).
+#
+# Lives in a `*_opengrep.yaml` file for the same reason guardrail_opengrep.yaml
+# does: tests/test_taint_rules.py requires every rule in a *_taint.yaml file to
+# be `mode: taint`, and rowan/passes/taint.py loads `*_opengrep.yaml`
+# alongside the taint files. The taint companions are in go_ai_taint.yaml.
+rules:
+  # An SSE or streamable-HTTP MCP server bound to every interface. mcp-go's
+  # NewSSEServer / NewStreamableHTTPServer ship no authentication (only
+  # WithHTTPContextFunc), and the official go-sdk's SSEHandler /
+  # StreamableHTTPHandler are plain http.Handlers with auth left to the caller,
+  # so a bind on "0.0.0.0:port" or ":port" exposes every tool to the network.
+  # Inventory signal (rule_class.py classifies tnt-go-ai-mcpbind-* as
+  # inventory): the rule cannot see middleware applied further up a mux, so
+  # confidence is MEDIUM. A literal 127.0.0.1 / localhost bind does not match.
+  - id: tnt-go-ai-mcpbind-001
+    languages: [go]
+    severity: WARNING
+    message: >-
+      An MCP server over SSE or streamable HTTP is started on all interfaces
+      (0.0.0.0 or a bare :port) with no authentication middleware in view. The
+      MCP Go SDKs ship no auth of their own, so every tool the server exposes
+      is reachable by anyone who can reach the port.
+    metadata:
+      cwe:
+        - "CWE-306: Missing Authentication for Critical Function"
+      confidence: MEDIUM
+      category: security
+      fix: "Bind to 127.0.0.1 unless remote access is required, and wrap the MCP handler in authentication middleware (bearer token or OAuth) before serving it on a network interface."
+    # The address is a string-regex literal rather than `$ADDR` plus
+    # `metavariable-regex`: the literal form gets Opengrep's constant
+    # propagation, so `addr := ":8080"; srv.Start(addr)` matches too.
+    patterns:
+      - pattern-either:
+          # mcp-go, inline
+          - pattern: server.NewSSEServer(...).Start("=~/^(0\.0\.0\.0)?:[0-9]+$/")
+          - pattern: server.NewStreamableHTTPServer(...).Start("=~/^(0\.0\.0\.0)?:[0-9]+$/")
+          # mcp-go, server held in a variable
+          - patterns:
+              - pattern: $SRV.Start("=~/^(0\.0\.0\.0)?:[0-9]+$/")
+              - pattern-either:
+                  - pattern-inside: |
+                      $SRV := server.NewSSEServer(...)
+                      ...
+                  - pattern-inside: |
+                      $SRV := server.NewStreamableHTTPServer(...)
+                      ...
+                  - pattern-inside: |
+                      $SRV = server.NewSSEServer(...)
+                      ...
+                  - pattern-inside: |
+                      $SRV = server.NewStreamableHTTPServer(...)
+                      ...
+          # official go-sdk: the handler is a plain http.Handler
+          - pattern: http.ListenAndServe("=~/^(0\.0\.0\.0)?:[0-9]+$/", mcp.NewSSEHandler(...))
+          - pattern: http.ListenAndServe("=~/^(0\.0\.0\.0)?:[0-9]+$/", mcp.NewStreamableHTTPHandler(...))
+          - patterns:
+              - pattern: http.ListenAndServe("=~/^(0\.0\.0\.0)?:[0-9]+$/", $H)
+              - pattern-either:
+                  - pattern-inside: |
+                      $H := mcp.NewSSEHandler(...)
+                      ...
+                  - pattern-inside: |
+                      $H := mcp.NewStreamableHTTPHandler(...)
+                      ...
+
+  # An mcp-go SamplingHandler whose CreateMessage runs the model's sampling
+  # request with no human approval step. The MCP spec makes sampling a
+  # human-in-the-loop operation; a handler that forwards it straight to the
+  # LLM lets a server drive the client's model (and pay for it) unattended.
+  # The Python counterpart is passes/mcp_sampling_approval.py. In the Go MCP
+  # corpus 3 of 3 real handlers had no approval step (mcp-go's own examples);
+  # docker/mcp-gateway refuses sampling outright and stays quiet.
+  - id: tnt-go-ai-mcpsampling-001
+    languages: [go]
+    severity: WARNING
+    message: >-
+      MCP sampling handler forwards the server's CreateMessage request to the
+      model without a visible approval step. Sampling is meant to be
+      human-in-the-loop; without a confirm/approve/review call the server
+      controls the client's model unattended.
+    metadata:
+      cwe:
+        - "CWE-862: Missing Authorization"
+      confidence: MEDIUM
+      category: security
+      source_kind: config
+      fix: "Gate CreateMessage behind an explicit user approval (prompt, review queue, or policy check) before calling the model, or refuse sampling."
+    patterns:
+      - pattern-either:
+          - pattern: |
+              func ($R $T) CreateMessage($CTX context.Context, $REQ mcp.CreateMessageRequest) (*mcp.CreateMessageResult, error) {
+                ...
+              }
+          - pattern: |
+              func ($R *$T) CreateMessage($CTX context.Context, $REQ mcp.CreateMessageRequest) (*mcp.CreateMessageResult, error) {
+                ...
+              }
+      - pattern-not-regex: (?i)(confirm|approv|review|consent|permission|prompt.?user|ask.?user|user.?confirm)

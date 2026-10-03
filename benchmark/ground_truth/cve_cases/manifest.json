@@ -1,0 +1,15 @@
+{
+  "description": "Real-CVE recall corpus (issue #105). Each case is a commit-pinned PRE-FIX checkout of a real project at a real vulnerability, labeled with the sink file/line and CWE. Checkouts are fetched on demand into cache/<id>/ by scripts/fetch_cve_cases.py and are NOT committed. Unfetched cases are skipped. Scored through the same file+line+CWE-class grader as the vuln_app corpus, so a hit means we detect the actual bug by the right vulnerability class. See README.md for how to add a case.",
+  "schema": {
+    "id": "stable slug, also the cache dir name (e.g. 'CVE-2024-XXXX-projname')",
+    "cwe": "integer CWE id used for class-consistency grading",
+    "repo": "git clone URL",
+    "commit": "pinned PRE-FIX commit SHA (the vulnerability must be present at this commit)",
+    "subdir": "optional path under the checkout to scan (defaults to repo root)",
+    "sink_file": "repo-relative path of the vulnerable sink file",
+    "sink_line": "approximate 1-based sink line (graded within VULN_APP_SINK_WINDOW lines)",
+    "pool": "'regression' (gates CI) or 'holdout' (generalization signal only); defaults to regression",
+    "reference": "advisory / fix-commit URL for provenance"
+  },
+  "cases": []
+}

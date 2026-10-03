@@ -1,0 +1,1061 @@
+rules:
+  - id: tnt-ja-sqli-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      User input flows into a SQL query without parameterization, enabling SQL injection.
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      confidence: HIGH
+      category: security
+      fix: "Use PreparedStatement with bound parameters (setString/setInt) instead of concatenating input into SQL text."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_java
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).getParameter(...)
+              - pattern: request.getParameter(...)
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @$MAPPING(...)
+                      $RET $METHOD(..., String $PARAM, ...) {
+                        ...
+                      }
+                  - metavariable-regex:
+                      metavariable: $MAPPING
+                      regex: ^(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping|PatchMapping)$
+      # rowan-registry:end source=web_request_java
+    pattern-sinks:
+      - pattern: (Statement $S).executeQuery(...)
+      - pattern: (Statement $S).executeUpdate(...)
+      - pattern: (Statement $S).execute(...)
+      - pattern: (Connection $C).prepareStatement(...)
+      - pattern: $C.prepareStatement(...)
+      - pattern: $C.createStatement().executeQuery(...)
+      - pattern: $C.createStatement().executeUpdate(...)
+      - pattern: $C.createStatement().execute(...)
+      - pattern: $EM.createQuery(...)
+    pattern-sanitizers:
+      - pattern: (PreparedStatement $PS).setString(...)
+      - pattern: (PreparedStatement $PS).setInt(...)
+      - pattern: Integer.parseInt(...)
+      - pattern: Long.parseLong(...)
+
+  # EXT-19: operator-controlled sources (System.getenv / getProperty, argv,
+  # Spring Environment and @Value) are split out of the -001 rules the
+  # EXT-08 way. ADR-0005 traced every dubbo Java FP to System.getenv, a
+  # deployment-time value, not attacker input. Same sinks and sanitizers as
+  # the -001; WARNING and source_kind operator_input so enrichment scores
+  # it as cli_input rather than http_input.
+  - id: tnt-ja-sqli-002
+    mode: taint
+    languages: [java]
+    severity: WARNING
+    message: >-
+      Configuration or command-line input (env var, system property, argv, Spring
+      Environment or @Value) flows into a
+      SQL query unchanged. Operator-controlled, so lower risk than request
+      input, but the same SQL injection sink built from untrusted text.
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      confidence: MEDIUM
+      category: security
+      source_kind: operator_input
+      fix: "Use PreparedStatement with bound parameters (setString/setInt) instead of concatenating input into SQL text."
+    pattern-sources:
+      # rowan-registry:begin source=operator_input_java
+      - patterns:
+          - pattern-either:
+              - pattern: System.getenv(...)
+              - patterns:
+                  - pattern: System.getProperty($KEY, ...)
+                  - pattern-not: System.getProperty("=~/^(java|os|file|path|line|user)\./", ...)
+              - pattern: args[$I]
+              - pattern: (Environment $E).getProperty(...)
+              - patterns:
+                  - pattern: $FIELD
+                  - pattern-inside: |
+                      class $C {
+                        ...
+                        @Value("...") $TYPE $FIELD;
+                        ...
+                      }
+      # rowan-registry:end source=operator_input_java
+    pattern-sinks:
+      - pattern: (Statement $S).executeQuery(...)
+      - pattern: (Statement $S).executeUpdate(...)
+      - pattern: (Statement $S).execute(...)
+      - pattern: (Connection $C).prepareStatement(...)
+      - pattern: $C.prepareStatement(...)
+      - pattern: $C.createStatement().executeQuery(...)
+      - pattern: $C.createStatement().executeUpdate(...)
+      - pattern: $C.createStatement().execute(...)
+      - pattern: $EM.createQuery(...)
+    pattern-sanitizers:
+      - pattern: (PreparedStatement $PS).setString(...)
+      - pattern: (PreparedStatement $PS).setInt(...)
+      - pattern: Integer.parseInt(...)
+      - pattern: Long.parseLong(...)
+
+  - id: tnt-ja-cmdi-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      User input flows into a command execution call, enabling OS command injection.
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      confidence: HIGH
+      category: security
+      fix: "Pass arguments to ProcessBuilder/Runtime.exec() as separate array elements, never via a shell-interpolated string."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_java
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).getParameter(...)
+              - pattern: request.getParameter(...)
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @$MAPPING(...)
+                      $RET $METHOD(..., String $PARAM, ...) {
+                        ...
+                      }
+                  - metavariable-regex:
+                      metavariable: $MAPPING
+                      regex: ^(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping|PatchMapping)$
+      # rowan-registry:end source=web_request_java
+    pattern-sinks:
+      - pattern: Runtime.getRuntime().exec(...)
+      - pattern: new ProcessBuilder(...)
+      - pattern: (ProcessBuilder $PB).command(...)
+    pattern-sanitizers:
+      - pattern: StringUtils.isAlphanumeric(...)
+
+  # EXT-19 operator-input sibling; see tnt-ja-sqli-002.
+  - id: tnt-ja-cmdi-002
+    mode: taint
+    languages: [java]
+    severity: WARNING
+    message: >-
+      Configuration or command-line input (env var, system property, argv, Spring
+      Environment or @Value) flows into a
+      command execution call unchanged. Operator-controlled, so lower risk than request
+      input, but the same OS command injection sink built from untrusted text.
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      confidence: MEDIUM
+      category: security
+      source_kind: operator_input
+      fix: "Pass arguments to ProcessBuilder/Runtime.exec() as separate array elements, never via a shell-interpolated string."
+    pattern-sources:
+      # rowan-registry:begin source=operator_input_java
+      - patterns:
+          - pattern-either:
+              - pattern: System.getenv(...)
+              - patterns:
+                  - pattern: System.getProperty($KEY, ...)
+                  - pattern-not: System.getProperty("=~/^(java|os|file|path|line|user)\./", ...)
+              - pattern: args[$I]
+              - pattern: (Environment $E).getProperty(...)
+              - patterns:
+                  - pattern: $FIELD
+                  - pattern-inside: |
+                      class $C {
+                        ...
+                        @Value("...") $TYPE $FIELD;
+                        ...
+                      }
+      # rowan-registry:end source=operator_input_java
+    pattern-sinks:
+      - pattern: Runtime.getRuntime().exec(...)
+      - pattern: new ProcessBuilder(...)
+      - pattern: (ProcessBuilder $PB).command(...)
+    pattern-sanitizers:
+      - pattern: StringUtils.isAlphanumeric(...)
+
+  - id: tnt-ja-path-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      User input flows into a filesystem path, enabling path traversal attacks.
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+      confidence: HIGH
+      category: security
+      fix: "Resolve with Path.normalize() and verify the result is still under the intended base directory (startsWith the base's real path) before use, or use FilenameUtils.getName() to discard directory components entirely."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_java
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).getParameter(...)
+              - pattern: request.getParameter(...)
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @$MAPPING(...)
+                      $RET $METHOD(..., String $PARAM, ...) {
+                        ...
+                      }
+                  - metavariable-regex:
+                      metavariable: $MAPPING
+                      regex: ^(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping|PatchMapping)$
+      # rowan-registry:end source=web_request_java
+    pattern-sinks:
+      - pattern: new File(...)
+      - pattern: Paths.get(...)
+      - pattern: Files.readAllBytes(...)
+      - pattern: (Path $P).resolve(...)
+      - pattern: Paths.get(...).resolve(...)
+    pattern-sanitizers:
+      - pattern: FilenameUtils.getName(...)
+      - pattern: (String $S).replace("..", "")
+
+  # EXT-19 operator-input sibling; see tnt-ja-sqli-002.
+  - id: tnt-ja-path-002
+    mode: taint
+    languages: [java]
+    severity: WARNING
+    message: >-
+      Configuration or command-line input (env var, system property, argv, Spring
+      Environment or @Value) flows into a
+      filesystem path unchanged. Operator-controlled, so lower risk than request
+      input, but the same path traversal sink built from untrusted text.
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+      confidence: MEDIUM
+      category: security
+      source_kind: operator_input
+      fix: "Resolve with Path.normalize() and verify the result is still under the intended base directory (startsWith the base's real path) before use, or use FilenameUtils.getName() to discard directory components entirely."
+    pattern-sources:
+      # rowan-registry:begin source=operator_input_java
+      - patterns:
+          - pattern-either:
+              - pattern: System.getenv(...)
+              - patterns:
+                  - pattern: System.getProperty($KEY, ...)
+                  - pattern-not: System.getProperty("=~/^(java|os|file|path|line|user)\./", ...)
+              - pattern: args[$I]
+              - pattern: (Environment $E).getProperty(...)
+              - patterns:
+                  - pattern: $FIELD
+                  - pattern-inside: |
+                      class $C {
+                        ...
+                        @Value("...") $TYPE $FIELD;
+                        ...
+                      }
+      # rowan-registry:end source=operator_input_java
+    pattern-sinks:
+      - pattern: new File(...)
+      - pattern: Paths.get(...)
+      - pattern: Files.readAllBytes(...)
+      - pattern: (Path $P).resolve(...)
+      - pattern: Paths.get(...).resolve(...)
+    pattern-sanitizers:
+      - pattern: FilenameUtils.getName(...)
+      - pattern: (String $S).replace("..", "")
+
+  - id: tnt-ja-ssrf-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      User input flows into an outbound HTTP request URL, enabling server-side request forgery.
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery (SSRF)"
+      confidence: HIGH
+      category: security
+      fix: "Validate the destination host against an explicit allowlist of permitted domains/IPs before making the request."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_java
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).getParameter(...)
+              - pattern: request.getParameter(...)
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @$MAPPING(...)
+                      $RET $METHOD(..., String $PARAM, ...) {
+                        ...
+                      }
+                  - metavariable-regex:
+                      metavariable: $MAPPING
+                      regex: ^(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping|PatchMapping)$
+      # rowan-registry:end source=web_request_java
+    pattern-sinks:
+      - pattern: new URL(...)
+      - pattern: (RestTemplate $RT).getForObject(...)
+      - pattern: (WebClient $WC).get()
+
+  # EXT-19 operator-input sibling; see tnt-ja-sqli-002.
+  - id: tnt-ja-ssrf-002
+    mode: taint
+    languages: [java]
+    severity: WARNING
+    message: >-
+      Configuration or command-line input (env var, system property, argv, Spring
+      Environment or @Value) flows into a
+      outbound HTTP request URL unchanged. Operator-controlled, so lower risk than request
+      input, but the same server-side request forgery sink built from untrusted text.
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery (SSRF)"
+      confidence: MEDIUM
+      category: security
+      source_kind: operator_input
+      fix: "Validate the destination host against an explicit allowlist of permitted domains/IPs before making the request."
+    pattern-sources:
+      # rowan-registry:begin source=operator_input_java
+      - patterns:
+          - pattern-either:
+              - pattern: System.getenv(...)
+              - patterns:
+                  - pattern: System.getProperty($KEY, ...)
+                  - pattern-not: System.getProperty("=~/^(java|os|file|path|line|user)\./", ...)
+              - pattern: args[$I]
+              - pattern: (Environment $E).getProperty(...)
+              - patterns:
+                  - pattern: $FIELD
+                  - pattern-inside: |
+                      class $C {
+                        ...
+                        @Value("...") $TYPE $FIELD;
+                        ...
+                      }
+      # rowan-registry:end source=operator_input_java
+    pattern-sinks:
+      - pattern: new URL(...)
+      - pattern: (RestTemplate $RT).getForObject(...)
+      - pattern: (WebClient $WC).get()
+
+  - id: tnt-ja-xss-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      User input flows into an HTML response without encoding, enabling cross-site scripting.
+    metadata:
+      cwe:
+        - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
+      confidence: HIGH
+      category: security
+      fix: "HTML-encode output with StringEscapeUtils.escapeHtml4()/Encode.forHtml() (or the framework's auto-escaping template engine) instead of writing user input directly into the response."
+    # EXT-19: no operator-input sibling. An env var echoed into a response
+    # is not a reflected-XSS class worth a rule.
+    pattern-sources:
+      # rowan-registry:begin source=web_request_java
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).getParameter(...)
+              - pattern: request.getParameter(...)
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @$MAPPING(...)
+                      $RET $METHOD(..., String $PARAM, ...) {
+                        ...
+                      }
+                  - metavariable-regex:
+                      metavariable: $MAPPING
+                      regex: ^(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping|PatchMapping)$
+      # rowan-registry:end source=web_request_java
+    pattern-sinks:
+      - pattern: $OUT.print(...)
+      - pattern: $OUT.println(...)
+      - pattern: (HttpServletResponse $R).getWriter().print(...)
+      - pattern: (HttpServletResponse $R).getWriter().println(...)
+    pattern-sanitizers:
+      - pattern: StringEscapeUtils.escapeHtml4(...)
+      - pattern: HtmlUtils.htmlEscape(...)
+      - pattern: Encode.forHtml(...)
+
+  - id: tnt-ja-deser-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      User input flows into a deserialization call, enabling remote code execution via insecure deserialization.
+    metadata:
+      cwe:
+        - "CWE-502: Deserialization of Untrusted Data"
+      confidence: HIGH
+      category: security
+      fix: "Avoid Java native deserialization (ObjectInputStream) on untrusted data; use a JSON library with a known target type, or an allowlisting ObjectInputFilter."
+    pattern-sources:
+      - pattern: (HttpServletRequest $REQ).getParameter(...)
+      - pattern: request.getParameter(...)
+      - pattern: (HttpServletRequest $REQ).getInputStream()
+      - pattern: (ServletRequest $REQ).getInputStream()
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @RequestParam $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @RequestParam(...) $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @RequestBody(...) $TYPE $PARAM, ...) {
+                ...
+              }
+    pattern-sinks:
+      - pattern: (ObjectInputStream $OIS).readObject()
+      - pattern: $XSTREAM.fromXML(...)
+      # Jackson readValue(json, Concrete.class) is typed, memory-safe JSON
+      # binding, the Java twin of Go's json.Unmarshal into a struct (see
+      # DEF-11): it cannot instantiate attacker-chosen classes. Gadget-chain
+      # deserialization needs polymorphic default typing switched on, so the
+      # sink is the readValue call on a mapper that the same method body
+      # (or a field initialiser in the same class) called
+      # enableDefaultTyping/activateDefaultTyping on, or readValue into a
+      # class annotated @JsonTypeInfo(use = Id.CLASS/MINIMAL_CLASS) in the
+      # same file. Bare readValue with JsonNode.class or a concrete class
+      # is not a sink. Residual gap: a mapper configured in a separate
+      # helper/bean and injected, or a target class declared in another
+      # file, is missed.
+      - patterns:
+          - pattern: $OM.readValue($IN, $CLASS.class)
+          - pattern-inside: |
+              @JsonTypeInfo(use = JsonTypeInfo.Id.$ID, ...)
+              class $CLASS { ... }
+              ...
+          - metavariable-regex:
+              metavariable: $ID
+              regex: ^(CLASS|MINIMAL_CLASS)$
+      - patterns:
+          - pattern-either:
+              - pattern: $OM.readValue(...)
+              - pattern: this.$OM.readValue(...)
+          - pattern-either:
+              - pattern-inside: |
+                  $OM.enableDefaultTyping(...);
+                  ...
+              - pattern-inside: |
+                  $OM.activateDefaultTyping(...);
+                  ...
+              - pattern-inside: |
+                  $OM = $X.enableDefaultTyping(...);
+                  ...
+              - pattern-inside: |
+                  $OM = $X.activateDefaultTyping(...);
+                  ...
+              - pattern-inside: |
+                  $T $OM = $X.enableDefaultTyping(...);
+                  ...
+              - pattern-inside: |
+                  $T $OM = $X.activateDefaultTyping(...);
+                  ...
+              - pattern-inside: |
+                  class $C {
+                    ...
+                    $T $OM = $X.enableDefaultTyping(...);
+                    ...
+                  }
+              - pattern-inside: |
+                  class $C {
+                    ...
+                    $T $OM = $X.activateDefaultTyping(...);
+                    ...
+                  }
+    pattern-sanitizers:
+      - pattern: (ObjectInputFilter $F).checkInput(...)
+      - pattern: (ObjectMapper $OM).disableDefaultTyping()
+
+  - id: tnt-ja-xxe-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      User input flows into an XML parser whose external-entity and DTD processing is not disabled, enabling XML external entity (XXE) injection.
+    metadata:
+      cwe:
+        - "CWE-611: Improper Restriction of XML External Entity Reference"
+      confidence: HIGH
+      category: security
+      fix: "Disable DTDs and external entities on the factory before parsing: setFeature(\"http://apache.org/xml/features/disallow-doctype-decl\", true) on DocumentBuilderFactory/SAXParserFactory, setProperty(XMLInputFactory.SUPPORT_DTD, false) on XMLInputFactory, or setProperty(XMLConstants.ACCESS_EXTERNAL_DTD, \"\") on the factory."
+    pattern-sources:
+      - pattern: (HttpServletRequest $REQ).getParameter(...)
+      - pattern: request.getParameter(...)
+      - pattern: (HttpServletRequest $REQ).getInputStream()
+      - pattern: (ServletRequest $REQ).getInputStream()
+      - pattern: (HttpServletRequest $REQ).getReader()
+      - pattern: (ServletRequest $REQ).getReader()
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @RequestParam $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @RequestParam(...) $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @RequestBody(...) $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              @$MAPPING(...)
+              $RET $METHOD(..., String $PARAM, ...) {
+                ...
+              }
+          - metavariable-regex:
+              metavariable: $MAPPING
+              regex: ^(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping|PatchMapping)$
+    # XXE hardening is a property of the factory (setFeature/setProperty),
+    # not of the tainted XML, so it cannot be a pattern-sanitizer: a
+    # sanitizer only clears taint on the expression it wraps, and the
+    # factory is never on the source-to-sink data path. It is expressed
+    # here as sink-level `pattern-not-inside` guards, the same primitive
+    # ai_ml_taint.yaml and agent_taint.yaml use for allowlist exclusions.
+    # Residual gap: the guard only sees a hardening call that lexically
+    # precedes the parse in the SAME method body. A factory hardened in a
+    # shared helper (or a field initialiser) and passed in is still flagged.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: (DocumentBuilder $B).parse(...)
+              - pattern: (DocumentBuilderFactory $F).newDocumentBuilder().parse(...)
+              - pattern: DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(...)
+              - pattern: (SAXParser $P).parse(...)
+              - pattern: (SAXParserFactory $F).newSAXParser().parse(...)
+              - pattern: SAXParserFactory.newInstance().newSAXParser().parse(...)
+              - pattern: (XMLReader $R).parse(...)
+              # createXMLStreamReader/createXMLEventReader/unmarshal are
+              # untyped because the receiver is usually declared with `var`
+              # (WebGoat CommentsCache.java:79), which the typed form misses.
+              # The method names are specific enough to XML APIs to carry it.
+              - pattern: $F.createXMLStreamReader(...)
+              - pattern: $F.createXMLEventReader(...)
+              - pattern: $U.unmarshal(...)
+              - pattern: (SAXReader $R).read(...)
+              - pattern: (SAXBuilder $B).build(...)
+              - pattern: (TransformerFactory $T).newTransformer(new StreamSource(...))
+              - pattern: (Transformer $T).transform(new StreamSource(...), ...)
+              - pattern: (SchemaFactory $S).newSchema(...)
+          - pattern-not-inside: |
+              $F.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+              ...
+          - pattern-not-inside: |
+              $F.setFeature("http://xml.org/sax/features/external-general-entities", false);
+              ...
+          - pattern-not-inside: |
+              $F.setExpandEntityReferences(false);
+              ...
+          - pattern-not-inside: |
+              $F.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+              ...
+          - pattern-not-inside: |
+              $F.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
+              ...
+          - pattern-not-inside: |
+              $F.setProperty(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+              ...
+          - pattern-not-inside: |
+              $F.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+              ...
+
+  - id: tnt-ja-ldap-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      User input flows into an LDAP query without sanitization, enabling LDAP injection.
+    metadata:
+      cwe:
+        - "CWE-90: Improper Neutralization of Special Elements used in an LDAP Query ('LDAP Injection')"
+      confidence: HIGH
+      category: security
+      fix: "Escape LDAP special characters in filters/DNs (e.g. OWASP ESAPI's encodeForLDAP), or use a parameterized query API."
+    pattern-sources:
+      - pattern: (HttpServletRequest $REQ).getParameter(...)
+      - pattern: request.getParameter(...)
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @RequestParam $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @RequestParam(...) $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @PathVariable $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @PathVariable(...) $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @QueryParam $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @QueryParam(...) $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              @$MAPPING(...)
+              $RET $METHOD(..., String $PARAM, ...) {
+                ...
+              }
+          - metavariable-regex:
+              metavariable: $MAPPING
+              regex: ^(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping|PatchMapping)$
+    pattern-sinks:
+      - pattern: (DirContext $DC).search(...)
+      - pattern: (LdapTemplate $LT).search(...)
+    pattern-sanitizers:
+      - pattern: LdapEncoder.filterEncode(...)
+      - pattern: (String $S).replace("*", "")
+
+  - id: tnt-ja-el-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      User input flows into an expression language evaluation, enabling EL injection and remote code execution.
+    metadata:
+      cwe:
+        - "CWE-917: Improper Neutralization of Special Elements used in an Expression Language Statement ('Expression Language Injection')"
+      confidence: HIGH
+      category: security
+      fix: "Never evaluate an expression-language string built from user input; if dynamic lookups are required, resolve them through an explicit allowlist of permitted expressions/beans."
+    pattern-sources:
+      - pattern: (HttpServletRequest $REQ).getParameter(...)
+      - pattern: request.getParameter(...)
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @RequestParam $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @RequestParam(...) $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @PathVariable $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @PathVariable(...) $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., @RequestBody(...) $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              @$MAPPING(...)
+              $RET $METHOD(..., String $PARAM, ...) {
+                ...
+              }
+          - metavariable-regex:
+              metavariable: $MAPPING
+              regex: ^(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping|PatchMapping)$
+    pattern-sinks:
+      - pattern: $PARSER.parseExpression(...)
+      - pattern: Ognl.getValue(...)
+      - pattern: MVEL.eval(...)
+    pattern-sanitizers:
+      - pattern: StringUtils.isAlphanumeric(...)
+
+  - id: tnt-ja-log-001
+    mode: taint
+    languages: [java]
+    severity: WARNING
+    message: >-
+      User input flows into a log statement without sanitization, enabling log injection or log forging.
+    metadata:
+      cwe:
+        - "CWE-117: Improper Output Neutralization for Logs"
+      confidence: MEDIUM
+      category: security
+      fix: "Strip or encode newline/CR characters before writing user input to a log entry, so a single log line can't be forged."
+    # EXT-19: no operator-input sibling. An env var in a log line is not a
+    # log-forging class worth a rule.
+    pattern-sources:
+      # rowan-registry:begin source=web_request_java
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).getParameter(...)
+              - pattern: request.getParameter(...)
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @$MAPPING(...)
+                      $RET $METHOD(..., String $PARAM, ...) {
+                        ...
+                      }
+                  - metavariable-regex:
+                      metavariable: $MAPPING
+                      regex: ^(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping|PatchMapping)$
+      # rowan-registry:end source=web_request_java
+    pattern-sinks:
+      - pattern: $LOG.info(...)
+      - pattern: $LOG.warn(...)
+      - pattern: $LOG.error(...)
+      - pattern: $LOG.debug(...)
+      - pattern: System.out.println(...)
+    pattern-sanitizers:
+      - pattern: (String $S).replace("\n", "")
+      # NOT (String $S).replaceAll(...): Java's replaceAll takes a regex, and
+      # its neutralizing effect depends entirely on caller-supplied
+      # pattern/replacement args, which this pattern doesn't pin down --
+      # $S.replaceAll("unrelated", "x") clears taint here even though it
+      # does nothing to remove \n/\r. See docs/taint-sanitizer-audit.md.

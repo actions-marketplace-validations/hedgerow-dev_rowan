@@ -1,0 +1,10 @@
+{
+  "description": "Small JS BOLA/IDOR tier for JSAuthzPass. Each case is a self-contained handler; 'vuln' cases must produce exactly one AUTHZ-BOLA-001 finding, 'decoy' cases must produce none.",
+  "cases": [
+    {"file": "express_unguarded.js", "kind": "vuln"},
+    {"file": "app_router_destructured.js", "kind": "vuln"},
+    {"file": "express_guarded.js", "kind": "decoy"},
+    {"file": "koa_guarded.js", "kind": "decoy"},
+    {"file": "prisma_fused.js", "kind": "decoy"}
+  ]
+}

@@ -1,0 +1,649 @@
+# Extended Python taint rules, ported from Rowan's PY-TAINT-001 through PY-TAINT-009, 015, 017
+# These cover: SQLi, CMDi, SSRF, SSTI, Model Loading, Path Traversal,
+# Flow Node Code Injection, Prompt Injection, NoSQL Injection,
+# Shell Interpreter Injection, File Path Pickle Deser
+
+rules:
+
+  # ---------------------------------------------------------------------------
+  # PY-TAINT-001: SQL Injection (Opengrep taint format)
+  # ---------------------------------------------------------------------------
+  - id: TNT-SQLI-002
+    mode: taint
+    message: >
+      User input flows to SQL execution without parameterization.
+      Use parameterized queries (cursor.execute(sql, [params])) or ORM methods.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [89]
+      category: injection
+      fix: "Use parameterized queries (cursor.execute(sql, params)) instead of concatenating input into SQL text."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_argparse
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+              - pattern: args.$PARAM
+      # rowan-registry:end source=web_request_argparse
+
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: cursor.execute(...)
+              - pattern: cursor.executemany(...)
+              - pattern: $DB.execute(...)
+              - pattern: $DB.query(...)
+              - pattern: $CONN.execute(...)
+              - pattern: $SESSION.execute(...)
+              - pattern: $DB.raw(...)
+              - pattern: $DB.extra(...)
+              - pattern: $DB.RawSQL(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              # Parameterized execution is the fix this rule's own message
+              # recommends, so it has to be recognized on ANY DB handle, not
+              # just one literally named `cursor`. The sink patterns above
+              # already match $DB/$CONN/$SESSION receivers; the sanitizer was
+              # hardcoded to `cursor` and so never fired on conn.execute(
+              # sql, params), flagging correctly-parameterized queries as
+              # "without parameterization" (#302).
+              - pattern: $DBH.execute($SQL, $PARAMS)
+              - pattern: $DBH.executemany($SQL, $PARAMS)
+              # `text(...)` is SQLAlchemy's raw-SQL constructor, not a
+              # sanitizer; the bound form is covered by the two-argument
+              # execute pattern above (RT-05).
+              - pattern: int(...)
+              - pattern: float(...)
+
+  # ---------------------------------------------------------------------------
+  # PY-TAINT-002: Command Injection
+  # ---------------------------------------------------------------------------
+  - id: TNT-CMDI-001
+    mode: taint
+    message: >
+      User input flows to OS command execution without sanitization.
+      Use subprocess with shell=False and pass arguments as a list.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [78]
+      category: command_injection
+      fix: "Use subprocess with a list of arguments and shell=False instead of a shell-interpolated command string."
+    pattern-sources:
+      # rowan-registry:begin source=web_request
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=web_request
+    # The command argument is the sink, and only a shell STRING is
+    # injectable: `subprocess.run(["ls", "-l", name])` passes argv without a
+    # shell. The old whole-call sink fired on list form at ERROR, and the
+    # `shell=False` "sanitizer" was a keyword fragment that never matched a
+    # value on the path (RT-02).
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: os.system($CMD, ...)
+              - pattern: os.popen($CMD, ...)
+              - pattern: exec($CMD, ...)
+              - pattern: eval($CMD, ...)
+              - patterns:
+                  - pattern: subprocess.$F($CMD, ...)
+                  - pattern-not: subprocess.$F([...], ...)
+                  - metavariable-regex:
+                      metavariable: $F
+                      regex: ^(run|Popen|call|check_call|check_output)$
+          - focus-metavariable: $CMD
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: shlex.quote(...)
+              - pattern: int(...)
+
+  # ---------------------------------------------------------------------------
+  # PY-TAINT-003: SSRF (extended with MLflow sinks)
+  # ---------------------------------------------------------------------------
+  - id: TNT-SSRF-002
+    mode: taint
+    message: >
+      User input flows to outbound HTTP request without URL validation.
+      Validate URLs against an allowlist of domains.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [918]
+      category: ssrf
+      fix: "Validate the destination host against an explicit allowlist of permitted domains/IPs before making the request."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: requests.get(...)
+              - pattern: requests.post(...)
+              - pattern: requests.put(...)
+              - pattern: httpx.get(...)
+              - pattern: httpx.post(...)
+              - pattern: urllib.request.urlopen(...)
+              - pattern: aiohttp.ClientSession()
+              - pattern: mlflow.set_tracking_uri(...)
+              - pattern: MlflowClient(...)
+              - pattern: create_engine(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: validate_url(...)
+              - pattern: is_allowed_domain(...)
+              - pattern: urlparse(...)
+
+  # ---------------------------------------------------------------------------
+  # PY-TAINT-004: SSTI (extended with Django/Mako/Tornado)
+  # ---------------------------------------------------------------------------
+  - id: TNT-SSTI-003
+    mode: taint
+    message: >
+      User input flows to template compilation from string, enabling SSTI.
+      Never pass user input to Template() or render_template_string().
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [1336]
+      category: ssti
+      fix: "Never call Template()/from_string() on a string built from user input; use jinja2.sandbox.SandboxedEnvironment if dynamic templates are required."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-sinks:
+      - patterns:
+          # Django's `render(request, "literal.html", ctx)` shortcut resolves to
+          # `django.shortcuts.render(...)`, which `$TEMPLATE.render(...)` matches
+          # with $TEMPLATE = django.shortcuts. The template there is a literal
+          # file name and the tainted value is autoescaped context, not SSTI.
+          - pattern-not: django.shortcuts.render(...)
+          - pattern-either:
+              - pattern: render_template_string(...)
+              - pattern: $TEMPLATE.render(...)
+              - pattern: django.template.Template(...)
+              - pattern: mako.template.Template(...)
+              - pattern: tornado.template.Template(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: SandboxedEnvironment(...)
+
+  # ---------------------------------------------------------------------------
+  # PY-TAINT-005: Unsafe AI Model Loading (extended)
+  # ---------------------------------------------------------------------------
+  - id: TNT-AIML-003
+    mode: taint
+    message: >
+      User-controlled path or data flows to model loading sink,
+      enabling arbitrary code execution. Validate file paths and
+      use weights_only=True for torch.load().
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [502]
+      category: ai_ml
+      fix: "Pin model-loading calls to a vetted, explicit allowlist of paths/repos rather than a user-influenced value."
+    pattern-sources:
+      # rowan-registry:begin source=web_request
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=web_request
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: torch.load(...)
+              - pattern: AutoModel.from_pretrained(...)
+              - pattern: from_pretrained(...)
+              - pattern: load_model(...)
+              - pattern: pickle.load(...)
+              - pattern: joblib.load(...)
+              - pattern: keras.models.load_model(...)
+              - pattern: vllm.LLM(...)
+              - pattern: OmegaConf.create(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: weights_only=True
+              - pattern: trust_remote_code=False
+              - pattern: secure_filename(...)
+              - pattern: os.path.basename(...)
+
+  # ---------------------------------------------------------------------------
+  # PY-TAINT-006: Path Traversal (extended with tarfile/zipfile)
+  # ---------------------------------------------------------------------------
+  - id: TNT-PATH-002
+    mode: taint
+    message: >
+      User input flows to file system operations without path validation.
+      Use os.path.basename() and validate against a base directory.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [22]
+      category: path_traversal
+      fix: "Resolve the path and verify the result is still under the intended base directory (os.path.realpath + os.path.commonpath check) before use, or use os.path.basename()/werkzeug's secure_filename() to discard directory components entirely."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: open(...)
+              - pattern: $PATH.read_text()
+              - pattern: $PATH.read_bytes()
+              - pattern: shutil.copy(...)
+              - pattern: shutil.move(...)
+              - pattern: send_file(...)
+              - pattern: FileResponse(...)
+              - pattern: os.remove(...)
+              - pattern: $TAR.extractall(...)
+              - pattern: $ZIP.extractall(...)
+              - pattern: tarfile.open(...)
+              - pattern: zipfile.ZipFile(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: os.path.basename(...)
+              - pattern: secure_filename(...)
+              - pattern: validate_path(...)
+
+  # ---------------------------------------------------------------------------
+  # PY-TAINT-007: Flow Node Code Injection
+  # ---------------------------------------------------------------------------
+  - id: TNT-INJECT-003
+    mode: taint
+    message: >
+      User-controlled HTTP body or JSON data flows to exec() or eval()
+      without sandboxing (CVE-2025-3248 / CVE-2026-33017 pattern).
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [94, 95]
+      category: injection
+      fix: "Never call eval()/exec() on untrusted HTTP body or JSON data; use a proper parser for the expected format, or ast.literal_eval() for literal data."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: request.json.get(...)
+              - pattern: request.get_json(...)
+              - pattern: json.loads(...)
+              - pattern: yaml.safe_load(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: exec(...)
+              - pattern: eval(...)
+              - pattern: compile(...)
+    # Engine note (issue #189): `RestrictedPython` was a bare identifier --
+    # matches an unrelated `import RestrictedPython` line, or the word
+    # sitting anywhere nearby, with zero connection to the actual exec()
+    # call. Reproduced against the live rule: a bare `import RestrictedPython`
+    # followed by an ordinary unsandboxed `exec(data)` still fired (correct,
+    # since nothing sandboxes it) -- but so did the properly-sandboxed
+    # `byte_code = compile_restricted(...); exec(byte_code, ...)` case
+    # (should NOT fire; the bare word never actually engaged as a
+    # sanitizer for ANY shape tested, since it has no relationship to the
+    # tainted value's own expression). `compile_restricted(...)` -- the real
+    # RestrictedPython API call that produces the sandboxed bytecode -- is
+    # the correct call-shaped sanitizer instead.
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: ast.literal_eval(...)
+              - pattern: compile_restricted(...)
+
+  # ---------------------------------------------------------------------------
+  # PY-TAINT-008: Prompt Injection to Agent Executor
+  # ---------------------------------------------------------------------------
+  - id: TNT-AIML-004
+    mode: taint
+    message: >
+      User-controlled input flows through assignments to an LLM agent
+      executor or tool dispatch without content moderation.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [77, 94]
+      category: prompt_injection
+      fix: "Validate LLM-chosen tool arguments against an explicit allowlist before execution; don't trust an agent executor's parameters as if they came from the calling code."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    # `$AGENT.run(...)` with no receiver constraint matched subprocess.run,
+    # asyncio.run and Flask's app.run (RT-03). Same receiver regex as
+    # TNT-ML-016 in agent_taint.yaml.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern-either:
+                      - pattern: $AGENT.run(...)
+                      - pattern: $AGENT.invoke(...)
+                  - metavariable-regex:
+                      metavariable: $AGENT
+                      regex: (?i).*(agent|chain|executor|pipeline|crew|assistant|llm|runner).*
+              - pattern: $CREW.kickoff(...)
+              - pattern: client.chat.completions.create(...)
+    # Engine note (issue #186): these four were bare identifiers
+    # (`pattern: moderation`, `content_filter`, `prompt_guard`, `LlamaGuard`).
+    # docs/taint-sanitizer-audit.md's #84/#87 pass left them alone on the
+    # theory that they were inert best-effort signals. They were not inert --
+    # they were backwards. A sanitizer matches an *expression*, and a bare
+    # identifier's matching expression is the variable itself, so:
+    #   * `moderation = request.args.get("q"); agent.run(moderation)` had its
+    #     taint cleared purely because of the variable's NAME -- a real
+    #     prompt injection, silently suppressed (false negative);
+    #   * `q = moderation(q); agent.run(q)` -- an actual call to a guardrail
+    #     function -- was NOT sanitized and still reported (false positive).
+    # Requiring a call shape fixes both directions: taint now clears only
+    # where the value demonstrably passes THROUGH the guard.
+    #
+    # Deliberately NOT listed: verdict-style calls such as
+    # `client.moderations.create(input=q)`. Those return a judgement and do
+    # not transform the value, so they cannot soundly clear taint. Detecting
+    # "verdict obtained, then actually enforced" is a control-flow property,
+    # not a dataflow one -- it is ns-aiml-156/131/132's job (issue #186).
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: moderation(...)
+              - pattern: $M.moderation(...)
+              - pattern: content_filter(...)
+              - pattern: $M.content_filter(...)
+              - pattern: prompt_guard(...)
+              - pattern: $M.prompt_guard(...)
+              - pattern: LlamaGuard(...)
+              - pattern: $M.LlamaGuard(...)
+              # Guardrails AI: `guard.validate(text)` returns a validated
+              # (possibly rewritten) value, so it is a genuine transform.
+              - pattern: $G.validate(...)
+              - pattern: $M.sanitize(...)
+
+  # ---------------------------------------------------------------------------
+  # PY-TAINT-009: NoSQL Injection
+  # ---------------------------------------------------------------------------
+  - id: TNT-NOSQL-001
+    mode: taint
+    message: >
+      User input flows to a NoSQL query without sanitization.
+      Validate that user-supplied keys do not start with '$'.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [943]
+      category: nosql_injection
+      fix: "Reject non-primitive query values (e.g. an object where a string is expected) so operators like $ne/$gt can't be injected, or use a schema-validating ODM."
+    pattern-sources:
+      # rowan-registry:begin source=http_request
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+      # rowan-registry:end source=http_request
+    pattern-sinks:
+      - patterns:
+          # `.find()` is not Mongo-specific -- str.find() shares the name, and
+          # with the full source list above that collision fires on ordinary
+          # string parsing. A NoSQL query is a document, so a lone string or
+          # numeric argument is never the injectable shape.
+          - pattern-not: $X.find("...", ...)
+          - pattern-not: $X.find('...', ...)
+          - pattern-either:
+              - pattern: $COLLECTION.find(...)
+              - pattern: $COLLECTION.find_one(...)
+              - pattern: $COLLECTION.update_one(...)
+              - pattern: $COLLECTION.delete_many(...)
+              - pattern: $COLLECTION.aggregate(...)
+              # Django ORM keyword lookups are parameterised; the injectable
+              # shape is a request-controlled dict unpacked into the lookup
+              # (arbitrary field/operator selection), or raw SQL. Plain
+              # `filter(username=username)` is not a sink (pygoat: 13 FPs).
+              - pattern: $MODEL.objects.filter(**$KW)
+              - pattern: $MODEL.objects.get(**$KW)
+              - pattern: $MODEL.objects.raw(...)
+              - pattern: $MODEL.objects.extra(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: int(...)
+              - pattern: float(...)
+              - pattern: ObjectId(...)
+              - pattern: validate(...)
+              - pattern: Schema(...)

@@ -1,0 +1,230 @@
+{
+  "description": "Standalone vulnerable code snippets with a known, documented vulnerability. Each case lists the file, its CWE, and either an expected_category or expected_rule_id that a scan of that file MUST include at least one finding for. Used to measure recall (issue #76). Cases carry a `pool`: \"regression\" (default) gates CI; \"holdout\" is the generalization signal and MUST NOT be consulted when writing or tuning a rule. The holdout classes were chosen from CWE Top 25 / OWASP entries absent from the regression pool, spread across the supported languages, and were written before measuring \u2014 whatever recall they produce is reported as-is.",
+  "cases": [
+    {
+      "file": "python/pickle_rce.py",
+      "language": "python",
+      "cwe": 502,
+      "expected_category": "deserialization",
+      "description": "pickle.loads() on caller-supplied bytes enables arbitrary code execution."
+    },
+    {
+      "file": "python/eval_injection.py",
+      "language": "python",
+      "cwe": 95,
+      "expected_category": "injection",
+      "description": "eval() on user input executes arbitrary Python code."
+    },
+    {
+      "file": "python/exec_injection.py",
+      "language": "python",
+      "cwe": 94,
+      "expected_rule_id": "NS-INJECT-002",
+      "description": "exec() on a caller-supplied string executes arbitrary Python code."
+    },
+    {
+      "file": "python/os_system_cmdi.py",
+      "language": "python",
+      "cwe": 78,
+      "expected_category": "command_injection",
+      "description": "os.system() with string-concatenated user input enables shell command injection."
+    },
+    {
+      "file": "python/subprocess_shell_true.py",
+      "language": "python",
+      "cwe": 78,
+      "expected_category": "command_injection",
+      "description": "subprocess.run(..., shell=True) with a caller-supplied command enables shell injection."
+    },
+    {
+      "file": "python/sqli_fstring.py",
+      "language": "python",
+      "cwe": 89,
+      "expected_category": "injection",
+      "description": "f-string interpolation directly into cursor.execute() enables SQL injection."
+    },
+    {
+      "file": "python/ssti_jinja.py",
+      "language": "python",
+      "cwe": 1336,
+      "expected_category": "ssti",
+      "description": "Jinja2 Environment.from_string() on a caller-supplied template enables server-side template injection."
+    },
+    {
+      "file": "python/zip_slip.py",
+      "language": "python",
+      "cwe": 22,
+      "expected_category": "path_traversal",
+      "description": "tarfile.extractall() without a path filter enables zip-slip directory traversal."
+    },
+    {
+      "file": "python/trust_remote_code.py",
+      "language": "python",
+      "cwe": 94,
+      "expected_rule_id": "NS-AIML-001",
+      "description": "trust_remote_code=True on from_pretrained() allows the model repo to execute arbitrary code."
+    },
+    {
+      "file": "javascript/innerhtml_xss.js",
+      "language": "javascript",
+      "cwe": 79,
+      "expected_category": "xss",
+      "description": "Assigning caller-supplied content to innerHTML is a DOM-based XSS sink."
+    },
+    {
+      "file": "javascript/prototype_pollution.js",
+      "language": "javascript",
+      "cwe": 1321,
+      "expected_rule_id": "NS-PROTO-001",
+      "description": "Object.assign() with a caller-supplied request body enables prototype pollution."
+    },
+    {
+      "file": "javascript/eval_injection.js",
+      "language": "javascript",
+      "cwe": 95,
+      "expected_category": "injection",
+      "description": "eval() on user input executes arbitrary JavaScript code."
+    },
+    {
+      "file": "go/command_injection.go",
+      "language": "go",
+      "cwe": 78,
+      "expected_category": "command_injection",
+      "description": "exec.Command() with a string-concatenated shell command enables command injection."
+    },
+    {
+      "file": "ruby/command_injection.rb",
+      "language": "ruby",
+      "cwe": 78,
+      "expected_category": "command_injection",
+      "description": "system() with a string-concatenated caller-supplied path enables shell command injection."
+    },
+    {
+      "file": "java/sql_injection.java",
+      "language": "java",
+      "cwe": 89,
+      "expected_category": "injection",
+      "description": "String-concatenated Statement.executeQuery() enables SQL injection."
+    },
+    {
+      "file": "csharp/path_traversal.cs",
+      "language": "csharp",
+      "cwe": 22,
+      "expected_category": "path_traversal",
+      "description": "Path.Combine() with an unsanitized Request.Query value enables path traversal."
+    },
+    {
+      "file": "csharp/xxe.cs",
+      "language": "csharp",
+      "cwe": 611,
+      "expected_category": "injection",
+      "description": "XmlDocument without DTD processing disabled enables XXE."
+    },
+    {
+      "file": "php/lfi.php",
+      "language": "php",
+      "cwe": 98,
+      "expected_category": "path_traversal",
+      "description": "include() with an unsanitized $_GET value enables local/remote file inclusion."
+    },
+    {
+      "file": "php/weak_password_hash.php",
+      "language": "php",
+      "cwe": 328,
+      "expected_category": "crypto",
+      "description": "md5() for password hashing is cryptographically broken."
+    },
+    {
+      "file": "python/ssrf_requests.py",
+      "language": "python",
+      "cwe": 918,
+      "pool": "holdout",
+      "description": "User-controlled URL reaches requests.get() with no allow-list.",
+      "expected_category": "ssrf"
+    },
+    {
+      "file": "python/xxe_lxml.py",
+      "language": "python",
+      "cwe": 611,
+      "pool": "holdout",
+      "description": "lxml XMLParser with resolve_entities=True parses request body \u2014 XXE."
+    },
+    {
+      "file": "python/open_redirect.py",
+      "language": "python",
+      "cwe": 601,
+      "pool": "holdout",
+      "description": "Unvalidated `next` parameter passed straight to redirect()."
+    },
+    {
+      "file": "python/ldap_injection.py",
+      "language": "python",
+      "cwe": 90,
+      "pool": "holdout",
+      "description": "Username concatenated into an LDAP search filter."
+    },
+    {
+      "file": "python/nosql_injection.py",
+      "language": "python",
+      "cwe": 943,
+      "pool": "holdout",
+      "description": "Request JSON passed directly as a Mongo query document."
+    },
+    {
+      "file": "java/command_injection.java",
+      "language": "java",
+      "cwe": 78,
+      "pool": "holdout",
+      "description": "Host concatenated into Runtime.exec().",
+      "expected_category": "command_injection"
+    },
+    {
+      "file": "java/path_traversal.java",
+      "language": "java",
+      "cwe": 22,
+      "pool": "holdout",
+      "description": "Caller-supplied name joined onto a base path with no containment check.",
+      "expected_category": "path_traversal"
+    },
+    {
+      "file": "go/sqli.go",
+      "language": "go",
+      "cwe": 89,
+      "pool": "holdout",
+      "description": "Name concatenated into a SQL string literal.",
+      "expected_category": "injection"
+    },
+    {
+      "file": "javascript/path_traversal.js",
+      "language": "javascript",
+      "cwe": 22,
+      "pool": "holdout",
+      "description": "req.query.name joined onto a base path and read from disk.",
+      "expected_category": "path_traversal"
+    },
+    {
+      "file": "csharp/deserialization.cs",
+      "language": "csharp",
+      "cwe": 502,
+      "pool": "holdout",
+      "description": "BinaryFormatter.Deserialize on an untrusted stream.",
+      "expected_category": "deserialization"
+    },
+    {
+      "file": "ruby/sqli.rb",
+      "language": "ruby",
+      "cwe": 89,
+      "pool": "holdout",
+      "description": "params interpolated into an ActiveRecord where() string.",
+      "expected_category": "injection"
+    },
+    {
+      "file": "php/command_injection.php",
+      "language": "php",
+      "cwe": 78,
+      "pool": "holdout",
+      "description": "$_GET value concatenated into shell_exec().",
+      "expected_category": "command_injection"
+    }
+  ]
+}

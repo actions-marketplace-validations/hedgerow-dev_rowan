@@ -1,0 +1,195 @@
+rules:
+- id: ns-websec-598-001
+  languages:
+  - python
+  severity: WARNING
+  message: A credential-shaped URL query parameter (token/access_token/api_key/...) is read directly from the query string.
+    Query strings are logged by web servers and proxies, sent to third-party origins via the Referer header on any outbound
+    request the page makes, and persist in browser history -- all leak the credential outside the TLS-protected request body.
+    Accept the same credential via the Authorization header (or a POST body) instead.
+  patterns:
+  - pattern-either:
+    - pattern-regex: request\.args\.get\(\s*["'](?:token|access_token|auth_token|api_key|apikey|session_token|bearer_token|id_token|refresh_token)["']
+    - pattern-regex: request\.args\[\s*["'](?:token|access_token|auth_token|api_key|apikey|session_token|bearer_token|id_token|refresh_token)["']\s*\]
+    - pattern-regex: request\.GET\.get\(\s*["'](?:token|access_token|auth_token|api_key|apikey|session_token|bearer_token|id_token|refresh_token)["']
+    - pattern-regex: request\.GET\[\s*["'](?:token|access_token|auth_token|api_key|apikey|session_token|bearer_token|id_token|refresh_token)["']\s*\]
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 598
+    original_engine: neuroscan
+    fix: 'Accept the credential only via the Authorization header (e.g. `Authorization: Bearer <token>`) or a POST body. If
+      a query-string fallback is required for legacy clients, log a deprecation warning and strip it from any URL that is
+      echoed back, redirected to, or logged verbatim.'
+- id: ns-websec-611-001
+  languages:
+  - python
+  severity: ERROR
+  message: 'lxml XMLParser explicitly re-enables entity resolution (resolve_entities=True) and/or network access during DTD/entity
+    resolution (no_network=False). This overrides lxml''s safe-by-default parser configuration and reopens classic XXE: local
+    file disclosure via an internal/external entity, or SSRF via a network-fetched entity/DTD.'
+  patterns:
+  - pattern-regex: (?:lxml\.)?etree\.XMLParser\([^)]{0,300}?(?:resolve_entities\s*=\s*True|no_network\s*=\s*False)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 611
+    original_engine: neuroscan
+    fix: Do not set resolve_entities=True or no_network=False on an XMLParser used for untrusted input. Use the default XMLParser()
+      (or explicitly resolve_entities=False, no_network=True, load_dtd=False), or switch to defusedxml.lxml.parse()/fromstring().
+    residual:
+    - sanitizer
+- id: ns-websec-1333-001
+  languages:
+  - python
+  severity: WARNING
+  message: Regex contains a nested quantifier -- a quantified group whose entire content is itself a single quantified atom
+    (e.g. `(a+)+`, `([a-z0-9]+ )*`, `(\d*)+`), or a repeated group with two identical alternation branches (e.g. `(a|a)*`).
+    Both shapes admit exponentially many ways to partition a matching prefix across the outer repetition, so a catastrophic-backtracking
+    (ReDoS) input can make a single match call take seconds to hours. If this pattern is ever matched against request-derived
+    input (a form field, header, or query parameter), one request can pin a worker thread.
+  patterns:
+  - pattern-either:
+    - pattern-regex: \((?:\?:)?(?:\[[^\]\n]*\]|\\[dwsDWS]|\\.|\.)[+*]\)[+*]
+    - pattern-regex: \((\\[dwsDWS]|\[[^\]\n]*\]|\w+)\|\1\)[+*]
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: general
+    cwe:
+    - 1333
+    original_engine: neuroscan
+    fix: 'Rewrite the group so repetitions cannot overlap: require a literal or disjoint separator between repeated atoms
+      (e.g. `[a-z0-9]+(?:[._-][a-z0-9]+)*` instead of `([a-z0-9_]+)*`), use an atomic/possessive group if your regex engine
+      supports one, or validate with a bounded, linear-time check (a single non-nested character class with a length cap)
+      instead of a general-purpose pattern.'
+    residual:
+    - sanitizer
+- id: ns-websec-1004-001
+  languages:
+  - python
+  severity: WARNING
+  message: A cookie is set without an `httponly` argument. Flask, Django, and Starlette/FastAPI all default it to False, so
+    the value is readable from JavaScript via `document.cookie` -- any XSS anywhere on the origin can exfiltrate it. If this
+    cookie carries a session or auth token, that turns a contained XSS into full account takeover.
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.set_cookie\s*\(
+    - pattern-regex: \.set_signed_cookie\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: set_cookie\s*\(\s*\*\*
+  metadata:
+    category: config
+    cwe:
+    - 1004
+    original_engine: neuroscan
+    fix: Pass `httponly=True` on any cookie carrying a session or auth token, together with `secure=True` and `samesite="Lax"`
+      (or `"Strict"`). Only set `httponly=False` for a cookie a first-party script genuinely has to read, and never for one
+      that authenticates the request.
+    residual:
+    - sanitizer
+  paths:
+    exclude:
+    - /tests/
+    - /test/
+    - test_*.py
+    - '*_test.py'
+    - conftest.py
+- id: ns-websec-614-001
+  languages:
+  - python
+  severity: WARNING
+  message: A cookie is set without the `secure` flag (or with `secure=False`). Flask, Django, and Starlette/FastAPI all default
+    it to False, so the browser will send this cookie over plain HTTP -- a network attacker on the path (public Wi-Fi, a downgraded
+    link, a captive portal) reads it directly. If it carries a session or auth token, that is session hijacking with no XSS
+    required. Pass `secure=True` on any cookie that authenticates the request.
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.set_cookie\s*\(
+    - pattern-regex: \.set_signed_cookie\s*\(
+    - pattern-regex: (?i)\b(?:SESSION_COOKIE_SECURE|CSRF_COOKIE_SECURE)\s*=\s*False\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: set_cookie\s*\(\s*\*\*
+  metadata:
+    category: config
+    cwe:
+    - 614
+    original_engine: neuroscan
+    fix: Pass `secure=True` on any cookie carrying a session or auth token, together with `httponly=True` and `samesite="Lax"`
+      (or `"Strict"`). For Django, set `SESSION_COOKIE_SECURE = True` and `CSRF_COOKIE_SECURE = True` in settings. Only serve
+      a cookie without Secure over a connection you know is never HTTPS, which for an authenticated app is never.
+    residual:
+    - sanitizer
+  paths:
+    exclude:
+    - /tests/
+    - /test/
+    - test_*.py
+    - '*_test.py'
+    - conftest.py
+- id: ns-websec-330-001
+  languages:
+  - python
+  severity: ERROR
+  message: 'A security-sensitive value is generated with the `random` module. `random` is a Mersenne Twister seeded from a
+    small state: an attacker who observes a few outputs can recover the internal state and predict every past and future value.
+    For a session token, password-reset code, salt, nonce, or key that is a complete break. Use `secrets` (`secrets.token_urlsafe`,
+    `secrets.token_bytes`) or `random.SystemRandom`, both of which draw from the OS CSPRNG.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)\b\w*(?:token|secret|nonce|salt|otp|passwd|password|apikey|api_key|secret_key|session_id|sessionid|reset_code|recovery_code|csrf)\w*\s*=\s*[^=\n]*\brandom\.(?:random|randint|randrange|choice|choices|sample|shuffle|uniform|getrandbits)\s*\(
+    - pattern-regex: \b(?:key|iv|nonce|seed_material)\w*\s*=\s*bytes(?:array)?\s*\(\s*random\.
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: random\.SystemRandom
+  metadata:
+    category: crypto
+    cwe:
+    - 330
+    - 338
+    original_engine: neuroscan
+    fix: 'Use the `secrets` module: `secrets.token_urlsafe(32)` for a URL-safe token, `secrets.token_bytes(32)` for raw key
+      material, `secrets.choice(alphabet)` for a random character. Where an existing `random.Random` API shape must be kept,
+      swap the instance for `random.SystemRandom()`.'
+  paths:
+    exclude:
+    - /tests/
+    - /test/
+    - /testing/
+    - /benchmarks/
+    - /examples/
+    - test_*.py
+    - '*_test.py'
+    - conftest.py
+- id: ns-websec-276-001
+  languages:
+  - python
+  severity: WARNING
+  message: Permissions are set to grant write access to every local account. Any user on the host can replace this file's
+    contents -- if it holds code, configuration, or key material that the application later reads or executes, that is local
+    privilege escalation into the service's identity. Grant the owner (0o700 for a directory, 0o600 for a file), or a dedicated
+    group, and nothing wider.
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?:os|shutil)\.(?:chmod|fchmod|lchmod)\s*\([^,\n]+,\s*0o?[0-7]?[0-7][0-7][2367]\s*[),]
+    - pattern-regex: os\.umask\s*\(\s*0+\s*\)
+  - pattern-not-regex: (?m)^\s*#
+  metadata:
+    category: config
+    cwe:
+    - 276
+    - 732
+    original_engine: neuroscan
+    fix: Use 0o700 for a directory and 0o600 for a file the service alone needs, or 0o750/0o640 with a dedicated group for
+      shared read access. If multiple accounts genuinely must write, give them a shared group rather than granting world write.
+      Replace `os.umask(0)` with `os.umask(0o077)`.
+  paths:
+    exclude:
+    - /tests/
+    - /test/
+    - test_*.py
+    - '*_test.py'
+    - conftest.py

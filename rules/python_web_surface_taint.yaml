@@ -1,0 +1,147 @@
+# Python web-application surface taint rules: Opengrep-compatible taint
+# mode rules. Companion to python_web_surface.yaml: the two classes here
+# needed an actual source-to-sink check to be precise (a bare presence
+# check produced real false positives against large real codebases -- see
+# each rule's own engine note for the specific FPs found and how they were
+# ruled out).
+# Requires: `--taint-intrafile` flag when running opengrep scan (same
+# requirement as agent_taint.yaml / ai_ml_taint.yaml / ml_taint.yaml).
+#
+# ---------------------------------------------------------------------------
+# VALIDATION STATUS: TNT-REFLECT-001, VALIDATED ON REAL-WORLD CODE (2026-08-01)
+#
+# Real-world true positives (independent code, not a fixture or benchmark):
+# 2 hits in a real, currently-maintained AI-orchestration project. One is
+# the project's own deserialization entry point: a fully-qualified class
+# name split out of pipeline config, imported and resolved via `getattr`,
+# the exact CWE-470 shape. The other is a shipped sample component with
+# the same pattern, lower value since it is not production code, but a
+# genuine instance of the class. Exact locations withheld pending
+# upstream disclosure.
+#
+# Corpus hit count: 2 across six repos (chainlit, flashrag, llmware, crewai,
+# haystack, letta). Low volume, no flooding.
+#
+# KNOWN RECALL LIMITATION: does not fire on a source-to-sink flow that crosses
+# a file boundary. Confirmed miss on the benchmark's V20/V35, where `_resolve`
+# receives the dotted path as a parameter from another module. This is the
+# same intra-file ceiling documented for agent_taint.yaml, not a defect in the
+# pattern, but it means the rule catches the co-located case only. Routing
+# this through CrossFilePass is the fix.
+# ---------------------------------------------------------------------------
+
+rules:
+
+  # =========================================================================
+  # CWE-915: mass assignment via a setattr() loop over a request-derived
+  # dict (the ground-truth V14 shape; the constructor-splat half of this
+  # class is ns-websec-915-001 in python_web_surface.yaml, which is
+  # presence-only and does not need taint -- see that rule's engine note).
+  # =========================================================================
+  # Engine note: the naive presence-only version of this check
+  # (`for $K, $V in $D.items(): setattr($OBJ, $K, $V)`, regardless of what
+  # $D is) was tried first and rejected -- verified against three large
+  # real Python trees (langflow, and the combined pip/requests/aiohttp/
+  # huggingface_hub/accelerate/litellm/fontTools install trees, ~2GB+
+  # total) it fired 1 + 5 + 159 times respectively, essentially all on the
+  # extremely common "sync an ORM/model object from an already-validated
+  # dict" idiom that has nothing to do with raw request input:
+  # langflow/services/variable/service.py:360 (`variable_data =
+  # variable.model_dump(exclude_unset=True); for key, value in
+  # variable_data.items(): setattr(db_variable, key, value)` -- variable_data
+  # is a validated Pydantic dump, not raw JSON) and requests' own
+  # models.py/sessions.py/adapters.py (`for attr, value in state.items():
+  # setattr(self, attr, value)` inside __setstate__ -- state is the
+  # object's own prior __dict__, restored during unpickling, not request
+  # data at all). Neither is exploitable; both matched a presence-only
+  # regex all the same. That is exactly the false-positive class the task
+  # brief warned taint mode exists to rule out here.
+  #
+  # Requiring the iterated dict to be traceable back to an actual
+  # request.*/data.get(...) source removes both: re-tested with
+  # --taint-intrafile against the requests models.py/sessions.py/
+  # adapters.py trio (copied into a throwaway git repo so opengrep would
+  # scan them) and the langflow variable/service.py file directly: 0
+  # findings in both, because neither file has a request.*-shaped call
+  # anywhere the dict could trace back to (`state` comes from `self.
+  # __dict__`/getattr, `variable_data` from `.model_dump()` on a FastAPI-
+  # injected Pydantic model, never from request.args/form/json).
+  #
+  # Ground-truth V14 itself is cross-file (api/models.py:update_model, the
+  # PATCH json body, calling services/config_loader.py:apply_updates,
+  # which does the setattr loop with no source-shaped call in that same
+  # file) -- raw opengrep --taint-intrafile cannot see that on its own, by
+  # design (same reason python_web_surface.yaml's ReDoS rule had to switch
+  # to presence mode). That gap is what this project's own cross-file
+  # correlation pass (rowan/passes/cross_file.py) exists to close on
+  # top of opengrep's per-file output; see this project's full-pipeline
+  # scan result (not raw opengrep) in this task's report for whether that
+  # correlation actually reaches this specific sink.
+  - id: TNT-REFLECT-001
+    mode: taint
+    message: |
+      A value derived from request input (request.args/form/json, or a
+      dict built from request.get_json()) reaches getattr(), globals()[...],
+      locals()[...], or importlib.import_module() with no visible
+      allow-list check. This is unsafe reflection / dynamic dispatch driven
+      by the caller: a plugin-loader, dotted-path resolver, or "op name"
+      dispatch table that imports or attribute-looks-up whatever module or
+      name the request names lets a caller import and invoke arbitrary
+      importable code (e.g. `os:system`), not just the intended handler
+      set.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [470]
+      category: injection
+      fix: "Validate the request-supplied name against an explicit allow-list (a dict-literal registry, an Enum, or a match/case over literal names) before using it to key getattr()/globals()/locals() or as an import_module() target. Never resolve an attacker-controlled dotted path directly."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              # rowan-registry:begin source=http_request
+              - patterns:
+                  - pattern-either:
+                      - pattern: request.args.get(...)
+                      - pattern: request.args[...]
+                      - pattern: request.form.get(...)
+                      - pattern: request.form[...]
+                      - pattern: request.json.get(...)
+                      - pattern: request.json[...]
+                      - pattern: request.data
+                      - pattern: request.values.get(...)
+                      - pattern: request.files.get(...)
+                      - pattern: request.cookies.get(...)
+                      - pattern: request.headers.get(...)
+                      - pattern: request.GET.get(...)
+                      - pattern: request.GET[...]
+                      - pattern: request.POST.get(...)
+                      - pattern: request.POST[...]
+                      - pattern: request.body
+                      - pattern: request.query_params
+                      - pattern: await request.json(...)
+                      - pattern: await request.form(...)
+                      - pattern: await request.body(...)
+                      - pattern: await websocket.recv(...)
+                      - pattern: await websocket.receive_text(...)
+              # rowan-registry:end source=http_request
+              - pattern: request.get_json(...)
+              - pattern: data.get(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: getattr($OBJ, $NAME, ...)
+          - pattern-not: getattr($OBJ, "...", ...)
+          # The attribute name is the payload; a tainted object is not (RT-14).
+          - focus-metavariable: $NAME
+      - patterns:
+          - pattern-either:
+              - pattern: globals()[$NAME]
+              - pattern: locals()[$NAME]
+              - pattern: importlib.import_module($NAME)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $NAME = $ENUM($NAME)
+              - pattern: $NAME = $ENUM($NAME).value
+              - pattern: $NAME = $ALLOWLIST[$NAME]
+              - pattern: $NAME = $ALLOWLIST.get($NAME)

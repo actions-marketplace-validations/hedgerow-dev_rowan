@@ -1,0 +1,1763 @@
+# Rowan Agent/LLM-Boundary Taint Rules: Opengrep-compatible taint mode rules
+# These use Opengrep's dataflow engine for interprocedural taint tracking.
+# Requires: `--taint-intrafile` flag when running opengrep scan (same
+# requirement as ai_ml_taint.yaml / ml_taint.yaml).
+#
+# This file fills gaps identified in a review against a companion planted-
+# vulnerability benchmark (V30/V31/V33/V34/V35/V36/V38): existing rules
+# (TNT-ML-005) cover "LLM output reaches a tool call", but not LLM output
+# reaching a SQL/code-exec/markdown-render sink directly with no tool-dispatch
+# layer in between, nor the inverse direction (sensitive data reaching an LLM
+# call), nor resource-consumption or reflection-dispatch shapes that don't fit
+# a classic dangerous-call sink at all.
+#
+# Engine note: a taint sanitizer expressed as a bare boolean guard-clause
+# check (e.g. `pattern: $NAME in $ALLOWLIST` intended to model
+# `if $NAME not in $ALLOWLIST: return`) does NOT suppress a finding in this
+# engine version (verified empirically: only sanitizers that reassign/wrap
+# the tainted value itself, e.g. `int(...)`, `$X = validate($X)`, actually
+# clear taint). TNT-AIML-001's existing `$PATH in $ALLOWED_MODELS` sanitizer
+# has this same shape and is very likely non-functional for the same reason;
+# noted as a follow-up, not fixed here. Rules below that would need a
+# guard-clause sanitizer to be precise omit pattern-sanitizers entirely
+# rather than ship one that looks protective but silently does nothing
+# (TNT-ML-013's min()/max() clamp sanitizers are the reassignment-style
+# exception that IS supported). TNT-ML-012/017 (issue #135) likewise only
+# ship reassignment-style sanitizers ($NAME = Enum($NAME), $NAME =
+# allowlist_dict[$NAME]) -- a bare `if name in ALLOWED:` guard clause
+# before the dispatch call still will not suppress either rule's finding.
+
+rules:
+
+  # ── Text-to-SQL agent: LLM-generated SQL executed directly ─────────
+  # (Vanna.ai CVE-2024-5565 class -- distinct from TNT-ML-005, whose sinks
+  # are shell/eval/pickle/requests/file-write, not a SQL execute call.)
+  - id: TNT-ML-010
+    mode: taint
+    message: |
+      LLM-generated text reaches a SQL execute call with no tool-dispatch
+      layer in between. Text-to-SQL agents (LangChain SQLDatabaseChain,
+      Vanna.ai-style chains) that run the model's own generated SQL directly
+      are vulnerable to SQL injection driven by whatever the model was asked
+      or shown (CVE-2024-5565 class): the model is trusted to author safe
+      SQL and the result is executed as-is.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [89]
+      category: prompt_injection
+      fix: "Never execute a full SQL string authored by the model. Constrain generation to a fixed set of parameterized query templates, or validate the generated SQL against an allow-listed grammar/column list before execution."
+    # Engine note: every $LLM/$AGENT/$CHAIN/$RESPONSE metavariable below is
+    # constrained by a sibling metavariable-regex requiring its receiver's
+    # own source text to contain an LLM/agent/response-shaped hint word.
+    # Verified false positive without this: bare .generate(...)/.run(...)
+    # match ANY object with that method name (a Jinja2 compiled template's
+    # own .generate(), a linter-helper's .run(...) via subprocess) -- found
+    # in transformers' chat_template_utils.py and modular_model_converter.py
+    # across a live batch scan. Each metavariable is qualified separately
+    # (nested pattern-either, not one shared regex across the whole
+    # pattern-either) because a single metavariable-regex constraint on the
+    # whole block would require ALL alternatives to bind that one
+    # metavariable, silently excluding every alternative that binds a
+    # different name instead.
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern-either:
+                      - pattern: $LLM.generate(...)
+                      - pattern: $LLM.invoke(...)
+                      - pattern: $LLM.chat(...)
+                      - pattern: $LLM.predict(...)
+                  - metavariable-regex:
+                      metavariable: $LLM
+                      regex: (?i).*(llm|model|client|chat|agent|assistant|bot|gpt|openai|anthropic|deepseek).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $AGENT.run(...)
+                      - pattern: $AGENT.invoke(...)
+                  - metavariable-regex:
+                      metavariable: $AGENT
+                      regex: (?i).*(agent|chain|executor|assistant).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $CHAIN.run(...)
+                  - metavariable-regex:
+                      metavariable: $CHAIN
+                      regex: (?i).*(chain|agent).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $RESPONSE.choices[0].message.content
+                      - pattern: $RESPONSE.content
+                  - metavariable-regex:
+                      metavariable: $RESPONSE
+                      regex: (?i).*(response|resp|completion|reply|result).*
+              - pattern: openai.ChatCompletion.create(...)
+              - pattern: $CLIENT.chat.completions.create(...)
+    # Engine note: excluding SQLAlchemy Core query-builder objects
+    # (Table.select().where(...), .insert().values(...), etc.) via
+    # metavariable-pattern -- verified false positive across 3 real repos
+    # (mem0, open-webui, letta all pass an LLM-influenced value into a
+    # .where(...)/.values(...) clause that SQLAlchemy auto-parameterizes,
+    # not a raw SQL string). A file-scoped pattern-not was tried first and
+    # rejected: it suppressed the genuine vulnerable case too, because
+    # pattern-not in a sink's patterns: list excludes at function/file
+    # granularity, not per-match. metavariable-pattern constrains the
+    # specific $SQL binding at each occurrence instead, which correctly
+    # discriminates the two shapes -- for an INLINE builder chain passed
+    # directly as the argument (confirmed fixed: mem0's two occurrences).
+    #
+    # Theoretical residual limitation, no longer observed in practice: when
+    # the query is built across multiple statements -- `query =
+    # Table.select().where(...)` on one line, then reassigned via an
+    # unrelated helper on a later line, then passed to execute() as a bare
+    # variable -- $SQL's own syntax at the sink call site is just an
+    # identifier, not a visible .where(...) chain, so metavariable-pattern
+    # cannot see the builder call that produced its value; would need
+    # genuine reaching-definitions dataflow, not a syntactic constraint on
+    # the single matched expression. Originally flagged from 5 letta +
+    # 2 open-webui hits, but re-verification after the source/sink
+    # metavariable-regex hint-word fix (see TNT-ML-016's engine note) showed
+    # every one of those hits actually traced back to $RESPONSE.content
+    # matching an unrelated attribute access, not this builder case at all --
+    # all 7 are gone now that $RESPONSE requires a response-shaped hint word.
+    # Left here as a known gap in the exclusion technique itself, just
+    # currently unconfirmed against any real occurrence.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: cursor.execute($SQL)
+              - pattern: cursor.executemany($SQL)
+              - pattern: $DB.execute($SQL)
+              - pattern: $CONN.execute($SQL)
+              - pattern: $SESSION.execute($SQL)
+              - pattern: $SESSION.execute(text($SQL))
+          - metavariable-pattern:
+              metavariable: $SQL
+              patterns:
+                - pattern-not: $X.where(...)
+                - pattern-not: $X.select(...)
+                - pattern-not: $X.insert(...)
+                - pattern-not: $X.update(...)
+                - pattern-not: $X.delete(...)
+                - pattern-not: $X.values(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: cursor.execute($SQL, $PARAMS)
+              - pattern: $DB.execute($SQL, $PARAMS)
+              - pattern: $SESSION.execute($SQL, $PARAMS)
+
+  # ── Code-interpreter agent: LLM-generated code reaches pandas exec ──
+  # (PandasAI CVE-2024-12366 class -- eval/exec themselves are already
+  # TNT-ML-005 sinks; pd.eval/DataFrame.query(engine="python") are not.)
+  - id: TNT-ML-011
+    mode: taint
+    message: |
+      LLM-generated text reaches a pandas expression-evaluation sink.
+      "Chat with your dataframe" agents (PandasAI and similar) that pass the
+      model's generated code/expression to pd.eval() or DataFrame.query()
+      with the python engine are vulnerable to arbitrary code execution
+      (CVE-2024-12366 class): these evaluate the string with full Python
+      expression semantics, not just arithmetic.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [95]
+      category: injection
+      fix: "Never evaluate model-generated code/expressions with pd.eval() or DataFrame.query(engine=\"python\"). Constrain the agent to a fixed set of whitelisted aggregate operations instead of arbitrary generated code."
+    # Engine note: see TNT-ML-010's identical metavariable-regex rationale.
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern-either:
+                      - pattern: $LLM.generate(...)
+                      - pattern: $LLM.invoke(...)
+                      - pattern: $LLM.chat(...)
+                      - pattern: $LLM.predict(...)
+                  - metavariable-regex:
+                      metavariable: $LLM
+                      regex: (?i).*(llm|model|client|chat|agent|assistant|bot|gpt|openai|anthropic|deepseek).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $AGENT.run(...)
+                      - pattern: $AGENT.invoke(...)
+                  - metavariable-regex:
+                      metavariable: $AGENT
+                      regex: (?i).*(agent|chain|executor|assistant).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $RESPONSE.choices[0].message.content
+                      - pattern: $RESPONSE.content
+                  - metavariable-regex:
+                      metavariable: $RESPONSE
+                      regex: (?i).*(response|resp|completion|reply|result).*
+              - pattern: openai.ChatCompletion.create(...)
+              - pattern: $CLIENT.chat.completions.create(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: pd.eval($EXPR, ...)
+              - pattern: pandas.eval($EXPR, ...)
+              - pattern: $DF.query($EXPR, engine="python", ...)
+              - pattern: $DF.eval($EXPR, engine="python", ...)
+
+  # ── Raw reflection dispatch on a model-chosen action name ───────────
+  # (getattr(self, tool_call.function.name)(...) -- the common hand-rolled
+  # OpenAI/Anthropic tool-use pattern, as opposed to a framework's own
+  # allow-listed tool registry, which AGENT-TOOL-001 already models.)
+  - id: TNT-ML-012
+    mode: taint
+    message: |
+      A tool/function name chosen by the model reaches getattr() with no
+      visible allow-list check. Raw (non-framework) OpenAI/Anthropic
+      tool-use integrations commonly resolve the model's chosen tool name
+      via getattr(handler, name)(...); if the name is not validated against
+      an explicit allow-list before the getattr call, the model can invoke
+      any callable attribute on the handler object, including internal
+      helpers never intended to be exposed as tools.
+    severity: WARNING
+    # Issue #135: added the Anthropic tool_use content-block source below
+    # (content_block.name / block.name) alongside the pre-existing OpenAI
+    # tool_call.function.name shape. litellm's completion() response is
+    # OpenAI-API-compatible, so it already matches the existing
+    # $CALL.function.name shape with no separate pattern needed.
+    languages: [python]
+    metadata:
+      cwe: [470]
+      category: ai_ml
+      fix: "Validate the model-chosen name against an explicit allow-list of intended tool/action names before the getattr() call, not just in the schema advertised to the model."
+    # Engine note: deliberately NOT matching a bare $X["name"]/$X.get("name")/
+    # $X.name shape -- verified empirically (batch scan across 14 real repos)
+    # that single-level ".name" access is catastrophically overbroad: it
+    # matches a model's own config name, a tool SCHEMA's declared name (the
+    # tool definition the developer wrote, not the model's runtime choice),
+    # dataset/column names, etc., producing dozens of unrelated findings
+    # wherever a getattr() call of any kind later appears in the same
+    # function. The two-level "function"+"name" nesting below is the
+    # distinctive OpenAI/Anthropic tool-call shape (tool_call.function.name)
+    # and did not reproduce that false-positive pattern in the same scan.
+    #
+    # Fixed co-location false positive (found in a langchain batch scan,
+    # chat_models/base.py): once a genuine tool_call.function.name access
+    # exists ANYWHERE in a function's taint-reachable scope, this sink used
+    # to also flag OTHER, unrelated getattr($OBJ, "hardcoded_string", ...)
+    # calls in that same scope -- e.g. getattr(response, "choices", None) a
+    # few lines away from real tool-call parsing code. Two earlier exclusion
+    # techniques failed: a whole-sink pattern-not on the literal getattr(...)
+    # shape written as its own top-level metavariable-pattern (suppressed the
+    # genuine vulnerable case too), and a metavariable-pattern constraining
+    # $NAME to exclude string literals via a nested pattern-not (excluded
+    # every finding, both true and false positive). What actually works: a
+    # plain sibling `pattern-not: getattr($OBJ, "...", ...)` directly in the
+    # sink's own patterns: list, using semgrep/opengrep's ellipsis-in-string
+    # operator ("..." matches any string literal specifically at that
+    # argument position). Verified per-match, not per-function: a fixture
+    # with both a true positive (getattr(handler, name, None), name from
+    # tool_call.function.name) and a false positive (getattr(response,
+    # "choices", None)) in the SAME function correctly keeps only the former.
+    #
+    # Anthropic shape added for #135: content_block.name (a single-level
+    # attribute access, unlike OpenAI's two-level function.name nesting)
+    # is exactly the ".name is not automatically tainted" trap this rule's
+    # header comment already warns about -- a bare $X.name would also match
+    # user.name, file.name, model.name, etc. Constrained with the same
+    # metavariable-regex technique used throughout this file (see
+    # TNT-ML-010's engine note) instead: the receiver's own source text
+    # must contain a tool-call/content-block hint word. This intentionally
+    # does NOT add a bare two-level fallback ($X.something.name) for
+    # Anthropic, because the real SDK shape is single-level
+    # (content_block.name, not content_block.function.name) -- see the
+    # Anthropic Messages API's ToolUseBlock (type="tool_use", id, name,
+    # input).
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: $CALL["function"]["name"]
+              - pattern: $CALL.function.name
+              - patterns:
+                  - pattern: $BLOCK.name
+                  - metavariable-regex:
+                      metavariable: $BLOCK
+                      regex: (?i).*(content_block|tool_use|toolcall|tool_call|^cb$|^tc$|^block$).*
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: getattr($OBJ, $NAME, ...)
+          - pattern-not: getattr($OBJ, "...", ...)
+          # The attribute name is the payload; a tainted object is not (RT-14).
+          - focus-metavariable: $NAME
+    # Issue #135: reassignment-style sanitizers added (a boolean guard
+    # clause still does not work in this engine version -- see this file's
+    # header note -- but these reassign the tainted value itself, which
+    # does). This is a narrower sanitizer than the file header note's
+    # blanket "omit entirely" rationale describes: that rationale is about
+    # not shipping a *guard-clause* sanitizer that looks protective but
+    # silently does nothing; a reassignment-style Enum/allow-list-dict
+    # sanitizer is a different (functional) shape, added here to match
+    # TNT-ML-017's identical sanitizer list and keep the two rules'
+    # negative fixtures (dict-literal allow-list, Enum validation)
+    # consistent across both.
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $NAME = $ENUM($NAME)
+              - pattern: $NAME = $ENUM($NAME).value
+              - pattern: $NAME = $ALLOWLIST[$NAME]
+              - pattern: $NAME = $ALLOWLIST.get($NAME)
+
+  # ── Unbounded agent iteration budget (denial of wallet, OWASP LLM10) ─
+  # Not a dangerous-sink taint flow at all -- the "sink" is a resource-
+  # consumption amplifier (a request-controlled loop bound wrapping a
+  # billed LLM call), which has no signature a denylist could key on.
+  - id: TNT-ML-013
+    mode: taint
+    message: |
+      A request-controlled value reaches a loop bound that wraps an LLM
+      completion call, with no visible upper-bound clamp. Each iteration is
+      a billed API call, so an unbounded caller-supplied round/iteration
+      count is a direct cost and availability attack (OWASP LLM10,
+      unbounded consumption): one request can trigger an arbitrary number of
+      completions.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [400]
+      category: ai_ml
+      fix: "Clamp any caller-supplied iteration/round count to a fixed server-side maximum (e.g. min(requested, MAX_ROUNDS)) before using it as a loop bound around an LLM call."
+    # Engine note: kwargs.get(...) deliberately excluded, unlike the
+    # otherwise-identical source list used elsewhere in this codebase
+    # (ai_ml_taint.yaml, ml_taint.yaml, python_taint*.yaml, web_taint.yaml).
+    # Verified false positive: it matched a model's own internal generation
+    # loop bound (transformers' Bark model, autoregressive window count from
+    # its own **kwargs) reaching an LLM-shaped call with nothing resembling
+    # an HTTP request boundary anywhere nearby. **kwargs is too generic a
+    # shape on its own -- any function accepting keyword arguments matches
+    # it, regardless of whether those arguments ever cross a trust boundary.
+    # This precision gap likely also affects the other rule files that use
+    # the same source pattern; flagged here, not fixed wholesale.
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              # rowan-registry:begin source=http_request
+              - patterns:
+                  - pattern-either:
+                      - pattern: request.args.get(...)
+                      - pattern: request.args[...]
+                      - pattern: request.form.get(...)
+                      - pattern: request.form[...]
+                      - pattern: request.json.get(...)
+                      - pattern: request.json[...]
+                      - pattern: request.data
+                      - pattern: request.values.get(...)
+                      - pattern: request.files.get(...)
+                      - pattern: request.cookies.get(...)
+                      - pattern: request.headers.get(...)
+                      - pattern: request.GET.get(...)
+                      - pattern: request.GET[...]
+                      - pattern: request.POST.get(...)
+                      - pattern: request.POST[...]
+                      - pattern: request.body
+                      - pattern: request.query_params
+                      - pattern: await request.json(...)
+                      - pattern: await request.form(...)
+                      - pattern: await request.body(...)
+                      - pattern: await websocket.recv(...)
+                      - pattern: await websocket.receive_text(...)
+              # rowan-registry:end source=http_request
+              - pattern: data.get(...)
+    # Engine note: see TNT-ML-010's metavariable-regex rationale -- applied
+    # here to the $LLM receiver inside the loop body itself.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern: |
+                      for $I in range($N):
+                          ...
+                          $LLM.generate(...)
+                          ...
+                  - metavariable-regex:
+                      metavariable: $LLM
+                      regex: (?i).*(llm|model|client|chat|agent|assistant|bot|gpt|openai|anthropic|deepseek).*
+              - patterns:
+                  - pattern: |
+                      for $I in range($N):
+                          ...
+                          $LLM.invoke(...)
+                          ...
+                  - metavariable-regex:
+                      metavariable: $LLM
+                      regex: (?i).*(llm|model|client|chat|agent|assistant|bot|gpt|openai|anthropic|deepseek).*
+              - patterns:
+                  - pattern: |
+                      for $I in range($N):
+                          ...
+                          $LLM.chat(...)
+                          ...
+                  - metavariable-regex:
+                      metavariable: $LLM
+                      regex: (?i).*(llm|model|client|chat|agent|assistant|bot|gpt|openai|anthropic|deepseek).*
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: min($N, ...)
+              - pattern: max($MIN, min($N, $MAX))
+
+  # ── PII flows into a third-party LLM API call unredacted ────────────
+  # The inverse direction of the LLM-output-as-source family above:
+  # sensitive data reaching the LLM call boundary itself.
+  #
+  # Issue #140 (extended from the original PII field set): PII lexicon is
+  # inlined directly in the source patterns below rather than pulled from a
+  # shared config file. Investigated the two candidate "shared metadata
+  # list" precedents before making this call:
+  #   - rowan/config/thresholds.yaml is a per-rule-id severity/
+  #     confidence override map, not a name lexicon -- wrong shape entirely.
+  #   - rowan/core/vuln_functions.py (VULN_FUNCTION_MAP, used by SCA
+  #     reachability in rowan/passes/sca.py) IS a hardcoded Python-dict
+  #     lexicon, but it has no external-override/per-repo-extension loading
+  #     path -- it's engine-level plumbing a rule author can't reach without
+  #     touching SCA's own code, not a generalizable "shared config"
+  #     mechanism. Extending it to cover PII field names would require new
+  #     engine plumbing this issue doesn't scope.
+  # A YAML-rule-scoped regex/pattern lexicon (this list, documented here)
+  # matches the issue's actual scope -- a rule-authoring task -- without
+  # inventing new engine infrastructure. Per-repo extension is possible the
+  # same way every other rule in this corpus is extended: copy/edit this
+  # rule block. Lexicon: email, ssn/social_security_number, dob/
+  # date_of_birth, phone/phone_number, address, salary, diagnosis/
+  # medical_condition -- covering both attribute access (ORM model
+  # instances, e.g. `User.email`) and dict/row subscript access (e.g.
+  # `row["ssn"]`), per the issue's own two example source shapes.
+  - id: TNT-ML-014
+    mode: taint
+    message: |
+      A PII-shaped field (email, SSN, date of birth, phone, address,
+      salary, diagnosis) reaches an LLM completion or embedding API call
+      with no visible redaction step. Support/copilot integrations that
+      ground the assistant in a user's account record commonly interpolate
+      PII directly into the prompt/context sent to a third-party LLM API.
+      This is a compliance-relevant data-exposure path (GDPR/HIPAA
+      data-processor boundary: sending a data subject's PII to a
+      third-party API is itself a disclosure to a new processor, whether or
+      not the provider retains it) that most taint tooling does not model
+      as a sink at all -- see OWASP LLM02:2025 (Sensitive Information
+      Disclosure). Not applicable to a locally-hosted model endpoint
+      (Ollama/vLLM/llama.cpp on localhost) -- that is not third-party
+      egress, and a client constructed with a localhost/internal base_url
+      in the same function is suppressed (see this rule's own engine note).
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [359]
+      category: ai_ml
+      fix: "Redact or generalize PII-shaped fields (a presidio/scrubadub pass, a custom redact()/anonymize()/mask() helper, or a one-way hash) before including account context in a prompt or embedding-API call sent to a third-party LLM API. Route to a locally-hosted/self-managed model endpoint instead if the data cannot leave your infrastructure."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: $OBJ.email
+              - pattern: $OBJ.ssn
+              - pattern: $OBJ.social_security_number
+              - pattern: $OBJ.dob
+              - pattern: $OBJ.date_of_birth
+              - pattern: $OBJ.phone
+              - pattern: $OBJ.phone_number
+              - pattern: $OBJ.address
+              - pattern: $OBJ.salary
+              - pattern: $OBJ.diagnosis
+              - pattern: $OBJ.medical_condition
+              - pattern: $OBJ["email"]
+              - pattern: $OBJ["ssn"]
+              - pattern: $OBJ["social_security_number"]
+              - pattern: $OBJ["dob"]
+              - pattern: $OBJ["date_of_birth"]
+              - pattern: $OBJ["phone"]
+              - pattern: $OBJ["phone_number"]
+              - pattern: $OBJ["address"]
+              - pattern: $OBJ["salary"]
+              - pattern: $OBJ["diagnosis"]
+    # Engine note: see TNT-ML-010's metavariable-regex rationale.
+    #
+    # Localhost/base_url FP guidance from the issue ("suppress when
+    # base_url/api_base resolves to a literal localhost/internal address")
+    # is implemented here as a sink-level `pattern-not-inside`, NOT a
+    # `pattern-sanitizers` entry: a sanitizer only clears taint on the
+    # specific tainted expression it matches/wraps, and the client's
+    # base_url is set on a *different* variable (the client object) than
+    # the PII value flowing through messages=/input= -- it is never on the
+    # source-to-sink path a sanitizer intercepts. `pattern-not-inside` is a
+    # purely structural/syntactic exclusion instead (does the sink call
+    # lexically follow a `$CLIENT = $CTOR(..., base_url=<local>, ...)`
+    # assignment in the same block?), the same primitive already
+    # established in ai_ml_taint.yaml for SSRF-allowlist and
+    # trust_remote_code-allowlist exclusions. Empirically verified against
+    # a live opengrep binary (not assumed): a two-statement
+    # `pattern: |` block (`$CLIENT = $CTOR(..., base_url=$URL, ...)` then
+    # a bare `...` continuation) combined with `metavariable-regex` on
+    # $URL, nested under `pattern-not-inside`, does suppress the finding
+    # for a localhost-pointed client while leaving a same-shaped
+    # remote/real-key client flagged -- see
+    # tests/test_pii_llm_egress_taint.py::TestLocalhostBaseUrl. Residual
+    # gap, consistent with every other pattern-not-inside guard in this
+    # corpus: it only sees a `$CLIENT = $CTOR(...)` assignment in the
+    # SAME lexical block as the sink call (e.g. same function body); a
+    # client constructed in a different function/module and passed in as
+    # a parameter is not covered by this exclusion.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern-either:
+                      - pattern: $LLM.generate(...)
+                      - pattern: $LLM.invoke(...)
+                      - pattern: $LLM.chat(...)
+                  - metavariable-regex:
+                      metavariable: $LLM
+                      regex: (?i).*(llm|model|client|chat|agent|assistant|bot|gpt|openai|anthropic|deepseek).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $AGENT.run(...)
+                      - pattern: $AGENT.invoke(...)
+                  - metavariable-regex:
+                      metavariable: $AGENT
+                      regex: (?i).*(agent|chain|executor|assistant).*
+              - pattern: openai.ChatCompletion.create(...)
+              - pattern: $CLIENT.chat.completions.create(...)
+              - pattern: anthropic.Anthropic(...).messages.create(...)
+              - pattern: $ANTHROPIC.messages.create(...)
+              - pattern: $CLIENT.embeddings.create(...)
+              - pattern: openai.Embedding.create(...)
+          - pattern-not-inside:
+              patterns:
+                - pattern: |
+                    $LOCALCLIENT = $CTOR(..., base_url=$URL, ...)
+                    ...
+                - metavariable-regex:
+                    metavariable: $URL
+                    regex: (?i).*(localhost|127\.0\.0\.1|0\.0\.0\.0|::1|host\.docker\.internal|\.internal\b|\.local\b)
+          - pattern-not-inside:
+              patterns:
+                - pattern: |
+                    $LOCALCLIENT = $CTOR(..., api_base=$URL, ...)
+                    ...
+                - metavariable-regex:
+                    metavariable: $URL
+                    regex: (?i).*(localhost|127\.0\.0\.1|0\.0\.0\.0|::1|host\.docker\.internal|\.internal\b|\.local\b)
+    # Sanitizers below are all reassignment-style ($VAR = sanitizer(...))
+    # per this file's own header engine note: a bare sanitizer call that
+    # doesn't reassign/wrap the tainted value is not reliably honored by
+    # this taint engine version. Covers: a literal re.sub over the source
+    # field; presidio (AnalyzerEngine().analyze(...) + AnonymizerEngine()
+    # .anonymize(...), with or without a trailing .text access); scrubadub;
+    # a generic custom redact/anonymize/anonymise/mask/pseudonymize helper
+    # (metavariable-regex on the function name, per the issue's own
+    # `redact|anonymi[sz]e|mask|pseudonym` spec, rather than only the two
+    # literal names this rule originally shipped with); and hashing.
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: re.sub(..., $OBJ.email, ...)
+              - pattern: $VAR = redact(...)
+              - pattern: $VAR = anonymize(...)
+              - pattern: $VAR = anonymise(...)
+              - pattern: $VAR = mask(...)
+              - pattern: $VAR = pseudonymize(...)
+              - pattern: $VAR = pseudonymise(...)
+              - pattern: $VAR = scrubadub.clean(...)
+              - pattern: $VAR = $SCRUBBER.clean(...)
+              - pattern: $VAR = $ANONYMIZER.anonymize(...)
+              - pattern: $VAR = $ANONYMIZER.anonymize(...).text
+              - pattern: $VAR = hashlib.sha256(...).hexdigest()
+              - pattern: $VAR = hashlib.sha256(...)
+              - patterns:
+                  - pattern: $VAR = $FUNC(...)
+                  - metavariable-regex:
+                      metavariable: $FUNC
+                      regex: (?i).*(redact|anonymi[sz]e|mask|pseudonym).*
+
+  # ── PII into a trace/span attribute (issue #193, epic #183) ─────────
+  # TNT-ML-014 above covers PII reaching the LLM API call itself; this
+  # covers the SEPARATE egress channel opened by tracing/observability
+  # SDKs (Langfuse/OpenTelemetry spans, W&B logs) once tracing is enabled
+  # (see ns-aiml-154) -- a field that was never meant to leave the LLM
+  # provider relationship now also ships to the tracing vendor. Same PII
+  # source recognizer as TNT-ML-014, reused verbatim per the issue's own
+  # instruction, not reinvented.
+  - id: TNT-ML-032
+    mode: taint
+    message: |
+      A PII-shaped field (email, SSN, date of birth, phone, address,
+      salary, diagnosis) reaches a trace/span attribute or observability
+      log call with no visible redaction step. LLM tracing SDKs persist
+      whatever is attached to a span to third-party infrastructure by
+      default -- this is a second, independent PII-egress channel beyond
+      the LLM call itself (TNT-ML-014), opened the moment tracing is
+      enabled (see ns-aiml-154).
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [359]
+      category: ai_ml
+      fix: "Redact or generalize PII-shaped fields before attaching them to a trace/span attribute or observability log call, the same fix as TNT-ML-014 -- tracing infrastructure is a distinct third-party data-processor relationship from the LLM provider itself."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: $OBJ.email
+              - pattern: $OBJ.ssn
+              - pattern: $OBJ.social_security_number
+              - pattern: $OBJ.dob
+              - pattern: $OBJ.date_of_birth
+              - pattern: $OBJ.phone
+              - pattern: $OBJ.phone_number
+              - pattern: $OBJ.address
+              - pattern: $OBJ.salary
+              - pattern: $OBJ.diagnosis
+              - pattern: $OBJ.medical_condition
+              - pattern: $OBJ["email"]
+              - pattern: $OBJ["ssn"]
+              - pattern: $OBJ["social_security_number"]
+              - pattern: $OBJ["dob"]
+              - pattern: $OBJ["date_of_birth"]
+              - pattern: $OBJ["phone"]
+              - pattern: $OBJ["phone_number"]
+              - pattern: $OBJ["address"]
+              - pattern: $OBJ["salary"]
+              - pattern: $OBJ["diagnosis"]
+    pattern-sinks:
+      - patterns:
+          - pattern: $SPAN.set_attribute(...)
+          - metavariable-regex:
+              metavariable: $SPAN
+              regex: (?i).*(span|trace).*
+      - patterns:
+          - pattern: $TRACER.trace(...)
+          - metavariable-regex:
+              metavariable: $TRACER
+              regex: (?i).*(langfuse|tracer|trace).*
+      - patterns:
+          - pattern: wandb.log(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: re.sub(..., $OBJ.email, ...)
+              - pattern: $VAR = redact(...)
+              - pattern: $VAR = anonymize(...)
+              - pattern: $VAR = anonymise(...)
+              - pattern: $VAR = mask(...)
+              - pattern: $VAR = pseudonymize(...)
+              - pattern: $VAR = pseudonymise(...)
+              - pattern: $VAR = scrubadub.clean(...)
+              - pattern: $VAR = $SCRUBBER.clean(...)
+              - pattern: $VAR = $ANONYMIZER.anonymize(...)
+              - pattern: $VAR = $ANONYMIZER.anonymize(...).text
+              - pattern: $VAR = hashlib.sha256(...).hexdigest()
+              - pattern: $VAR = hashlib.sha256(...)
+              - patterns:
+                  - pattern: $VAR = $FUNC(...)
+                  - metavariable-regex:
+                      metavariable: $FUNC
+                      regex: (?i).*(redact|anonymi[sz]e|mask|pseudonym).*
+
+  # ── LLM output rendered as markdown -- image/link data exfiltration ─
+  # Distinct from a generic innerHTML/XSS rule: the sink here is an image
+  # SRC egress channel, which leaks data even under an HTML sanitizer that
+  # permits <img> (as most chat UIs do) and even with scripts fully blocked.
+  - id: TNT-ML-015
+    mode: taint
+    message: |
+      LLM-generated text reaches a Markdown-to-HTML rendering call with no
+      visible image-source allow-list. Chat UIs that render assistant output
+      as Markdown commonly convert ![alt](url) into an auto-loading <img>
+      tag; a model whose output includes attacker-influenced content (via
+      indirect prompt injection) can embed an off-origin image URL that
+      exfiltrates conversation data on render, with no click required
+      (the ChatGPT/Bard/Writer.com markdown-image-exfil class).
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [200]
+      category: ai_ml
+      fix: "Restrict rendered <img>/<a> targets to an allow-list of same-origin or known-safe hosts before returning model output as rendered HTML."
+    # Engine note: see TNT-ML-010's metavariable-regex rationale.
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern-either:
+                      - pattern: $LLM.generate(...)
+                      - pattern: $LLM.invoke(...)
+                      - pattern: $LLM.chat(...)
+                  - metavariable-regex:
+                      metavariable: $LLM
+                      regex: (?i).*(llm|model|client|chat|agent|assistant|bot|gpt|openai|anthropic|deepseek).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $AGENT.run(...)
+                      - pattern: $AGENT.invoke(...)
+                  - metavariable-regex:
+                      metavariable: $AGENT
+                      regex: (?i).*(agent|chain|executor|assistant).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $RESPONSE.choices[0].message.content
+                      - pattern: $RESPONSE.content
+                  - metavariable-regex:
+                      metavariable: $RESPONSE
+                      regex: (?i).*(response|resp|completion|reply|result).*
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: markdown.markdown($TEXT, ...)
+              - pattern: mistune.markdown($TEXT, ...)
+              - pattern: mistune.html($TEXT, ...)
+              - pattern: commonmark.commonmark($TEXT, ...)
+
+  # ── Persistent agent memory read back unscoped into an LLM prompt ───
+  # Presence signal, like the #142 serving-infra rules: this pattern is
+  # also used by properly-scoped implementations, since a per-user filter
+  # is a runtime argument this rule cannot verify statically. Confirm the
+  # read is actually scoped to the current user/session before treating
+  # this as more than a review prompt.
+  - id: TNT-ML-016
+    mode: taint
+    message: |
+      A value read back from a persistent agent-memory store reaches an LLM
+      prompt/context. If the read is not scoped to the current user/session
+      (mem0/Letta/LangGraph-style long-term memory stores are commonly
+      queried without a per-user filter), a directive written by one user
+      or session can be recalled into a different user's later session --
+      the persistence upgrade of indirect prompt injection. Presence
+      signal: confirm the read is actually scoped before treating this as
+      more than a review prompt.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [284]
+      category: ai_ml
+      fix: "Scope every agent-memory read to the current user/session (pass and enforce a user_id/session_id filter); never recall a global, unscoped memory set into a live conversation."
+    # Engine note: $MEMORY constrained the same way as TNT-ML-010's $LLM --
+    # verified false positive without it: re.search(...) matches bare
+    # $MEMORY.search(...) (re" is as valid a receiver name as any other),
+    # found in transformers' modular_model_converter.py in the same batch
+    # scan that surfaced the $LLM.generate()/Jinja-template collision.
+    #
+    # Regression found on re-verification: the first cut of this regex
+    # (mem0|memory|mem_|recall|archival only) lost two genuine mem0 findings
+    # in mem0's own example repo (examples/misc/study_buddy.py,
+    # personal_assistant_agno.py) -- both instantiate `client = MemoryClient()`
+    # and then call `client.search(...)`, which is mem0's own documented
+    # naming convention, not a rare exception. "client" is added to the hint
+    # list for this reason. This reopens the regex to other *_client.search()
+    # APIs (vector-store/search-tool clients) too, but that is an acceptable
+    # cost here: unsanitized retrieval flowing into an LLM prompt is the same
+    # injection shape this rule targets even when the store isn't literally
+    # named "memory", and the rule is WARNING/presence-signal severity, not
+    # a hard confirmed-vulnerability claim.
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern-either:
+                      - pattern: $MEMORY.search(...)
+                      - pattern: $MEMORY.get_all(...)
+                      - pattern: $MEMORY.recall(...)
+                  - metavariable-regex:
+                      metavariable: $MEMORY
+                      regex: (?i).*(mem0|memory|mem_|recall|archival|client).*
+              - pattern: Memory().search(...)
+              - pattern: Memory().get_all(...)
+              - pattern: $AGENT_MEMORY.query.all(...)
+              - pattern: $AGENT_MEMORY.query.order_by(...).all(...)
+    # Engine note: Runner.run($AGENT, ...) added as its own unconstrained
+    # alternative -- the openai-agents SDK's documented idiom is a *static*
+    # call on the Runner class with the actual agent object passed as an
+    # argument (`await Runner.run(study_agent, prompt)`), not a method call
+    # on the agent itself. $AGENT.run(...)'s hint-word regex can never match
+    # this shape since the receiver is always literally "Runner", not an
+    # agent/chain/executor/assistant-named variable -- confirmed missed in
+    # mem0's study_buddy.py until added. "Runner" is a specific enough
+    # literal identifier (vs. generic verbs like .run()) that no additional
+    # regex qualifier is needed; verified it does not collide with
+    # CliRunner/IndexingRunner/AgentRunRunner-style names elsewhere in the
+    # scanned corpus since pattern matching requires an exact identifier.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern-either:
+                      - pattern: $LLM.generate(...)
+                      - pattern: $LLM.invoke(...)
+                      - pattern: $LLM.chat(...)
+                  - metavariable-regex:
+                      metavariable: $LLM
+                      regex: (?i).*(llm|model|client|chat|agent|assistant|bot|gpt|openai|anthropic|deepseek).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $AGENT.run(...)
+                      - pattern: $AGENT.invoke(...)
+                  - metavariable-regex:
+                      metavariable: $AGENT
+                      regex: (?i).*(agent|chain|executor|assistant).*
+              - pattern: Runner.run(...)
+
+  # ── Raw reflection dispatch, non-getattr sinks (issue #135) ─────────
+  # A companion to TNT-ML-012 for the OTHER reflection-dispatch shapes
+  # named in #135 that are not a getattr() call at all: globals()[name],
+  # locals()[name], and importlib.import_module(name). Kept as a SEPARATE
+  # rule with its own severity (ERROR, not TNT-ML-012's WARNING) rather
+  # than folded into TNT-ML-012, deliberately: globals()/locals() dispatch
+  # off a model-chosen name reaches the entire module/function namespace
+  # (not just attributes on one handler object), which is a strictly wider
+  # blast radius than getattr(handler, name), and importlib.import_module
+  # lets the model choose which MODULE gets imported and executed at
+  # import time -- these read as a more severe variant of the same bug,
+  # not a duplicate of it.
+  #
+  # No double-fire with TNT-ML-012: the two rules share the same source
+  # patterns (deliberately, to catch OpenAI/litellm/Anthropic-shaped names
+  # reaching either sink family) but their pattern-sinks lists are fully
+  # disjoint -- TNT-ML-012 only sinks on getattr(...), this rule never
+  # matches getattr(...) at all. A given call expression can only be a
+  # getattr(...) call, a globals()/locals() subscript, or an
+  # importlib.import_module(...) call, never more than one of those at
+  # once, so the two rules cannot both fire on the same sink expression.
+  - id: TNT-ML-017
+    mode: taint
+    message: |
+      A tool/function name chosen by the model reaches globals()[name],
+      locals()[name], or importlib.import_module(name) with no visible
+      allow-list check. This is the same raw-reflection-dispatch bug as
+      TNT-ML-012 (getattr on a model-chosen name) but with a wider blast
+      radius: globals()/locals() dispatch exposes the entire module or
+      function namespace to the model's choice of name, not just one
+      handler object's attributes, and importlib.import_module lets the
+      model choose which module gets imported (and its top-level code
+      executed) at runtime.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [470]
+      category: ai_ml
+      fix: "Validate the model-chosen name against an explicit allow-list (e.g. a dict-literal registry, an Enum, or a match/case over literal names) before using it to key into globals()/locals() or as an import_module() target."
+    # Engine note: see TNT-ML-012's engine note for why the source side is
+    # constrained to the two-level OpenAI/litellm tool_call.function.name
+    # shape and the hint-word-qualified Anthropic content_block.name shape,
+    # rather than a bare $X.name (verified overbroad: matches any object's
+    # .name attribute, e.g. user.name, file.name, model.name).
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: $CALL["function"]["name"]
+              - pattern: $CALL.function.name
+              - patterns:
+                  - pattern: $BLOCK.name
+                  - metavariable-regex:
+                      metavariable: $BLOCK
+                      regex: (?i).*(content_block|tool_use|toolcall|tool_call|^cb$|^tc$|^block$).*
+    # Engine note: globals()/locals() are builtins, not arbitrary-named
+    # methods, so (unlike TNT-ML-010's $LLM.generate()/.run() receivers)
+    # there is no "any object with a same-named method" collision class to
+    # guard against here -- no receiver-side metavariable-regex is needed
+    # for these two sinks. importlib.import_module is likewise a single
+    # well-known dotted name, not a generic method call.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: globals()[$NAME]
+              - pattern: locals()[$NAME]
+              - pattern: importlib.import_module($NAME)
+    # Engine note: reassignment-style sanitizers only -- a boolean
+    # guard-clause check (`if name not in ALLOWED: raise`) does NOT
+    # suppress a finding in this engine version (see TNT-ML-010's engine
+    # note / TNT-AIML-001's non-functional guard-clause sanitizer). The
+    # dict-literal-allowlist case from #135's own example
+    # (`TOOLS = {...}; fn = TOOLS[call.function.name]`) needs no
+    # sanitizer at all: a plain dict subscript is not one of this rule's
+    # sink shapes, so it is naturally clean. Enum/Pydantic validation is
+    # only actually suppressed here when it reassigns the name, which is
+    # also the realistic shape for that validation style (constructing an
+    # Enum member raises on an invalid name, so the assignment itself is
+    # the validation).
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $NAME = $ENUM($NAME)
+              - pattern: $NAME = $ENUM($NAME).value
+              - pattern: $NAME = $ALLOWLIST[$NAME]
+              - pattern: $NAME = $ALLOWLIST.get($NAME)
+
+  # ── Agent-memory write path: untrusted content persisted, not just prompted
+  # (issue #136), the persistence upgrade of prompt injection. TNT-ML-016
+  # above already covers the READ side (memory recalled unscoped into a
+  # prompt); nothing in this codebase covered the WRITE side before this
+  # pair of rules -- confirmed by grep: zero existing matches anywhere in
+  # rules/*.yaml for archival_memory_insert, store.put/aput, or any
+  # memory-shaped .add(...)/.save(...) call. Both threat-model items in the
+  # issue (a user says "remember X" and it becomes standing instructions for
+  # every future session; an LLM completion gets written to memory verbatim
+  # and re-trusted as "the agent's own notes") are write-path bugs, not the
+  # read-path one TNT-ML-016 already models.
+  #
+  # Split into TWO rules (018/019), not one rule with a mixed source list,
+  # deliberately mirroring the issue's own table split (its proposed
+  # TNT-ML-0XX-a / -b rows) rather than this file's usual habit of folding
+  # every source shape for one sink into a single rule (e.g. TNT-ML-010):
+  # the two source vocabularies here are independently interesting findings
+  # -- "a live user request wrote this" vs. "a laundered LLM completion
+  # wrote this" -- and keeping them separate lets each message name the
+  # exact threat-model item it demonstrates instead of a generic "tainted
+  # value" description.
+  #
+  # Sink coverage: mem0 (Memory().add / $MEM.add, hint-word-constrained
+  # exactly like TNT-ML-016's own $MEMORY source list -- reusing that list
+  # verbatim since it already fought through the list.add()/set.add()
+  # collision class this sink shape would otherwise hit), LangGraph
+  # store.put/aput and LlamaIndex ChatMemoryBuffer.put (both share the
+  # generic ".put()"/".aput()" method name, so both are covered by one
+  # hint-word-constrained group requiring "store"/"memory"/"buffer"/
+  # "checkpoint" in the receiver name), and CrewAI-style memory.save().
+  #
+  # Letta's archival_memory_insert/core_memory_append/core_memory_replace
+  # are deliberately NOT modeled as a taint sink here. In Letta these are
+  # themselves registered agent-callable tools (see
+  # letta/functions/function_sets/base.py) -- the model's own tool-call
+  # decision is the source, not a traceable in-file expression, the same
+  # LLM-boundary crossing that AGENT-TOOL-001 in
+  # rowan/passes/cross_file.py exists to handle structurally for
+  # other sink families (os.system/subprocess/requests/eval/exec, plus its
+  # own path-traversal dataflow). Wiring a new sink family into that engine
+  # is a real option but a materially bigger and riskier change than this
+  # issue calls for (Python detection-engine surgery vs. a YAML rule
+  # addition) and AGENT-TOOL-001's sink list is hand-picked per family, not
+  # a generic "any sink" hook -- so Letta's shape is covered instead by
+  # ns-aiml-112 (rules/ai_security.yaml), a presence signal on the
+  # tool-function definition/call itself, matching this codebase's existing
+  # precedent of pairing a taint rule for the direct-library-call shape
+  # with a presence rule for the agent-tool-body shape (TNT-ML-012/017 +
+  # ns-aiml-110 do exactly this split for reflection dispatch).
+  - id: TNT-ML-018
+    mode: taint
+    message: |
+      A request/user-supplied value flows into a persistent agent-memory
+      write call with no visible validation in between. "Remember that
+      <instruction>" is not just this session's context anymore once it is
+      persisted: mem0/LangGraph/LlamaIndex/CrewAI-style long-term memory is
+      read back into every future session's prompt, so a single poisoned
+      interaction becomes standing instructions that survive restarts and
+      -- in a shared/global memory namespace -- can leak across users
+      (OWASP LLM01/LLM08:2025, MITRE ATLAS AML.T0070 memory poisoning).
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [284]
+      category: ai_ml
+      fix: "Never persist raw user input to long-term agent memory. Pass it through explicit validation/moderation (a moderation-endpoint call, a classifier gate, or a Pydantic schema for structured memory records) before the memory-write call, and scope the write to the current user/session (see ns-aiml-111)."
+    # Engine note: source list reused verbatim from TNT-ML-013's
+    # request-only source block in this same file (deliberately excludes
+    # bare kwargs.get(...) -- see that rule's engine note on why: it
+    # matched a model's own internal generation loop bound with nothing
+    # resembling an HTTP request boundary nearby).
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              # rowan-registry:begin source=http_request
+              - patterns:
+                  - pattern-either:
+                      - pattern: request.args.get(...)
+                      - pattern: request.args[...]
+                      - pattern: request.form.get(...)
+                      - pattern: request.form[...]
+                      - pattern: request.json.get(...)
+                      - pattern: request.json[...]
+                      - pattern: request.data
+                      - pattern: request.values.get(...)
+                      - pattern: request.files.get(...)
+                      - pattern: request.cookies.get(...)
+                      - pattern: request.headers.get(...)
+                      - pattern: request.GET.get(...)
+                      - pattern: request.GET[...]
+                      - pattern: request.POST.get(...)
+                      - pattern: request.POST[...]
+                      - pattern: request.body
+                      - pattern: request.query_params
+                      - pattern: await request.json(...)
+                      - pattern: await request.form(...)
+                      - pattern: await request.body(...)
+                      - pattern: await websocket.recv(...)
+                      - pattern: await websocket.receive_text(...)
+              # rowan-registry:end source=http_request
+              - pattern: data.get(...)
+    # Engine note: $MEM's hint-word regex is copy-pasted from TNT-ML-016's
+    # $MEMORY source constraint (mem0|memory|mem_|recall|archival|client) --
+    # same sink-shape family, same collision this codebase already fought
+    # through once (list.add()/set.add()/unrelated .add() on the mem0 side;
+    # re.search() on the memory-read side). $STORE covers both LangGraph's
+    # store.put/aput and LlamaIndex's ChatMemoryBuffer.put with one group
+    # since both use the same generic ".put()"/".aput()" method name.
+    # $CREW is kept as its own group (not merged into $MEM) because CrewAI's
+    # own docs/examples name the memory object `memory`, not anything
+    # mem0-shaped, and ".save()" is a much more collision-prone method name
+    # than ".add()" (file objects, Django models, argparse, etc. all have a
+    # .save()) -- restricting it to a memory/crew-hinted receiver keeps this
+    # from firing on every unrelated .save() call in a scanned repo.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: Memory().add(...)
+              - pattern: BaseStore.aput(...)
+              - patterns:
+                  - pattern: $MEM.add(...)
+                  - metavariable-regex:
+                      metavariable: $MEM
+                      regex: (?i).*(mem0|memory|mem_|recall|archival|client).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $STORE.put(...)
+                      - pattern: $STORE.aput(...)
+                  - metavariable-regex:
+                      metavariable: $STORE
+                      regex: (?i).*(store|memory|buffer|checkpoint).*
+              - patterns:
+                  - pattern: $CREW.save(...)
+                  - metavariable-regex:
+                      metavariable: $CREW
+                      regex: (?i).*(memory|mem_|recall|crew).*
+    # Engine note: sanitizer list reused from TNT-LLMOUT-001
+    # (llm_output_taint.yaml)'s structured-output-validator sanitizers, plus
+    # an explicit moderation-endpoint call -- the issue's own FP-
+    # considerations section names both as the expected sanitizer shape.
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $CLIENT.moderations.create(...)
+              - pattern: $MODEL.model_validate(...)
+              - pattern: $MODEL.model_validate_json(...)
+              - pattern: $MODEL.parse_obj(...)
+              - pattern: $MODEL.parse_raw(...)
+              - pattern: $VAR = json.loads(...)
+
+  - id: TNT-ML-019
+    mode: taint
+    message: |
+      An LLM completion flows into a persistent agent-memory write call
+      with no visible validation in between. Completion text is
+      attacker-influenced whenever any untrusted content reached the prompt
+      (user input, RAG documents, tool results, scraped pages); writing it
+      to long-term memory verbatim launders an indirect prompt injection
+      into "the agent's own notes" and re-trusts it on every future recall
+      (OWASP LLM01/LLM08:2025, MITRE ATLAS AML.T0070 memory poisoning) --
+      this is threat-model item 3 from issue #136: injected content
+      surviving not because a user typed it, but because the model itself
+      wrote it down.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [284]
+      category: ai_ml
+      fix: "Never persist an LLM completion to long-term agent memory verbatim. Pass it through explicit validation/moderation (a moderation-endpoint call, a classifier gate, or a Pydantic schema for structured memory records) before the memory-write call."
+    # Engine note: pattern-sources are the same `llm_output` registry
+    # fragment TNT-LLMOUT-001..006 (rules/llm_output_taint.yaml, issue #133)
+    # expand; edit rowan/rules_registry.py, not the block below.
+    pattern-sources:
+      # rowan-registry:begin source=llm_output
+      - patterns:
+          - pattern-either:
+              - pattern: $RESPONSE.choices[$N].message.content
+              - pattern: $RESPONSE.choices[$N].message.text
+              - pattern: $RESPONSE.choices[$N].text
+              - pattern: $MESSAGE.content[$N].text
+              - pattern: $CHUNK.choices[0].delta.content
+              - pattern: openai.ChatCompletion.create(...)
+              - pattern: $CLIENT.chat.completions.create(...)
+              - pattern: litellm.completion(...)
+              - pattern: litellm.acompletion(...)
+              - pattern: agents.Runner.run(...)
+              - pattern: agents.Runner.run_sync(...)
+              - pattern: agents.Runner.run_streamed(...)
+              - pattern: claude_agent_sdk.query(...)
+              - pattern: dspy.Predict(...)(...)
+              - pattern: dspy.ChainOfThought(...)(...)
+              - patterns:
+                  - pattern-either:
+                      - pattern: $LLM.invoke(...)
+                      - pattern: $LLM.predict(...)
+                      - pattern: $LLM.generate(...)
+                      - pattern: $LLM.chat(...)
+                  - metavariable-regex:
+                      metavariable: $LLM
+                      regex: (?i).*(llm|model|client|chat|agent|assistant|bot|gpt|openai|anthropic|deepseek|litellm).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $CHAIN.invoke(...)
+                      - pattern: $CHAIN.run(...)
+                      - pattern: $CHAIN.predict(...)
+                      - pattern: $CHAIN.run_sync(...)
+                      - pattern: $CHAIN.run_stream(...)
+                  - metavariable-regex:
+                      metavariable: $CHAIN
+                      regex: (?i).*(chain|agent|executor).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $RUNNER.run_async(...)
+                      - pattern: $RUNNER.run(...)
+                  - metavariable-regex:
+                      metavariable: $RUNNER
+                      regex: .*runner.*
+              - patterns:
+                  - pattern: $PIPELINE.run(...)
+                  - metavariable-regex:
+                      metavariable: $PIPELINE
+                      regex: (?i).*(pipeline|pipe).*
+              - pattern: $RESULT["llm"]["replies"]
+              - patterns:
+                  - pattern-either:
+                      - pattern: $KERNEL.get_response(...)
+                      - pattern: $KERNEL.invoke_prompt(...)
+                      - pattern: $KERNEL.invoke(...)
+                  - metavariable-regex:
+                      metavariable: $KERNEL
+                      regex: (?i).*(kernel|agent).*
+              - patterns:
+                  - pattern: $PREDICTOR(...)
+                  - metavariable-regex:
+                      metavariable: $PREDICTOR
+                      regex: (?i)^(?:self\.)?(?:\w*_)?(predict|predictor|cot|react)$
+              - patterns:
+                  - pattern: $MODEL.generate_content(...)
+                  - metavariable-regex:
+                      metavariable: $MODEL
+                      regex: (?i).*(model|gemini|genai|client).*
+              - patterns:
+                  - pattern: $PIPE(...)
+                  - metavariable-regex:
+                      metavariable: $PIPE
+                      regex: (?i).*(pipe|pipeline|generator|classifier).*
+      # rowan-registry:end source=llm_output
+    # Engine note: sink block identical to TNT-ML-018's -- see that rule's
+    # engine note for the hint-word rationale. Duplicated rather than
+    # shared for the same "no cross-rule sharing mechanism" reason as the
+    # source block above.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: Memory().add(...)
+              - pattern: BaseStore.aput(...)
+              - patterns:
+                  - pattern: $MEM.add(...)
+                  - metavariable-regex:
+                      metavariable: $MEM
+                      regex: (?i).*(mem0|memory|mem_|recall|archival|client).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $STORE.put(...)
+                      - pattern: $STORE.aput(...)
+                  - metavariable-regex:
+                      metavariable: $STORE
+                      regex: (?i).*(store|memory|buffer|checkpoint).*
+              - patterns:
+                  - pattern: $CREW.save(...)
+                  - metavariable-regex:
+                      metavariable: $CREW
+                      regex: (?i).*(memory|mem_|recall|crew).*
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $CLIENT.moderations.create(...)
+              - pattern: $MODEL.model_validate(...)
+              - pattern: $MODEL.model_validate_json(...)
+              - pattern: $MODEL.parse_obj(...)
+              - pattern: $MODEL.parse_raw(...)
+              - pattern: $VAR = json.loads(...)
+
+  # ── Logprob-enabled completion response reaches a client sink ───────
+  # (issue #140, companion to ns-aiml-123/rules/ai_security.yaml). The
+  # dataflow-correct version of that presence rule: ns-aiml-123 cannot
+  # enforce "AND the response reaches a serialization sink" (see its own
+  # engine note), but real source->sink taint tracking is exactly what
+  # this requires, so it belongs here instead of as a second regex rule.
+  - id: TNT-ML-023
+    mode: taint
+    message: |
+      A chat completion requested with logprobs=True or a nonzero
+      top_logprobs reaches a client-facing response-serialization call.
+      Per-token log-probabilities materially cheapen model-extraction and
+      membership-inference attacks: Carlini et al. 2024 ("Stealing Part of
+      a Production Language Model") used a public logprob API to recover
+      the hidden-dimension size and an embedding projection matrix of
+      production models at low cost. See OWASP LLM02:2025 (Sensitive
+      Information Disclosure). Unlike ns-aiml-123's presence signal, this
+      finding confirms the logprob-bearing response object itself reaches
+      a serialization/return sink, not just that logprobs were requested.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [200]
+      category: ai_ml
+      fix: "Do not return raw completion objects (or their .model_dump()/.dict()) to the client when logprobs/top_logprobs were requested. Strip the logprobs field before serializing the response, or request logprobs only on a trusted server-side scoring path that never reaches the HTTP response."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: $CLIENT.chat.completions.create(..., logprobs=True, ...)
+              - pattern: $CLIENT.chat.completions.create(..., top_logprobs=$N, ...)
+              - pattern: openai.ChatCompletion.create(..., logprobs=True, ...)
+              - pattern: openai.ChatCompletion.create(..., top_logprobs=$N, ...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: jsonify($RESP)
+              - pattern: $RESP.model_dump()
+              - pattern: $RESP.model_dump_json()
+              - pattern: $RESP.dict()
+              - pattern: JSONResponse($RESP)
+              - pattern: JSONResponse(content=$RESP)
+              - pattern: Response(json.dumps($RESP))
+              - pattern: return $RESP
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $VAR = $RESP.model_dump(exclude=$X)
+              - pattern: $VAR = $RESP.model_dump(exclude={"logprobs", ...})
+              - pattern: del $RESP.logprobs
+              - pattern: $RESP.logprobs = None
+
+  # ── MCP: config/env/network source into tool registration (issue #141) ──
+  # Companion taint rule to ns-aiml-125 (rules/ai_security.yaml)'s
+  # description-non-literal presence signal. ns-aiml-125 flags ANY
+  # non-literal description= regardless of where the value came from; this
+  # rule confirms the stronger, dataflow-traced case -- the description (or
+  # tool name) is traceably sourced from config/env/network data, which is
+  # exactly the rug-pull enabler (a value that can change post-install
+  # without the user re-reviewing it, per the Invariant Labs 2025
+  # disclosure this issue references).
+  - id: TNT-ML-024
+    mode: taint
+    message: |
+      A config-file, environment-variable, or network-fetched value flows
+      into an MCP tool's registered name or description (add_tool(...) /
+      @mcp.tool(description=...) / Tool(description=...)). The tool
+      description is injected into the client model's own context on every
+      session; a value sourced from config/env/network can change after
+      the user approved the tool without the user ever re-reviewing it --
+      the "rug pull" pattern (Invariant Labs 2025 tool-poisoning
+      disclosure). A network-fetched description is the highest-risk case:
+      whoever controls that endpoint controls what the model reads as a
+      trusted tool description on every future session.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [829]
+      category: mcp_agent
+      fix: "Pin tool name/description to a fixed string literal shipped with the code, reviewed at the same time as the code that grants the tool its capabilities. If the description must be templated, build it from a fixed template string with only cosmetic (non-semantic) substitutions, never from a value fetched over the network or read from a runtime-mutable config source."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: yaml.safe_load(...)
+              - pattern: json.load(...)
+              - pattern: configparser.ConfigParser().get(...)
+              - patterns:
+                  - pattern-either:
+                      - pattern: $CLIENT.get(...)
+                      - pattern: $CLIENT.post(...)
+                  - metavariable-regex:
+                      metavariable: $CLIENT
+                      regex: (?i).*(httpx|requests|session|client|http).*
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $SERVER.add_tool(..., description=$DESC, ...)
+              - pattern: $SERVER.add_tool(..., name=$DESC, ...)
+              - pattern: Tool(..., description=$DESC, ...)
+              - pattern: mcp.types.Tool(..., description=$DESC, ...)
+    # Only the reassignment-shaped sanitizer below is kept -- a bare
+    # $MODEL.model_validate(...) call that doesn't reassign $DESC itself
+    # does not clear taint in this engine (verified empirically for
+    # TNT-ML-025 below; same reasoning applies here, since the taint check
+    # is on whatever value literally flows into description=$DESC).
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $DESC = $TEMPLATE.format(...)
+              - pattern: $MODEL.model_validate_json(...)
+
+  # ── MCP: confused-deputy token passthrough (issue #141) ──────────────
+  # An MCP server forwards its OWN upstream API credential (a module-level
+  # constant or an env-var read at import/startup time -- fixed for the
+  # server's lifetime, not per-caller) on behalf of whichever MCP client
+  # happens to invoke the tool. Any caller who can reach the tool handler
+  # gets the server's own upstream privilege, regardless of who they are --
+  # the classic confused-deputy shape (MCP spec security-best-practices
+  # section explicitly calls out token passthrough as a named anti-pattern).
+  # Source is the tool-handler's OWN parameter (whatever the calling MCP
+  # client supplied), scoped via pattern-inside to a function whose
+  # decorator marks it as an MCP tool handler -- this codebase's cross_file.py
+  # already treats @mcp.tool-decorated functions as LLM-reachable boundary
+  # sources structurally (AGENT-TOOL-001) for a different sink family (raw
+  # os.system/subprocess/eval); this rule is the equivalent idea expressed
+  # as an Opengrep taint rule for the credential-passthrough-specific sink.
+  - id: TNT-ML-025
+    mode: taint
+    message: |
+      An MCP tool-handler's own parameter (caller-supplied, from whichever
+      MCP client invoked this tool) flows into an upstream authenticated
+      HTTP client call whose credential is a fixed module-level/env
+      constant, not scoped per-caller. This is the confused-deputy
+      pattern the MCP spec's security-best-practices section names
+      explicitly: the server's own upstream privilege (API key, bearer
+      token) is exercised on behalf of whichever caller reached this tool,
+      with no per-caller authorization check in between -- any MCP client
+      that can invoke this tool inherits the server's own upstream access.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [441]
+      category: mcp_agent
+      fix: "Authorize the caller/request BEFORE using the server's own upstream credential on their behalf -- verify the MCP client's identity/scope against what this specific tool call is allowed to do, rather than exercising the server's full upstream privilege for any caller who can reach the tool."
+    # Decorator receiver name matched literally across the three common
+    # FastMCP/mcp-SDK instance names (mcp/server/app) -- same naming
+    # variance ns-aiml-126/127 above already handle for mcp.run(...); a
+    # metavariable-regex-constrained receiver isn't usable here since the
+    # decorator's own dotted-name receiver isn't itself a taint-relevant
+    # metavariable, just an alternative literal to match.
+    pattern-sources:
+      - patterns:
+          - pattern-inside:
+              patterns:
+                - pattern-either:
+                    - pattern: |
+                        @mcp.tool(...)
+                        def $FUNC(..., $PARAM, ...):
+                            ...
+                    - pattern: |
+                        @mcp.tool(...)
+                        async def $FUNC(..., $PARAM, ...):
+                            ...
+                    - pattern: |
+                        @server.tool(...)
+                        def $FUNC(..., $PARAM, ...):
+                            ...
+                    - pattern: |
+                        @server.tool(...)
+                        async def $FUNC(..., $PARAM, ...):
+                            ...
+                    - pattern: |
+                        @app.tool(...)
+                        def $FUNC(..., $PARAM, ...):
+                            ...
+                    - pattern: |
+                        @app.tool(...)
+                        async def $FUNC(..., $PARAM, ...):
+                            ...
+          - pattern: $PARAM
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: '$CLIENT.get(..., headers={"Authorization": $AUTH, ...}, ...)'
+              - pattern: '$CLIENT.post(..., headers={"Authorization": $AUTH, ...}, ...)'
+              - pattern: '$CLIENT.request(..., headers={"Authorization": $AUTH, ...}, ...)'
+    # No pattern-sanitizers: verified empirically against the live opengrep
+    # binary that a bare `authorize($PARAM)`/`check_permission(...)`
+    # guard-clause-style call preceding the sink does NOT clear taint in
+    # this engine version (the call's return value is discarded, so $PARAM
+    # itself flows to the sink unchanged) -- the same class of gap
+    # TNT-ML-012's engine note already documents for this file. Unlike
+    # that gap, this one isn't the DEF-40 early-return shape either
+    # (guard_clause.py's AST post-filter only recognizes `if <test>:
+    # return/raise`, not "some function was called earlier in the body"),
+    # so there is no existing suppression mechanism to lean on. Shipping a
+    # sanitizer that looks protective but silently does nothing would be
+    # worse than shipping none, per this file's own header note -- omitted
+    # entirely rather than faked.
+
+  # ── MCP: untrusted tool input into a sampling request (LangFail V39) ──
+  # An MCP server can ask the CLIENT's own model to generate a completion
+  # via a sampling request (`ctx.session.create_message(...)` in the
+  # high-level FastMCP SDK, the same call on the low-level session, or the
+  # `ctx.sample(...)` convenience helper). When the messages in that request
+  # are built from the caller-supplied tool-handler parameter, whoever
+  # invokes the tool injects a prompt straight into the host model's context
+  # -- indirect prompt injection with the server as the confused deputy.
+  # Source is the tool-handler's own parameter, the identical pattern-inside
+  # shape TNT-ML-025 uses (caller-supplied text from whichever MCP client
+  # invoked the tool); sink is the sampling call. `create_message` is
+  # specific to MCP sampling (Anthropic's own client uses `.create`, not
+  # `.create_message`), so it is matched on a bare receiver; `.sample(` is
+  # ambiguous with pandas/random, so its receiver is constrained to a
+  # context/session-shaped name to keep it from firing on `df.sample(n)`.
+  # TNT-ML-033 belongs to the document-ingestion flow in ml_taint.yaml.
+  # Keep this MCP sampling flow distinct so thresholds, ignores, baselines,
+  # and report descriptors address one detector at a time.
+  - id: TNT-ML-036
+    mode: taint
+    message: |
+      A caller-supplied MCP tool-handler parameter flows into an MCP
+      sampling request (create_message / ctx.sample). Sampling asks the
+      client's own LLM to generate a completion, so a message built from
+      whichever MCP client invoked this tool injects an attacker-controlled
+      prompt directly into the host model's context -- indirect prompt
+      injection through the server as confused deputy.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [77]
+      category: mcp_agent
+      fix: "Do not build a sampling request's messages from raw tool-handler input. Constrain the caller's text to a fixed template with non-semantic substitution, validate/moderate it before sampling, or keep caller-supplied content out of the sampled prompt entirely."
+    pattern-sources:
+      - patterns:
+          - pattern-inside:
+              patterns:
+                - pattern-either:
+                    - pattern: |
+                        @mcp.tool(...)
+                        def $FUNC(..., $PARAM, ...):
+                            ...
+                    - pattern: |
+                        @mcp.tool(...)
+                        async def $FUNC(..., $PARAM, ...):
+                            ...
+                    - pattern: |
+                        @server.tool(...)
+                        def $FUNC(..., $PARAM, ...):
+                            ...
+                    - pattern: |
+                        @server.tool(...)
+                        async def $FUNC(..., $PARAM, ...):
+                            ...
+                    - pattern: |
+                        @app.tool(...)
+                        def $FUNC(..., $PARAM, ...):
+                            ...
+                    - pattern: |
+                        @app.tool(...)
+                        async def $FUNC(..., $PARAM, ...):
+                            ...
+          - pattern: $PARAM
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $CTX.session.create_message(...)
+              - pattern: $CTX.create_message(...)
+              - patterns:
+                  - pattern: $CTX.sample(...)
+                  - metavariable-regex:
+                      metavariable: $CTX
+                      regex: (?i).*(ctx|context|session|mcp|server).*
+    # The MCP context object (`ctx`/`context`/`self`/`request_context`) is
+    # itself a tool-handler parameter, so the $PARAM source would otherwise
+    # bind to it and the sink -- a method call ON that object -- would fire
+    # on the tainted receiver even when no caller DATA reaches the request.
+    # Sanitizing those framework-object names leaves only genuine
+    # caller-supplied data as a taint carrier (RE2 has no lookahead, so this
+    # cannot be a negative metavariable-regex on the source).
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: ctx
+              - pattern: context
+              - pattern: self
+              - pattern: request_context
+              - pattern: $DESC = $TEMPLATE.format(...)
+              - pattern: $MODEL.model_validate_json(...)
+
+  # ── Two-hop agent memory poisoning: untrusted WRITE then unscoped READ
+  # into a prompt (issue #294, MINJA / AgentPoison / PoisonedRAG class) ──
+  #
+  # This is the PAIRED write-of-untrusted + read-into-prompt flow that none
+  # of the existing memory rules model. The three neighbours each cover only
+  # ONE hop of it:
+  #   * TNT-ML-016 models the READ hop alone (memory recalled unscoped into a
+  #     prompt); its taint SOURCE is the read call itself, so it fires with no
+  #     write anywhere in the file -- a lone read stays owned by TNT-ML-016.
+  #   * TNT-ML-018 / TNT-ML-019 model the WRITE hop alone (a request value /
+  #     an LLM completion persisted to memory); their taint SINK is the write
+  #     call, so they say nothing about whether that value is ever read back.
+  #   * ns-aiml-111 / ns-aiml-112 (rules/ai_security.yaml) are presence
+  #     signals on missing namespace scoping, not a dataflow at all.
+  # The novel, higher-confidence finding here is BOTH hops in one function:
+  # untrusted content persisted, THEN retrieved back into an LLM/prompt/tool
+  # sink with no trust boundary. That read-back is indirect prompt injection
+  # that survives session resets and can cross users (OWASP Agentic ASI06,
+  # MITRE ATLAS AML.T0070). MINJA achieves it with query-only access;
+  # AgentPoison backdoors memory at a sub-0.1% poison rate.
+  #
+  # Engine mechanism -- LABELED taint (verified supported on the pinned
+  # opengrep 1.22.0 binary). A plain single-label taint rule with an
+  # untrusted-content source and a prompt sink would ALSO fire on the
+  # one-hop shape `text = llm(...); prompt = f"{text}"` where the same value
+  # is put straight into a prompt and never round-trips through the store
+  # (that is TNT-ML-005/002 territory, not this rule's two-hop class). Labels
+  # force the flow through the store:
+  #   1. The untrusted content (LLM completion OR request value) carries
+  #      label UNTRUSTED.
+  #   2. A memory/RAG WRITE propagator (`.add/.add_texts/.add_documents/
+  #      .upsert/.insert`, plus Letta's archival_memory_insert) `requires:
+  #      UNTRUSTED` on the written value and stamps label PERSISTED onto the
+  #      store OBJECT (`to: $STORE`). A static/system-string write never had
+  #      UNTRUSTED, so it never becomes PERSISTED -- static writes do not
+  #      fire, as required.
+  #   3. The READ needs no propagator of its own: opengrep already carries
+  #      taint (with its label) from a tainted receiver object to the return
+  #      value of a method called on it, so `hits = store.search(...)` /
+  #      `.similarity_search(...)` / `.query(...)` / `.get_relevant_documents(...)`
+  #      inherit PERSISTED from the store. This is what makes the rule
+  #      GENERALISTIC across memory/RAG clients: any read method on the
+  #      poisoned store carries the label, not just an enumerated few.
+  #   4. The prompt/tool SINK `requires: PERSISTED`, so it can only be
+  #      reached by a value that went write -> store -> read. Both hops are
+  #      structurally required; the direct one-hop shape does not fire
+  #      (verified).
+  #
+  # Sanitizer / clean-shape rationale. Suppression keys on the READ hop,
+  # which is where poisoned data is pulled into THIS caller's prompt: a
+  # per-tenant scoped recall (`user_id=`/`namespace=`/`agent_id=`, the
+  # ns-aiml-111 control) means the caller only ever recalls its own writes,
+  # and an explicit validation/moderation step (Pydantic model_validate,
+  # a moderations.create gate) between read and prompt clears the taint. A
+  # write-scoped-but-read-unscoped flow still fires, deliberately: an
+  # unscoped global recall is the dangerous shape regardless of how the write
+  # was scoped. Accepted precision gap (documented, not faked, matching this
+  # file's convention): the scope sanitizers cannot statically prove the two
+  # hops use the SAME per-caller id, so a same-function flow scoped to two
+  # different literal ids would be treated as clean -- the realistic clean
+  # shape scopes both hops to one request-derived id, which this suppresses
+  # correctly.
+  - id: TNT-ML-029
+    mode: taint
+    message: |
+      Untrusted content (an LLM completion or a request value) is written to
+      a persistent agent-memory / RAG / vector store and later read back into
+      an LLM prompt or tool-dispatch sink in the same flow, with no per-tenant
+      scoping or validation in between. This is two-hop memory poisoning
+      (MINJA / AgentPoison / PoisonedRAG, OWASP Agentic ASI06, MITRE ATLAS
+      AML.T0070): the persisted directive is indirect prompt injection that
+      survives session resets and -- in a shared/global namespace -- can be
+      recalled into a different user's later session. Distinct from
+      TNT-ML-016 (read hop only) and TNT-ML-018/019 (write hop only): this
+      finding is the paired write-then-read, a higher-confidence signal than
+      either single hop.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [284, 77]
+      category: ai_ml
+      fix: "Break one of the two hops. Scope every memory/RAG read to the current caller (pass and enforce a user_id/namespace/agent_id filter, per ns-aiml-111) so a caller can only recall its own writes, or run an explicit validation/moderation step (a Pydantic schema, a moderation-endpoint call) on retrieved content before it reaches a prompt. Never persist raw LLM output or raw request data to shared long-term memory and recall it unscoped into a live prompt."
+    pattern-sources:
+      # UNTRUSTED: LLM completion text (attacker-influenced whenever any
+      # untrusted content reached the prompt) OR a request value. Completion
+      # shapes reuse TNT-ML-019's source vocabulary; the request subset reuses
+      # TNT-ML-018's. Kept as one labeled block since both are "untrusted
+      # content that must not be persisted-then-recalled unscoped".
+      - label: UNTRUSTED
+        patterns:
+          - pattern-either:
+              - pattern: $RESPONSE.choices[$N].message.content
+              - pattern: $RESPONSE.choices[$N].message.text
+              - pattern: $RESPONSE.choices[$N].text
+              - pattern: $MESSAGE.content[$N].text
+              - pattern: $CHUNK.choices[0].delta.content
+              - pattern: openai.ChatCompletion.create(...)
+              - pattern: $CLIENT.chat.completions.create(...)
+              - pattern: litellm.completion(...)
+              - patterns:
+                  - pattern-either:
+                      - pattern: $LLM.invoke(...)
+                      - pattern: $LLM.predict(...)
+                      - pattern: $LLM.generate(...)
+                      - pattern: $LLM.chat(...)
+                  - metavariable-regex:
+                      metavariable: $LLM
+                      regex: (?i).*(llm|model|chat|assistant|bot|gpt|openai|anthropic|deepseek|litellm).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $CHAIN.invoke(...)
+                      - pattern: $CHAIN.run(...)
+                  - metavariable-regex:
+                      metavariable: $CHAIN
+                      regex: (?i).*(chain|agent|executor).*
+              - patterns:
+                  - pattern: $MODEL.generate_content(...)
+                  - metavariable-regex:
+                      metavariable: $MODEL
+                      regex: (?i).*(model|gemini|genai|client).*
+              # rowan-registry:begin source=http_request
+              - patterns:
+                  - pattern-either:
+                      - pattern: request.args.get(...)
+                      - pattern: request.args[...]
+                      - pattern: request.form.get(...)
+                      - pattern: request.form[...]
+                      - pattern: request.json.get(...)
+                      - pattern: request.json[...]
+                      - pattern: request.data
+                      - pattern: request.values.get(...)
+                      - pattern: request.files.get(...)
+                      - pattern: request.cookies.get(...)
+                      - pattern: request.headers.get(...)
+                      - pattern: request.GET.get(...)
+                      - pattern: request.GET[...]
+                      - pattern: request.POST.get(...)
+                      - pattern: request.POST[...]
+                      - pattern: request.body
+                      - pattern: request.query_params
+                      - pattern: await request.json(...)
+                      - pattern: await request.form(...)
+                      - pattern: await request.body(...)
+                      - pattern: await websocket.recv(...)
+                      - pattern: await websocket.receive_text(...)
+              # rowan-registry:end source=http_request
+    pattern-propagators:
+      # WRITE hop: an UNTRUSTED value persisted into a memory/RAG store
+      # upgrades the STORE object to PERSISTED. The receiver hint-word regex
+      # is the same family TNT-ML-016/018/019 use for their memory sinks,
+      # widened with store/index/vector/retriever/collection so the rule
+      # generalises across mem0, LangChain vectorstores, LlamaIndex, raw
+      # Pinecone/Chroma indexes and MemGPT-style clients rather than one PoC.
+      - patterns:
+          - pattern-either:
+              - pattern: $STORE.add($CONTENT, ...)
+              - pattern: $STORE.add_texts($CONTENT, ...)
+              - pattern: $STORE.add_documents($CONTENT, ...)
+              - pattern: $STORE.upsert($CONTENT, ...)
+              - pattern: $STORE.insert($CONTENT, ...)
+          - metavariable-regex:
+              metavariable: $STORE
+              regex: (?i).*(mem0|memory|mem_|store|index|vector|retriever|archival|collection|client|rag|kb|knowledge).*
+        from: $CONTENT
+        to: $STORE
+        requires: UNTRUSTED
+        label: PERSISTED
+      # Letta / MemGPT archival memory is a module-level tool function, not a
+      # method on a hint-named store object, so it needs its own propagator.
+      - patterns:
+          - pattern-either:
+              - pattern: archival_memory_insert($SELF, $CONTENT, ...)
+              - pattern: $SELF.archival_memory_insert($CONTENT, ...)
+        from: $CONTENT
+        to: $SELF
+        requires: UNTRUSTED
+        label: PERSISTED
+    pattern-sinks:
+      # PERSISTED-labeled value (i.e. one that round-tripped through the
+      # store) reaching a prompt-construction or LLM/agent/tool-dispatch sink.
+      # Sink vocabulary mirrors TNT-ML-016's LLM/agent-dispatch family plus an
+      # f-string prompt-construction shape for the build-the-prompt-directly
+      # case that has no recognizable library call.
+      - requires: PERSISTED
+        patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern-either:
+                      - pattern: $LLM.generate(...)
+                      - pattern: $LLM.invoke(...)
+                      - pattern: $LLM.chat(...)
+                      - pattern: $LLM.predict(...)
+                      - pattern: $LLM.complete(...)
+                  - metavariable-regex:
+                      metavariable: $LLM
+                      regex: (?i).*(llm|model|client|chat|agent|assistant|bot|gpt|openai|anthropic|deepseek|completion).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $AGENT.run(...)
+                      - pattern: $AGENT.invoke(...)
+                  - metavariable-regex:
+                      metavariable: $AGENT
+                      regex: (?i).*(agent|chain|executor|assistant).*
+              - pattern: Runner.run(...)
+              - pattern: f"...{$X}..."
+    pattern-sanitizers:
+      # Explicit validation/moderation between read and prompt (reused from
+      # TNT-ML-018/019), OR a per-tenant scoped recall (the ns-aiml-111
+      # control): a read filtered to the caller's own user_id/namespace/
+      # agent_id can only return that caller's own writes.
+      - patterns:
+          - pattern-either:
+              - pattern: $CLIENT.moderations.create(...)
+              - pattern: $MODEL.model_validate(...)
+              - pattern: $MODEL.model_validate_json(...)
+              - pattern: $MODEL.parse_obj(...)
+              - pattern: $MODEL.parse_raw(...)
+              - pattern: $STORE.search(..., user_id=$U, ...)
+              - pattern: $STORE.search(..., namespace=$U, ...)
+              - pattern: $STORE.search(..., agent_id=$U, ...)
+              - pattern: $STORE.get_all(..., user_id=$U, ...)
+              - pattern: $STORE.similarity_search(..., namespace=$U, ...)
+              - pattern: $STORE.similarity_search(..., filter=$U, ...)
+              - pattern: $STORE.query(..., namespace=$U, ...)
+              - pattern: $STORE.query(..., filter=$U, ...)
+  - id: TNT-AUTHZ-001
+    mode: taint
+    message: >
+      A value chosen by the model (an LLM completion, a parsed structured
+      output, or a tool-call argument) reaches the owner/tenant/principal
+      argument of a database read. The query looks correctly scoped, but the
+      identity it scopes to is attacker-influenceable: anything that can steer
+      the model -- a prompt injection in retrieved content, a poisoned tool
+      description, a crafted user message -- can redirect the read at another
+      user's rows. The principal must come from the session (request.user,
+      current_user), never from the model.
+      Suppressed when the claimed identity is compared against the server-side
+      principal, or passed to an authorization decision, in a guard that exits
+      before the query (see guard_clause.py's "principal" shape).
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [639, 863]
+      category: ai_ml
+      confidence: HIGH
+      fix: "Never let the model choose the principal. Scope the query with the session's own identity -- `Order.objects.filter(user_id=request.user.id)` -- and treat any model-supplied id as an untrusted claim: compare it against the session principal and reject on mismatch, or drop it entirely. If the agent legitimately needs to act for another user, that is a delegation decision requiring its own authorization check, not a filter argument."
+      references:
+        - https://github.com/hedgerow-dev/rowan/issues/185
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: $RESPONSE.choices[$N].message.content
+              - pattern: $RESPONSE.choices[$N].message.text
+              - pattern: $RESPONSE.choices[$N].text
+              - pattern: $MESSAGE.content[$N].text
+              - pattern: $TOOLCALL.function.arguments
+              - pattern: openai.ChatCompletion.create(...)
+              - pattern: $CLIENT.chat.completions.create(...)
+              - pattern: litellm.completion(...)
+              - patterns:
+                  - pattern-either:
+                      - pattern: $LLM.invoke(...)
+                      - pattern: $LLM.predict(...)
+                      - pattern: $LLM.generate(...)
+                      - pattern: $LLM.chat(...)
+                  - metavariable-regex:
+                      metavariable: $LLM
+                      regex: (?i).*(llm|model|client|chat|agent|assistant|bot|gpt|openai|anthropic|deepseek|litellm).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $CHAIN.invoke(...)
+                      - pattern: $CHAIN.run(...)
+                  - metavariable-regex:
+                      metavariable: $CHAIN
+                      regex: (?i).*(chain|agent|executor).*
+    # The sink is the owner-binding keyword argument specifically, not the
+    # query as a whole: `filter(status=model_value)` is an ordinary
+    # untrusted-input question, while `filter(user_id=model_value)` is the
+    # authorization one. `focus-metavariable: $VAL` keeps the reported range
+    # on the value rather than the whole call.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $M.filter($KEY=$VAL, ...)
+              - pattern: $M.filter_by($KEY=$VAL, ...)
+              - pattern: $M.get($KEY=$VAL, ...)
+              - pattern: $M.exclude($KEY=$VAL, ...)
+              - pattern: $M.get_or_create($KEY=$VAL, ...)
+              - pattern: get_object_or_404(..., $KEY=$VAL, ...)
+          - metavariable-regex:
+              metavariable: $KEY
+              regex: (?i)^(user|owner|author|account|tenant|org|organization|customer|member|principal|created_by)(_?id)?$
+          - focus-metavariable: $VAL
+    # No pattern-sanitizers. The thing that makes this safe -- comparing the
+    # claimed identity against the session principal -- is a comparison, and a
+    # comparison transforms nothing. Modelling it as a sanitizer would clear
+    # taint for code that neutralized nothing, which is precisely DEF-43. The
+    # suppression lives in guard_clause.py's "principal" guard shape instead,
+    # where the guarded branch is additionally required to exit.

@@ -1,0 +1,21 @@
+{
+  "description": "OS-05 real-repository precision gate. Each repository is scanned at its pinned revision with the command below; scripts/check_precision_gate.py then fails on a wrong revision, an incomplete or filtered report, or any HIGH/CRITICAL finding not listed in adjudicated_high. A finding is listed only after source-to-sink review confirms it; false claims are fixed in the scanner, never added here.",
+  "command": "rowan scan <checkout> --no-sca --no-project-config --audit -f json -o <report>",
+  "repos": {
+    "langchain": {
+      "git_url": "https://github.com/langchain-ai/langchain.git",
+      "revision": "8330dfe",
+      "adjudicated_high": []
+    },
+    "langflow": {
+      "git_url": "https://github.com/langflow-ai/langflow.git",
+      "revision": "26dc6fd",
+      "adjudicated_high": []
+    },
+    "pytorch": {
+      "git_url": "https://github.com/pytorch/pytorch.git",
+      "revision": "68adc97",
+      "adjudicated_high": []
+    }
+  }
+}

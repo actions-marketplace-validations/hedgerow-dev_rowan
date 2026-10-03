@@ -1,0 +1,40 @@
+# Java LLM/MCP search-mode rules (BACKLOG.md JG-06).
+#
+# Lives in a `*_opengrep.yaml` file for the same reason go_ai_opengrep.yaml
+# does: tests/test_taint_rules.py requires every rule in a *_taint.yaml file
+# to be `mode: taint`, and rowan/passes/taint.py loads `*_opengrep.yaml`
+# alongside the taint files. The taint companion is rules/java_llm_taint.yaml.
+rules:
+  # aideepin's UserMcpService shape: the stdio command comes from a DB row
+  # (an MCP server entity's getCommand()), not from a request in the same
+  # file, so it cannot be expressed as a taint flow. This flags any
+  # non-literal command/builder argument as a config-review signal;
+  # tnt-ja-ai-mcpcmd-001 (java_llm_taint.yaml) covers the request/env-sourced
+  # taint case.
+  - id: tnt-ja-ai-mcpcmd-002
+    languages: [java]
+    severity: WARNING
+    message: >-
+      An MCP stdio transport command or argument is not a string literal. If
+      it comes from configuration or a database row the operator does not
+      fully control (a stored server definition, an imported config), an
+      attacker who can influence that value controls what process the MCP
+      server executes.
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      confidence: MEDIUM
+      category: security
+      source_kind: config
+      fix: "Load the MCP server command from a fixed, operator-reviewed allowlist rather than a value read at runtime from a database row or external config file."
+    patterns:
+      - pattern-either:
+          # LangChain4j's builder is the nested StdioMcpTransport.Builder
+          # class, the aideepin UserMcpService shape; the bare-type form is
+          # kept for other SDKs that expose `command` directly.
+          - pattern: (StdioMcpTransport.Builder $T).command($X)
+          - pattern: (StdioMcpTransport $T).command($X)
+          - pattern: ServerParameters.builder($X)
+      - pattern-not: (StdioMcpTransport.Builder $T).command("...")
+      - pattern-not: (StdioMcpTransport $T).command("...")
+      - pattern-not: ServerParameters.builder("...")

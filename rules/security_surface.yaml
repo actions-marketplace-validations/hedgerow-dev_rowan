@@ -1,0 +1,938 @@
+# Security surface rules: neuroscan format (plain regex strings)
+# Ported from Rowan's rules.yaml patterns
+# These are regex-based, not taint-based: run during FileScanPass
+
+rules:
+
+  # =========================================================================
+  # SSRF
+  # =========================================================================
+  - id: NS-SSRF-102
+    message: >
+      Outbound HTTP request with potentially user-controlled URL.
+      SSRF possible if URL is not validated against an allowlist.
+      Surface signal only: confirmed flows are reported by the taint engine.
+    severity: low
+    languages: [python]
+    patterns:
+      - requests\.(get|post|put|delete|patch|head)\(
+      - urllib\.request\.urlopen\(
+      - urllib\.request\.urlretrieve\(
+      - urllib\.request\.Request\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [918]
+      category: ssrf
+
+  - id: NS-SSRF-103
+    message: >
+      Outbound HTTP request in Node.js with potentially user-controlled URL.
+      SSRF possible without URL allowlist. Surface signal only.
+    severity: low
+    languages: [javascript, typescript]
+    patterns:
+      - \bfetch\(
+      - axios\.(get|post|put|delete|patch)\(
+      - axios\(
+      - \bhttp\.get\(
+      - \bhttps\.request\(
+      - \bgot\(
+      - got\.(get|post|put)\(
+      - \bneedle\.get\(
+      - superagent\.get\(
+      - \brequest\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [918]
+      category: ssrf
+
+  - id: NS-SSRF-004
+    message: >
+      SSRF via wget/curl in subprocess calls.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - subprocess\.\w+\(\s*\[(?:["\']wget|["\']curl)
+      - os\.system\(\s*f?["\'].*\b(wget|curl)\b
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [918]
+      category: ssrf
+
+  - id: NS-SSRF-006
+    message: >
+      SSRF via PDF/image generation tools with URL input.
+    severity: ERROR
+    languages: [python, javascript]
+    patterns:
+      - pdfkit\.from_url\(
+      - imgkit\.from_url\(
+      - weasyprint\.HTML\(
+      - playwright.*\.goto\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [918]
+      category: ssrf
+
+  - id: NS-SSRF-007
+    message: >
+      URL parsing validated but fetcher bypasses the check.
+    severity: WARNING
+    languages: [python, javascript, typescript]
+    patterns:
+      - urlparse\(
+      - urllib\.parse\.urlparse\(
+      - new URL\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [918]
+      category: ssrf
+
+  # =========================================================================
+  # Path Traversal
+  # =========================================================================
+  - id: NS-PATH-002
+    message: >
+      File open with os.path.join and request input: path traversal.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - os\.path\.join\(.*request\.(args|form|json|GET|POST)\.get\(
+      - Path\(.*request\.(args|form|json)\.get\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [22]
+      category: path_traversal
+
+  - id: NS-PATH-003
+    message: >
+      send_file / FileResponse with potentially user-controlled path.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - \bsend_file\(
+      - \bsend_from_directory\(
+      - \bFileResponse\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+      # A fully-literal path is hardcoded, not user-controlled: FileResponse(
+      # "app.html") / send_file('static/logo.png'). Matches only a single quoted
+      # literal that closes before the call's ) -- a concatenation or f-string
+      # (send_file('static/' + name), send_file(f"{p}")) still fires, and
+      # send_from_directory is untouched (its user-controlled arg is the 2nd).
+      - '\bFileResponse\(\s*[''"][^''"]*[''"]\s*\)'
+      - '\bsend_file\(\s*[''"][^''"]*[''"]\s*\)'
+    metadata:
+      cwe: [22]
+      category: path_traversal
+
+  - id: NS-PATH-008
+    message: >
+      URL path built with str.format() and no encoding. A value substituted into
+      a path template can contain ../ and walk out of the intended prefix, and
+      URL libraries normalize the traversal away rather than rejecting it, so the
+      request is sent to a different endpoint on the same host. Any credential the
+      client is configured with (Authorization header, cookie, API key) is sent
+      with it. Percent-encode each substituted segment (urllib.parse.quote with
+      safe='') and reject segments containing '..' or '/'.
+    severity: WARNING
+    languages: [python]
+    patterns:
+      - '\.path\.format\('
+      - '\bpath\s*=\s*(?!["''\s])[^=\n]*\.format\('
+      - '\bendpoint\s*=\s*(?!["''\s])[^=\n]*\.format\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    sanitizers:
+      - 'quote\('
+      - 'quote_plus\('
+      - 'secure_filename\('
+      - 'urlencode\('
+      - 'uuid4\('
+      - 'token_hex\('
+      - 'token_urlsafe\('
+    metadata:
+      cwe: [22]
+      category: path_traversal
+
+  - id: NS-PATH-004
+    message: >
+      File system operations in Node.js with potentially user-controlled path.
+    severity: ERROR
+    languages: [javascript, typescript]
+    patterns:
+      - fs\.readFile\(
+      - fs\.readFileSync\(
+      - fs\.writeFile\(
+      - fs\.writeFileSync\(
+      - fs\.createReadStream\(
+      - res\.sendFile\(
+      - res\.download\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [22]
+      category: path_traversal
+
+  - id: NS-PATH-005
+    message: >
+      Unsafe tarfile extractall without path filter: zip slip.
+    severity: ERROR
+    languages: [python]
+    # DEF-16: bare `\.extract\(` was removed. It matches the method name
+    # "extract" on ANY receiver, not just tarfile/zipfile objects --
+    # confirmed on a real corpus scan, the majority of this rule's fires
+    # were OpenTelemetry's `propagator.extract(carrier)`, BeautifulSoup's
+    # `tag.extract()`, and unrelated tool/content-extraction APIs
+    # (`tavily_client.extract(...)`, `trafilatura.extract(...)`), none of
+    # which have anything to do with archive extraction. `\.extractall\(`
+    # is kept -- it's a much more specific, real tar/zip API surface.
+    # `tarfile.open(` is not an extraction operation. Keeping it caused a
+    # finding at the open line even when the later extractall call used the
+    # safe Python 3.12+ `filter="data"` policy (CrewAI corpus, 2026-09-09).
+    # Exclusions below were adopted from ns-aiml-063 (a near-duplicate of
+    # this rule, disabled -- see thresholds.yaml), which had already been
+    # refined with these guards for safe-extraction idioms.
+    patterns:
+      - \.extractall\(
+    pattern-not:
+      - 'filter\s*=\s*["''\w]'
+      - 'members\s*='
+      - 'tarfile\.open\([^)]*["'']r:'
+      - 'tarfile\.open\([^)]*mode\s*=\s*["'']r'
+      - 'ZipFile\([^)]*\).*\.extractall\('
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [22]
+      category: path_traversal
+
+  - id: NS-PATH-006
+    message: >
+      Unsafe zipfile extractall without path validation.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - zipfile\.extractall\(
+      - ZipFile\(.*\)\.extractall\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [22]
+      category: path_traversal
+
+  - id: NS-PATH-007
+    message: >
+      Unsafe archive extraction in Node.js (unzipper, adm-zip, decompress).
+    severity: ERROR
+    languages: [javascript, typescript]
+    patterns:
+      - unzipper\.Extract\(
+      - AdmZip\(
+      - extractAllTo\(
+      - \bdecompress\(
+      - extract-zip\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [22]
+      category: path_traversal
+
+  # =========================================================================
+  # Command Injection
+  # =========================================================================
+  - id: NS-CMDI-002
+    message: >
+      subprocess with shell=True.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - subprocess\.\w+\([^)]*shell\s*=\s*True
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [78]
+      category: command_injection
+
+  - id: NS-CMDI-003
+    message: >
+      f-string or concatenation in OS command: data-dependent command.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - os\.system\(\s*f["']
+      - os\.popen\(\s*f["']
+      - subprocess\.\w+\(\s*f["']
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [78]
+      category: command_injection
+
+  - id: NS-CMDI-004
+    message: >
+      Command injection in Node.js: user input in exec/spawn.
+    severity: ERROR
+    languages: [javascript, typescript]
+    patterns:
+      - child_process\.exec\(
+      - child_process\.execSync\(
+      - child_process\.spawn\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [78]
+      category: command_injection
+
+  # =========================================================================
+  # SSTI
+  # =========================================================================
+  - id: NS-SSTI-102
+    message: >
+      Jinja2/Flask template from string: SSTI.
+    severity: ERROR
+    languages: [python]
+    # \.from_string\( was removed from patterns (DEF-14): it is a
+    # byte-for-byte duplicate of a pattern NS-SSTI-001 already carries, with
+    # the same exclusions. Confirmed 100% of NS-SSTI-102's fires on a real
+    # repo scan (haystack, 55 findings) were exactly this shared pattern,
+    # every one co-firing with NS-SSTI-001 on the identical line. The
+    # ByteStream.from_string/Chain.from_string/PromptTemplate.*from_string
+    # exclusions below were removed too -- they existed only to guard that
+    # pattern and no longer match anything this rule still fires on.
+    patterns:
+      - render_template_string\(
+      - \bTemplate\(
+      - jinja2\.Template\(
+    pattern-not:
+      - SandboxedEnvironment
+      - ImmutableSandboxedEnvironment
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [1336]
+      category: ssti
+
+  - id: NS-SSTI-004
+    message: >
+      Mako/Tornado/Django template with user-controlled string.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - mako\.template\.Template\(
+      - tornado\.template\.Template\(
+      - django\.template\.Template\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [1336]
+      category: ssti
+
+  # =========================================================================
+  # SQL Injection
+  # =========================================================================
+  - id: NS-SQLI-002
+    message: >
+      f-string or concatenation in SQL cursor.execute.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - cursor\.execute\(\s*f["']
+      - \.execute\(\s*f["']
+      - \.raw\(\s*f["']
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [89]
+      category: injection
+
+  - id: NS-SQLI-003
+    message: >
+      Raw SQL query with template literal: SQL injection in Node.js.
+    severity: ERROR
+    languages: [javascript, typescript]
+    patterns:
+      - \.query\(\s*`
+      - \.raw\(\s*`
+      - sequelize\.query\(\s*`
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [89]
+      category: injection
+
+  - id: NS-SQLI-004
+    message: >
+      SQL injection in Java: Statement.executeQuery without PreparedStatement.
+    severity: ERROR
+    languages: [java]
+    # DEF-21: bare `\.execute\(` was removed. "execute" is one of the most
+    # common method names in Java -- confirmed on a real corpus scan
+    # (apache/dubbo), 100% of this rule's 167 fires were
+    # java.util.concurrent.Executor.execute(Runnable), the standard
+    # thread-pool task-submission idiom, zero relation to JDBC/SQL.
+    # executeQuery/executeUpdate (javax.sql.Statement's actual method
+    # names) and createStatement are specific enough to keep.
+    patterns:
+      - \.executeQuery\(
+      - \.executeUpdate\(
+      - createStatement\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [89]
+      category: injection
+
+  # =========================================================================
+  # NoSQL Injection
+  # =========================================================================
+  - id: NS-NOSQL-001
+    message: >
+      MongoDB query with user-controlled object: NoSQL injection.
+    severity: ERROR
+    languages: [javascript, typescript]
+    patterns:
+      - \.find\(req\.(body|query|params)
+      - \.findOne\(req\.(body|query|params)
+      - Model\.find\(req\.(body|query|params)
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [943]
+      category: nosql_injection
+
+  # =========================================================================
+  # Prototype Pollution
+  # =========================================================================
+  - id: NS-PROTO-001
+    message: >
+      Object merge/assign without key sanitization: prototype pollution.
+    severity: ERROR
+    languages: [javascript, typescript]
+    patterns:
+      - Object\.assign\(
+      - _\.merge\(
+      - _\.defaultsDeep\(
+      - lodash\.merge\(
+      - \bdeepmerge\(
+      - \bdeepMerge\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [1321]
+      category: prototype_pollution
+
+  # =========================================================================
+  # XSS
+  # =========================================================================
+  - id: NS-XSS-002
+    message: >
+      innerHTML / document.write: DOM-based XSS sink.
+    severity: ERROR
+    languages: [javascript, typescript]
+    patterns:
+      - \.innerHTML\s*=
+      - document\.write\(
+      - \.outerHTML\s*=
+    pattern-not:
+      # DEF-26: merged from JS-XSS-001 (a near-duplicate, now disabled --
+      # see thresholds.yaml). `el.innerHTML = ''` clears content and is
+      # not an XSS sink; confirmed on two real corpus scans (discourse,
+      # prestashop), 25 combined findings were exactly this.
+      - '\.innerHTML\s*=\s*[''"]\s*[''"]'
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [79]
+      category: xss
+
+  - id: NS-XSS-003
+    message: >
+      dangerouslySetInnerHTML with dynamic content.
+    severity: ERROR
+    languages: [javascript, typescript]
+    patterns:
+      - dangerouslySetInnerHTML
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [79]
+      category: xss
+
+  - id: NS-XSS-004
+    message: >
+      Flask Markup() with user input: bypasses auto-escaping.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - \bMarkup\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [79]
+      category: xss
+
+  # =========================================================================
+  # Deserialization
+  # =========================================================================
+  - id: NS-DESER-006
+    message: >
+      torch.load without weights_only: arbitrary code execution.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - torch\.load\(
+    pattern-not:
+      - 'weights_only\s*=\s*True'
+      - safetensors
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    sanitizers:
+      - 'weights_only\s*=\s*True'
+      - 'safetensors\.torch\.load_file'
+    metadata:
+      cwe: [502]
+      category: deserialization
+
+  - id: NS-DESER-007
+    message: >
+      yaml.load without SafeLoader: arbitrary code execution.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - yaml\.load\(
+      - yaml\.unsafe_load\(
+      - yaml\.full_load\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [502]
+      category: deserialization
+
+  - id: NS-DESER-008
+    message: >
+      Unsafe deserialization in Node.js: node-serialize, js-yaml.load.
+    severity: ERROR
+    languages: [javascript, typescript]
+    patterns:
+      - node-serialize\.unserialize\(
+      - serialize\.unserialize\(
+      - js-yaml\.load\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [502]
+      category: deserialization
+
+  - id: NS-DESER-009
+    message: >
+      unsafe XML parsing without defusedxml: XXE vulnerability.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - xml\.etree\.ElementTree\.parse\(
+      - ET\.parse\(
+      - ET\.fromstring\(
+      - lxml\.etree\.parse\(
+      - xml\.dom\.minidom\.parse\(
+      - xml\.sax\.parse\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [611]
+      category: deserialization
+
+  - id: NS-DESER-010
+    message: >
+      Keras/TensorFlow model loading with custom_objects.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - keras\.models\.model_from_json\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [502]
+      category: deserialization
+      # load_model( was removed from this rule's patterns (issue #137):
+      # ai_security.yaml's ns-aiml-114/ns-aiml-115 now own load_model
+      # (CVE-2024-3660/CVE-2025-1550-specific messaging, safe_mode-aware
+      # severity split) and were double-firing with this generic rule on
+      # every load_model( call, a duplicate finding per the #90 convention.
+
+  - id: NS-DESER-011
+    message: >
+      Celery pickle serializer enabled: RCE via task queue.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - CELERY_TASK_SERIALIZER\s*=\s*['"]pickle
+      - CELERY_RESULT_SERIALIZER\s*=\s*['"]pickle
+      - accept_content\s*=\s*\[.*['"]pickle
+      - task_serializer\s*=\s*['"]pickle
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [502]
+      category: deserialization
+
+  # ZMQ's recv_pyobj() is pickle.loads() with a socket read in front of it, so
+  # unlike TNT-DESER-004 (recv_multipart() -> pickle.loads()) there is no
+  # source-to-sink flow for the taint engine to follow: the untrusted bytes
+  # enter and are unpickled inside one call. That makes this a presence rule,
+  # the same shape as ns-aiml-037 (pd.read_pickle) and NS-DESER-006
+  # (torch.load): the call itself is the vulnerability whenever the peer is
+  # not trusted.
+  #
+  # Severity is not conditioned on the bind address. The bind
+  # (`sock.bind("tcp://*:5555")`) is almost always on a different line from
+  # the recv, and this engine matches line by line, so a bind-aware split
+  # cannot be expressed here. It would also buy little: a ZMQ socket has no
+  # authentication unless CURVE is configured, so even a loopback bind hands
+  # RCE to any local process or sibling container.
+  - id: NS-DESER-012
+    message: >
+      ZMQ recv_pyobj() unpickles every frame it receives, so any peer that can
+      reach the socket gets remote code execution. ZMQ has no authentication
+      unless CURVE is configured. This is the shape of CVE-2026-3059 and
+      CVE-2026-3060 in SGLang, where a broker bound to all interfaces
+      unpickled received frames.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - \.recv_pyobj\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [502]
+      category: deserialization
+      fix: "Send a safe format over the socket (recv_json, msgpack, protobuf) with a known schema; if pickle is unavoidable, enable CURVE auth and verify an HMAC over the frame before unpickling."
+
+  # multiprocessing.connection is the other library whose receive call
+  # unpickles implicitly (Connection.recv() is documented as unsafe against
+  # malicious data). `conn.recv()` on its own is far too generic to regex, so
+  # the anchor is the Listener that creates such connections, narrowed to a
+  # tuple address: `Listener(("0.0.0.0", 6000))` is an AF_INET socket anyone
+  # who can route to the host may connect to, whereas `Listener("/tmp/sock")`
+  # is a Unix socket or named pipe guarded by filesystem permissions.
+  # `authkey` is treated as a sanitizer, since an HMAC challenge does stop an
+  # unauthenticated peer from reaching the unpickle.
+  - id: NS-DESER-013
+    message: >
+      multiprocessing.connection.Listener on a network address accepts
+      connections whose recv() unpickles whatever the peer sent, giving any
+      peer that can connect remote code execution.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - multiprocessing\.connection\.Listener\(\s*\(
+      - connection\.Listener\(\s*\(
+      # `from multiprocessing.connection import Listener` is at least as
+      # common as either qualified spelling, and without this the rule misses
+      # it entirely. That is worse than not shipping the rule, because it
+      # reports clean on the idiom people actually write. The tuple-address
+      # requirement carries the precision: `Listener(("0.0.0.0", 6000))` is an
+      # AF_INET socket reachable by anyone who can route to the host, whereas
+      # unrelated `Listener` classes in other libraries take keyword arguments
+      # or a callback rather than an address pair.
+      - (?<![\w.])Listener\(\s*\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+      - authkey
+    sanitizers:
+      - authkey
+    metadata:
+      cwe: [502]
+      category: deserialization
+      fix: "Bind the Listener to a Unix socket or named pipe instead of a host/port tuple, and pass an authkey so unauthenticated peers cannot reach the unpickle."
+
+  # =========================================================================
+  # JWT / Auth
+  # =========================================================================
+  - id: NS-AUTH-101
+    message: >
+      JWT verification with algorithm=none or signature verification disabled.
+    severity: ERROR
+    languages: [python, javascript, typescript]
+    patterns:
+      - algorithms?\s*=\s*\[.*["']none["']
+      - verify_signature.*False
+      - jwt\.verify\(\s*\w+\s*,\s*["']
+      - jwt\.decode\([^)]*verify\s*=\s*False
+      # Absorbed from ns-bb-002 (rules/misc_rules.yaml), which was disabled
+      # via rowan/config/thresholds.yaml as a duplicate: both rules
+      # fired on the same `algorithms=[...none...]` idiom on the same line,
+      # and ns-bb-002 carried the wrong CWE (327, broken crypto algorithm)
+      # for what is actually CWE-347 (improper verification of a
+      # cryptographic signature). This was ns-bb-002's one genuinely-unique
+      # signal -- HS256/RS256 algorithm-confusion (an attacker resigns a
+      # token with the server's own RSA public key, used as an HMAC secret)
+      # -- so it moves here rather than being lost.
+      - algorithm.*HS256.*RS256
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [347]
+      category: auth
+
+  - id: NS-AUTH-003
+    message: >
+      Missing auth decorator on sensitive endpoint.
+    severity: WARNING
+    languages: [python, javascript]
+    patterns:
+      - '@app\.route\([''"](?:admin|api|user)'
+      - 'app\.(?:get|post|put|delete)\([''"](?:admin|api|user)'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [306]
+      category: auth
+
+  # =========================================================================
+  # Misc
+  # =========================================================================
+
+  - id: NS-CONFIG-101
+    message: >
+      Web application debug / development mode is enabled (CWE-215). A running
+      server with debug on exposes interactive stack traces, source snippets,
+      config, and (Werkzeug/Flask) an evaluable console: remote code and full
+      config disclosure. This fires on the debug flag being turned ON in code:
+      Flask app.run(debug=True) / app.debug=True / app.config["DEBUG"]=True,
+      Django DEBUG=True, FastAPI/Starlette/Tornado(debug=True), and DEBUG read
+      from an environment variable with a TRUTHY default (a fail-open default
+      that ships debug on unless the environment overrides it). Set debug off in
+      production and make any env-var default fail closed (default False / "0").
+    severity: ERROR
+    languages: [python]
+    patterns:
+      # Flask/Werkzeug/uvicorn/Sanic/Bottle: <app>.run(..., debug=True)
+      - '\.run\([^)]*\bdebug\s*=\s*True\b'
+      # Flask/Starlette app attribute: app.debug = True / application.debug = True
+      - '\b(?:app|application|flask_app)\.debug\s*=\s*True\b'
+      # Flask config: app.config["DEBUG"] = True  and  app.config.update(DEBUG=True)
+      - '\.config\[\s*["'']DEBUG["'']\s*\]\s*=\s*True\b'
+      - '\.config\.update\([^)]*\bDEBUG\s*=\s*True\b'
+      # Django settings / module-level flag: DEBUG = True
+      - '\bDEBUG\s*=\s*True\b'
+      # FastAPI / Starlette / Tornado application constructed with debug=True
+      - '(?:FastAPI|Starlette|Application)\([^)]*\bdebug\s*=\s*True\b'
+      # debug=True as a lone kwarg on its own line: the multi-line constructor
+      # form (e.g. Tornado Application([...],\n    debug=True,\n)); anchored so
+      # it only matches a line that IS the kwarg, not debug= anywhere on a line
+      - '^\s*debug\s*=\s*True\s*,?\s*$'
+      # Bottle's functional toggle: bottle.debug(True)
+      - '\bbottle\.debug\(\s*True\s*\)'
+      # Env-var DEBUG with a TRUTHY default (fail-open): os.getenv/os.environ.get
+      - 'os\.(?:getenv|environ\.get)\(\s*["''][^"'']*DEBUG[^"'']*["'']\s*,\s*["'']?(?:1|[Tt]rue|[Yy]es|on|ON)\b'
+      # django-environ: env.bool("DEBUG", default=True) / env.bool("DEBUG", True)
+      - 'env\.bool\(\s*["''][^"'']*DEBUG[^"'']*["''][^)]*\bTrue\b'
+      # python-decouple: config("DEBUG", default=True, cast=bool)
+      - 'config\(\s*["''][^"'']*DEBUG[^"'']*["''][^)]*\bdefault\s*=\s*True\b'
+      # Flask reloader/debugger enabled via env var: FLASK_DEBUG set truthy
+      - 'FLASK_DEBUG["'']\s*\]?\s*[=:,]\s*["'']?(?:1|[Tt]rue|on|ON)\b'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [215]
+      category: config
+
+  - id: NS-CONFIG-002
+    message: >
+      Django security misconfigurations.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - ALLOWED_HOSTS\s*=\s*\[.*\*
+      - CSRF_COOKIE_SECURE\s*=\s*False
+      - SESSION_COOKIE_SECURE\s*=\s*False
+      - SECURE_SSL_REDIRECT\s*=\s*False
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [16]
+      category: config
+
+  - id: NS-CRYPTO-101
+    message: >
+      Insecure TLS verification disabled.
+    severity: ERROR
+    languages: [python, javascript, typescript]
+    patterns:
+      - verify\s*=\s*False
+      - rejectUnauthorized\s*:\s*false
+      - NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*0
+      - ssl\._create_unverified_context\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [295]
+      category: crypto
+
+  - id: NS-CRYPTO-102
+    message: >
+      Weak cryptographic hash: MD5 or SHA-1 (JavaScript/TypeScript).
+    severity: WARNING
+    # DEF-18: hashlib.md5(...)/hashlib.sha1(...) (Python) were removed --
+    # they duplicated NS-CRYPTO-001 (MD5, severity medium) and NS-CRYPTO-002
+    # (SHA-1, severity low) exactly, but at a single uniform "WARNING"
+    # severity, losing the MD5-is-worse-than-SHA-1 distinction those two
+    # rules preserve. Confirmed on a corpus scan: 38/39 of this rule's
+    # fires were Python (pure duplicates), only 1 was the genuine
+    # JS/TS-only crypto.createHash(...) signal this rule now scopes to.
+    languages: [javascript, typescript]
+    patterns:
+      - crypto\.createHash\(["']md5["']
+      - crypto\.createHash\(["']sha1["']
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [327]
+      category: crypto
+
+  - id: NS-REDIRECT-001
+    message: >
+      Open redirect: user-controlled URL in redirect.
+    severity: WARNING
+    languages: [python, javascript, typescript]
+    patterns:
+      - redirect\(request\.(args|form|json|GET|POST)\.get\(
+      - res\.redirect\(req\.(query|body|params)
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [601]
+      category: injection
+
+  - id: NS-MASS-001
+    message: >
+      Mass assignment: request data passed directly to model create/update.
+    severity: ERROR
+    languages: [python, javascript, typescript]
+    patterns:
+      - \*\*request\.(POST|json|data)
+      - \.create\(req\.body\)
+      - Object\.assign\(\w+\s*,\s*req\.body\)
+      - \.update\(.*\*\*request\.(POST|json|data)
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [915]
+      category: injection
+
+  - id: NS-SANDBOX-001
+    message: >
+      Node.js VM sandbox escape potential: vm.createContext/runInContext.
+    severity: ERROR
+    languages: [javascript, typescript]
+    patterns:
+      - vm\.createContext\(
+      - vm\.runInContext\(
+      - vm\.runInNewContext\(
+      - vm\.Script\(
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [265]
+      category: injection
+
+  - id: NS-GIT-001
+    message: >
+      Unsafe git operations: user-controlled URL in git clone.
+    severity: ERROR
+    languages: [python, javascript, typescript]
+    patterns:
+      - subprocess\.run\(\[.git.\s*,\s*.clone.
+      - git\.Repo\.clone_from\(
+      - os\.system\(f["'].*git clone
+      - child_process\.exec\(\s*`git clone
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [78]
+      category: command_injection
+
+  - id: NS-CACHE-001
+    message: >
+      CORS misconfiguration: Access-Control-Allow-Origin wildcard.
+    severity: WARNING
+    languages: [python, javascript, typescript]
+    patterns:
+      - Access-Control-Allow-Origin.*\*
+      - cors\(.*origin.*\*
+      - CORS\(.*origins.*\*
+      - allow_origins\s*=\s*\[.*\*\]
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    metadata:
+      cwe: [942]
+      category: config

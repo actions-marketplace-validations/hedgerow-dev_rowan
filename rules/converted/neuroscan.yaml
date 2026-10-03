@@ -1,0 +1,666 @@
+rules:
+- id: NS-DESER-001
+  languages:
+  - python
+  severity: WARNING
+  message: 'pickle.load() allows arbitrary code execution via deserialization.
+
+    Use safetensors, JSON, or pickle with a restricted Unpickler.
+
+    Presence signal; confirm the pickle source is user-controlled.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: pickle\.loads?\s*\(
+    - pattern-regex: dill\.loads?\s*\(
+    - pattern-regex: \bcPickle\.loads?\s*\(
+    - pattern-regex: \b_pickle\.loads?\s*\(
+  - pattern-not-regex: safetensors\.torch\.load
+  - pattern-not-regex: \.pickle\.load
+  - pattern-not-regex: torch\.load
+  - pattern-not-regex: model\.load
+  - pattern-not-regex: from_pretrained
+  - pattern-not-regex: joblib\.load
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    rule_name: Unsafe pickle loads
+    residual:
+    - sanitizer
+- id: NS-DESER-002
+  languages:
+  - python
+  severity: WARNING
+  message: 'torch.load() without weights_only=True executes arbitrary pickle code.
+
+    Use weights_only=True or safetensors.
+
+    Presence signal; confirm the model source is user-controlled.'
+  patterns:
+  - pattern-regex: torch\.load\s*\(
+  - pattern-not-regex: weights_only\s*=\s*True
+  - pattern-not-regex: safetensors\.torch\.load_file
+  - pattern-not-regex: torch\.load\([^)]*map_location\s*=
+  - pattern-not-regex: torch\.load\([^)]*mmap\s*=\s*True
+  - pattern-not-regex: from_pretrained
+  - pattern-not-regex: model\.load
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    rule_name: torch.load without weights_only
+    residual:
+    - sanitizer
+- id: NS-DESER-003
+  languages:
+  - python
+  severity: ERROR
+  message: 'yaml.load() without SafeLoader can execute arbitrary code.
+
+    Use yaml.safe_load() instead.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: yaml\.load\s*\(
+    - pattern-regex: yaml\.(full_load|unsafe_load)\s*\(
+  - pattern-not-regex: yaml\.safe_load
+  - pattern-not-regex: yaml\.(CSafeLoader|SafeLoader|BaseLoader)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    rule_name: yaml.load without SafeLoader
+    residual:
+    - sanitizer
+- id: NS-DESER-004
+  languages:
+  - python
+  severity: ERROR
+  message: 'joblib.load() uses pickle internally and can execute arbitrary code.
+
+    Consider alternative serialization formats.'
+  patterns:
+  - pattern-regex: joblib\.load\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    rule_name: joblib.load unsafe
+    residual:
+    - sanitizer
+- id: NS-DESER-005
+  languages:
+  - python
+  severity: ERROR
+  message: marshal.loads() can execute arbitrary code. Avoid deserializing untrusted data.
+  patterns:
+  - pattern-regex: marshal\.loads?\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    rule_name: marshal.loads unsafe
+    residual:
+    - sanitizer
+- id: NS-INJECT-001
+  languages:
+  - python
+  severity: WARNING
+  message: 'eval() executes arbitrary Python code. Use ast.literal_eval() or avoid entirely.
+
+    Presence signal; confirm user input reaches eval().'
+  patterns:
+  - pattern-regex: \beval\s*\(
+  - pattern-not-regex: def eval\b
+  - pattern-not-regex: ast\.literal_eval
+  - pattern-not-regex: eval\(['"](?:True|False|None|0|1|\d+\.?\d*)['"]\)
+  - pattern-not-regex: np\.eval\(
+  - pattern-not-regex: pd\.eval\(
+  - pattern-not-regex: \.eval\(
+  - pattern-not-regex: eval_metrics
+  - pattern-not-regex: eval_loss
+  - pattern-not-regex: evaluation
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 95
+    original_engine: neuroscan
+    rule_name: eval() usage
+    residual:
+    - sanitizer
+- id: NS-INJECT-002
+  languages:
+  - python
+  severity: ERROR
+  message: exec() executes arbitrary Python code. Avoid using exec() on untrusted input.
+  patterns:
+  - pattern-regex: (?<![.\w])exec\s*\(
+  - pattern-not-regex: def exec\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 94
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: exec() usage
+    fix: Never call exec() on untrusted input; use a proper parser for the expected format, or ast.literal_eval() for literal
+      data.
+    residual:
+    - sanitizer
+- id: NS-INJECT-003
+  languages:
+  - python
+  severity: ERROR
+  message: subprocess with shell=True enables command injection. Use shell=False with a list of args.
+  patterns:
+  - pattern-regex: subprocess\.\w+\s*\([^)]*shell\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: command_injection
+    cwe:
+    - 78
+    original_engine: neuroscan
+    rule_name: subprocess with shell=True
+    residual:
+    - sanitizer
+- id: NS-INJECT-004
+  languages:
+  - python
+  severity: ERROR
+  message: os.system() passes commands to the shell. Use subprocess.run() with shell=False instead.
+  patterns:
+  - pattern-regex: os\.system\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: command_injection
+    cwe:
+    - 78
+    original_engine: neuroscan
+    rule_name: os.system usage
+    residual:
+    - sanitizer
+- id: NS-SSRF-001
+  languages:
+  - python
+  severity: INFO
+  message: 'Outbound HTTP request. SSRF only if the URL is user-controlled.
+
+    Confirmed flows are reported by the taint engine (TNT-SSRF-*).
+
+    Validate URLs against an allowlist and block private IP ranges.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: requests\.(get|post|put|delete|patch|head)\s*\(
+    - pattern-regex: httpx\.(get|post|put|delete|patch)\s*\(
+    - pattern-regex: urllib\.request\.urlopen\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ssrf
+    cwe:
+    - 918
+    original_engine: neuroscan
+    original_severity: low
+    rule_name: User-controlled HTTP request
+    residual:
+    - sanitizer
+- id: NS-SSRF-002
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: HTTP request detected. If URL comes from user input, SSRF is possible.
+  patterns:
+  - pattern-either:
+    - pattern-regex: fetch\s*\([^)]*request[^)]*\)
+    - pattern-regex: axios\.(get|post|put|delete)\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ssrf
+    cwe:
+    - 918
+    original_engine: neuroscan
+    rule_name: User-controlled HTTP in Node.js
+    residual:
+    - sanitizer
+- id: NS-SSRF-003
+  languages:
+  - python
+  severity: WARNING
+  message: Shelling out to wget/curl with user input. Use requests/httpx with URL validation.
+  patterns:
+  - pattern-either:
+    - pattern-regex: subprocess\.(run|Popen|call).*['"]wget
+    - pattern-regex: subprocess\.(run|Popen|call).*['"]curl
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ssrf
+    cwe:
+    - 918
+    original_engine: neuroscan
+    rule_name: Subprocess URL fetch
+    residual:
+    - sanitizer
+- id: NS-SSTI-001
+  languages:
+  - python
+  severity: ERROR
+  message: 'Rendering templates from user-controlled strings enables SSTI → RCE.
+
+    Use jinja2.sandbox.SandboxedEnvironment.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.from_string\s*\(
+    - pattern-regex: Template\s*\([^)]*\)\.render\s*\(
+  - pattern-not-regex: SandboxedEnvironment
+  - pattern-not-regex: ImmutableSandboxedEnvironment
+  - pattern-not-regex: Chain\.from_string
+  - pattern-not-regex: PromptTemplate.*from_string
+  - pattern-not-regex: ByteStream\.from_string
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ssti
+    cwe:
+    - 94
+    - 1336
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: Jinja2 template rendering from string
+    fix: Never render templates built from user-controlled strings; use jinja2.sandbox.SandboxedEnvironment if dynamic templates
+      are required.
+    residual:
+    - sanitizer
+- id: NS-SSTI-002
+  languages:
+  - python
+  severity: ERROR
+  message: 'Model chat_template rendered through an unsandboxed Jinja2 Template: SSTI → RCE
+
+    (CVE-2026-5760). Use jinja2.sandbox.ImmutableSandboxedEnvironment.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: jinja2?\.Template\s*\([^)]*chat_template
+    - pattern-regex: Template\s*\([^)]*chat_template
+    - pattern-regex: Environment\s*\([^)]*\)\s*\.from_string\s*\([^)]*template
+    - pattern-regex: compile_jinja_template\s*\(
+  - pattern-not-regex: SandboxedEnvironment
+  - pattern-not-regex: ImmutableSandboxedEnvironment
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ssti
+    cwe:
+    - 94
+    - 1336
+    original_engine: neuroscan
+    rule_name: Model chat template SSTI
+    residual:
+    - sanitizer
+- id: NS-XSS-001
+  languages:
+  - python
+  severity: ERROR
+  message: User input reflected without encoding. Use proper output encoding/escaping.
+  patterns:
+  - pattern-either:
+    - pattern-regex: return\s+request\.(args|form|json)\[
+    - pattern-regex: \.markup\s*\(
+    - pattern-regex: \|safe
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: xss
+    cwe:
+    - 79
+    original_engine: neuroscan
+    rule_name: Reflected XSS in web framework
+    residual:
+    - sanitizer
+- id: NS-XSS-005
+  languages:
+  - python
+  severity: ERROR
+  message: 'Jinja2 Environment(autoescape=False) renders template variables without
+
+    HTML escaping -- user-controlled content becomes a stored-XSS sink.
+
+    Enable autoescape=True or escape untrusted values explicitly.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: Environment\s*\([^)]*autoescape\s*=\s*False
+    - pattern-regex: \.jinja_env\.autoescape\s*=\s*False
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: xss
+    cwe:
+    - 79
+    original_engine: neuroscan
+    rule_name: Jinja2 autoescape disabled
+    residual:
+    - sanitizer
+- id: NS-AIML-001
+  languages:
+  - python
+  severity: ERROR
+  message: 'trust_remote_code=True in HuggingFace models allows arbitrary code execution.
+
+    Only use with models from trusted sources.'
+  patterns:
+  - pattern-regex: trust_remote_code\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 94
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: trust_remote_code=True
+    fix: Never set trust_remote_code=True on a user-influenced model path; pin to an explicit, vetted allowlist of model repos
+      instead.
+- id: NS-AIML-002
+  languages:
+  - python
+  severity: ERROR
+  message: 'Loading a model with trust_remote_code=True allows execution of untrusted code.
+
+    Verify model provenance before enabling.'
+  patterns:
+  - pattern-regex: from_pretrained\s*\([^)]*trust_remote_code\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 94
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: AutoModel with trust_remote_code
+    fix: Never set trust_remote_code=True on a user-influenced model path; pin to an explicit, vetted allowlist of model repos
+      instead.
+- id: NS-AIML-004
+  languages:
+  - python
+  severity: ERROR
+  message: 'LangChain deserialization functions can load serialized code.
+
+    CVE-2025-68664: langchain.loads() allows RCE.'
+  patterns:
+  - pattern-regex: langchain\.(loads?|deserialize)\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 502
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: LangChain loads deserialization
+    fix: Do not deserialize LangChain objects (`loads`) from untrusted sources; use a safe data format (JSON) with a known
+      schema.
+- id: NS-SUPPLY-002
+  languages:
+  - python
+  severity: WARNING
+  message: 'Dynamic pip install with interpolated input. Could install malicious packages.
+
+    Pin dependencies and use lockfiles.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: pip\s+install.*\$(?!\$)
+    - pattern-regex: pip\s+install.*\{
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 829
+    original_engine: neuroscan
+    rule_name: Dynamic pip install in subprocess
+- id: NS-AUTH-001
+  languages:
+  - python
+  severity: WARNING
+  message: CSRF protection disabled. Verify this endpoint does not need CSRF protection.
+  patterns:
+  - pattern-either:
+    - pattern-regex: csrf_exempt
+    - pattern-regex: '@csrf\s*\.\s*exempt'
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 352
+    original_engine: neuroscan
+    rule_name: CSRF protection disabled
+- id: NS-AUTH-002
+  languages:
+  - python
+  severity: INFO
+  message: 'A CSRF-protection middleware is present but commented out (Django
+
+    CsrfViewMiddleware or an app csrf_middleware). Re-enable it so
+
+    state-changing requests are validated.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: ^\s*#.*CsrfViewMiddleware
+    - pattern-regex: ^\s*#\s*csrf_middleware
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 352
+    original_engine: neuroscan
+    rule_name: CSRF middleware commented out
+- id: NS-CRYPTO-001
+  languages:
+  - python
+  severity: WARNING
+  message: MD5 is cryptographically broken. Use SHA-256 or better.
+  patterns:
+  - pattern-either:
+    - pattern-regex: hashlib\.md5\s*\(
+    - pattern-regex: md5\s*\(
+  - pattern-not-regex: import md5
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: crypto
+    cwe:
+    - 327
+    - 328
+    original_engine: neuroscan
+    rule_name: MD5 usage
+- id: NS-CRYPTO-002
+  languages:
+  - python
+  severity: INFO
+  message: SHA-1 is weak. Use SHA-256 or better.
+  patterns:
+  - pattern-regex: hashlib\.sha1\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: crypto
+    cwe:
+    - 328
+    original_engine: neuroscan
+    original_severity: low
+    rule_name: SHA1 usage
+- id: NS-CONFIG-001
+  languages:
+  - python
+  severity: ERROR
+  message: 'Flask debug mode enabled in production. Debug mode can expose source code
+
+    and allow arbitrary code execution via the Werkzeug debugger.'
+  patterns:
+  - pattern-regex: app\.run\s*\([^)]*debug\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 489
+    original_engine: neuroscan
+    rule_name: Flask debug mode
+- id: NS-PATH-001
+  languages:
+  - python
+  severity: ERROR
+  message: File path from user input without validation. Path traversal possible.
+  patterns:
+  - pattern-regex: open\s*\([^)]*request\.(args|form|json)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: path_traversal
+    cwe:
+    - 22
+    original_engine: neuroscan
+    rule_name: User-controlled file path
+    residual:
+    - sanitizer
+- id: NS-PROMPT-001
+  languages:
+  - python
+  severity: ERROR
+  message: User input concatenated into system prompt. Prompt injection possible.
+  patterns:
+  - pattern-either:
+    - pattern-regex: system_prompt.*\{.*request\.
+    - pattern-regex: system_message.*\+.*input
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: prompt_injection
+    cwe:
+    - 94
+    original_engine: neuroscan
+    rule_name: User input in system prompt
+    residual:
+    - sanitizer
+- id: NS-PROMPT-002
+  languages:
+  - python
+  severity: WARNING
+  message: LLM call with potentially unsanitized user input. Ensure input validation/sanitization.
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.(infer|generate|complete|chat)\s*\([^)]*user_input
+    - pattern-regex: \.(infer|generate|complete|chat)\s*\([^)]*request\.
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: prompt_injection
+    cwe:
+    - 94
+    original_engine: neuroscan
+    rule_name: LLM completion with unsanitized input
+    residual:
+    - sanitizer
+- id: NS-PROMPT-003
+  languages:
+  - python
+  severity: ERROR
+  message: 'A LangChain prompt template is built directly from a request value.
+
+    Validate/sanitize user input before interpolating it into prompts.
+
+    Cross-statement flows are covered by the taint rule TNT-ML-009.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: PromptTemplate\s*\([^)]*input_variables.*request
+    - pattern-regex: ChatPromptTemplate\s*\([^)]*\brequest\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: prompt_injection
+    cwe:
+    - 94
+    original_engine: neuroscan
+    rule_name: LangChain prompt template injection
+    residual:
+    - sanitizer
+- id: NS-SQLI-001
+  languages:
+  - python
+  severity: ERROR
+  message: 'Raw SQL query with string interpolation (f-string, %-format, or
+
+    concatenation). Use parameterized queries instead.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.execute\s*\(\s*['"].*\{
+    - pattern-regex: \.execute\s*\(\s*f['"]
+    - pattern-regex: \.execute\s*\(\s*['"].*['"]\s*%
+    - pattern-regex: \.execute\s*\(\s*['"].*['"]\s*\+
+    - pattern-regex: \.raw\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 89
+    original_engine: neuroscan
+    rule_name: Raw SQL query
+    residual:
+    - sanitizer
+- id: NS-SQLI-005
+  languages:
+  - python
+  severity: ERROR
+  message: 'SQL statement assembled with an interpolated f-string. The interpolated
+
+    value flows into the query verbatim -- use parameterized queries
+
+    (bound parameters), never string interpolation, to build SQL.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)f"[^"]{0,200}?(?:select |insert\s+into|update\s|delete\s+from|order\s+by|where |group\s+by|having
+        )[^"]{0,200}?\{
+    - pattern-regex: (?i)f'[^']{0,200}?(?:select |insert\s+into|update\s|delete\s+from|order\s+by|where |group\s+by|having
+        )[^']{0,200}?\{
+  - pattern-not-regex: \.execute\s*\(\s*f
+  - pattern-not-regex: \.raw\s*\(\s*f
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?i)select\s+(?:a|an|the)\s
+  - pattern-not-regex: (?i)select\s+one\s+of\s
+  - pattern-not-regex: (?i)update\s+(?:your|the|an?)\s
+  - pattern-not-regex: '#\s*noqa:\s*S608'
+  metadata:
+    category: injection
+    cwe:
+    - 89
+    original_engine: neuroscan
+    rule_name: SQL string built with interpolated f-string
+    residual:
+    - sanitizer

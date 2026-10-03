@@ -1,0 +1,200 @@
+{
+  "description": "Authz recogniser corpus (BACKLOG CN-06). Each case is scanned as its own root with --authz --multiagent. Positives name the file, line and rule that must be reported; negatives must produce no finding for the listed rules at all. Seeded from AZ-03 through AZ-12; every case that was wrong on 2026-09-19 is labelled with its item.",
+  "scoring": {
+    "runner": "scripts/benchmark.py --corpus authz",
+    "hit": "every (file, line, rule) in `expect` is reported",
+    "clean": "none of `rules` is reported anywhere in the case",
+    "gates": "recall on expected=detect must be 1.0 and false positives on expected=clean must be 0"
+  },
+  "cases": [
+    {
+      "dir": "session_principal_unguarded",
+      "expected": "detect",
+      "item": "AZ-03",
+      "expect": [
+        [
+          "app.py",
+          9,
+          "AUTHZ-BOLA-001"
+        ]
+      ],
+      "description": "Flask app whose only principal is session['user_id']; the pass must switch on and report the unguarded read."
+    },
+    {
+      "dir": "neg_session_principal_guard",
+      "expected": "clean",
+      "item": "AZ-03",
+      "rules": [
+        "AUTHZ-BOLA-001"
+      ],
+      "description": "The same read guarded against session['user_id']."
+    },
+    {
+      "dir": "neg_get_id_guard",
+      "expected": "clean",
+      "item": "AZ-03",
+      "rules": [
+        "AUTHZ-BOLA-001"
+      ],
+      "description": "Flask-Login's documented current_user.get_id() compared to str(doc.owner_id)."
+    },
+    {
+      "dir": "drf_viewset_retrieve",
+      "expected": "detect",
+      "item": "AZ-04",
+      "expect": [
+        [
+          "views.py",
+          11,
+          "AUTHZ-BOLA-001"
+        ]
+      ],
+      "description": "DRF ViewSet retrieve() reading by pk with no object check; list() is scoped and must not be reported."
+    },
+    {
+      "dir": "django_cbv_kwargs",
+      "expected": "detect",
+      "item": "AZ-04",
+      "expect": [
+        [
+          "views.py",
+          8,
+          "AUTHZ-BOLA-001"
+        ]
+      ],
+      "description": "Django CBV reading Document.objects.get(pk=kwargs['pk']); the scoped twin must not be reported."
+    },
+    {
+      "dir": "neg_drf_check_object_permissions",
+      "expected": "clean",
+      "item": "AZ-05",
+      "rules": [
+        "AUTHZ-BOLA-001"
+      ],
+      "description": "APIView calling self.check_object_permissions(request, doc), and one comparing doc.owner to request.user."
+    },
+    {
+      "dir": "neg_login_by_email",
+      "expected": "clean",
+      "item": "AZ-06",
+      "rules": [
+        "AUTHZ-BOLA-001"
+      ],
+      "description": "A login handler reading User by request.form['email'] has no object to own."
+    },
+    {
+      "dir": "neg_tenant_scope_owner_kwarg",
+      "expected": "clean",
+      "item": "AZ-07",
+      "rules": [
+        "AUTHZ-TENANT-SCOPE-001"
+      ],
+      "description": "filter_by(owner=current_user).all() is scoped; Tag.query.all() is a lookup table."
+    },
+    {
+      "dir": "tenant_scope_unscoped",
+      "expected": "detect",
+      "item": "AZ-07",
+      "expect": [
+        [
+          "app.py",
+          27,
+          "AUTHZ-TENANT-SCOPE-001"
+        ]
+      ],
+      "description": "Document is written with owner_id=current_user.id elsewhere and read with Document.query.all() in an authenticated handler."
+    },
+    {
+      "dir": "neg_request_first_param_helper",
+      "expected": "clean",
+      "item": "AZ-11",
+      "rules": [
+        "AUTHZ-BOLA-001"
+      ],
+      "description": "A helper whose first parameter is named request is not a route handler."
+    },
+    {
+      "dir": "neg_admin_override_guard",
+      "expected": "clean",
+      "item": "AZ-12",
+      "rules": [
+        "AUTHZ-PRINCIPAL-OVERRIDE-001",
+        "AUTHZ-BOLA-001"
+      ],
+      "description": "The admin-override shape the rule's own remediation recommends."
+    },
+    {
+      "dir": "principal_override_unguarded",
+      "expected": "detect",
+      "item": "AZ-12",
+      "expect": [
+        [
+          "app.py",
+          20,
+          "AUTHZ-PRINCIPAL-OVERRIDE-001"
+        ]
+      ],
+      "description": "Caller-supplied owner with no guard at all."
+    },
+    {
+      "dir": "neg_superuser_helper",
+      "expected": "clean",
+      "item": "SV-05",
+      "rules": [
+        "AUTHZ-BOLA-001"
+      ],
+      "description": "A fail-closed same-module superuser helper dominates two user-keyed reads."
+    },
+    {
+      "dir": "handoff_chain",
+      "expected": "detect",
+      "item": "AZ-08",
+      "expect": [
+        [
+          "crew.py",
+          10,
+          "AGENT-HANDOFF-001"
+        ]
+      ],
+      "description": "CrewAI t1(scrape) -> t2(writer) -> t3(code exec): two hops."
+    },
+    {
+      "dir": "neg_mongoose_equals_guard",
+      "expected": "clean",
+      "item": "AZ-09",
+      "language": "javascript",
+      "rules": [
+        "AUTHZ-BOLA-001"
+      ],
+      "description": "doc.owner.equals(req.user._id) and doc.owner.toString() !== req.user.id are owner guards."
+    },
+    {
+      "dir": "js_named_handler",
+      "expected": "detect",
+      "item": "AZ-10",
+      "language": "javascript",
+      "expect": [
+        [
+          "routes.js",
+          6,
+          "AUTHZ-BOLA-001"
+        ]
+      ],
+      "description": "app.get('/f/:id', auth, getDoc) with getDoc declared as a named function; the inline guarded handler must not be reported."
+    },
+    {
+      "dir": "js_route_chain",
+      "expected": "detect",
+      "item": "AZ-10",
+      "language": "javascript",
+      "expect": [
+        [
+          "routes.js",
+          6,
+          "AUTHZ-BOLA-001"
+        ]
+      ],
+      "description": "app.route('/g/:id').get(auth, handler) with an unguarded inline handler."
+    }
+  ]
+}

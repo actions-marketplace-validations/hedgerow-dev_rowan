@@ -1,0 +1,157 @@
+{
+  "description": "Paired TypeScript agent-boundary corpus. MCP tool handlers, Vercel AI SDK and LangChain.js tools, and LLM output are untrusted inputs; each vulnerable file is paired with a realistic fixed control. A passing run requires the expected rule on every vulnerable file and no same-rule finding on its fixed pair.",
+  "cases": [
+    {
+      "id": "mcp_read_file",
+      "cwe": 22,
+      "expected_rule_id": "TNT-TS-AGENT-PATH-001",
+      "vulnerable": "typescript/mcp_read_file_vulnerable.ts",
+      "fixed": "typescript/mcp_read_file_fixed.ts",
+      "class": "MCP high-level tool argument to fs.readFile"
+    },
+    {
+      "id": "mcp_git_log",
+      "cwe": 78,
+      "expected_rule_id": "TNT-TS-AGENT-CMDI-001",
+      "vulnerable": "typescript/mcp_git_log_vulnerable.ts",
+      "fixed": "typescript/mcp_git_log_fixed.ts",
+      "class": "MCP registerTool argument interpolated into execSync"
+    },
+    {
+      "id": "mcp_promisify_exec",
+      "cwe": 78,
+      "expected_rule_id": "TNT-TS-AGENT-CMDI-001",
+      "vulnerable": "typescript/mcp_promisify_exec_vulnerable.ts",
+      "fixed": "typescript/mcp_promisify_exec_fixed.ts",
+      "class": "tool argument to a promisify(exec) alias; promisify(execFile) with an argument array is the fix"
+    },
+    {
+      "id": "mcp_lowlevel_fetch",
+      "cwe": 918,
+      "expected_rule_id": "TNT-TS-AGENT-SSRF-001",
+      "vulnerable": "typescript/mcp_lowlevel_fetch_vulnerable.ts",
+      "fixed": "typescript/mcp_lowlevel_fetch_fixed.ts",
+      "class": "MCP CallToolRequest arguments to fetch"
+    },
+    {
+      "id": "mcp_dispatch",
+      "cwe": 78,
+      "expected_rule_id": "TNT-TS-AGENT-CMDI-001",
+      "vulnerable": "typescript/mcp_dispatch_vulnerable.ts",
+      "fixed": "typescript/mcp_dispatch_fixed.ts",
+      "class": "typed low-level MCP handler dispatching tool arguments to a helper"
+    },
+    {
+      "id": "mcp_class_methods",
+      "cwe": 22,
+      "expected_rule_id": "TNT-TS-AGENT-PATH-001",
+      "vulnerable": "typescript/mcp_class_methods_vulnerable.ts",
+      "fixed": "typescript/mcp_class_methods_fixed.ts",
+      "class": "class-based MCP server passing tool arguments through two this.method() hops"
+    },
+    {
+      "id": "ai_sdk_sql",
+      "cwe": 89,
+      "expected_rule_id": "TNT-TS-AGENT-SQLI-001",
+      "vulnerable": "typescript/ai_sdk_sql_vulnerable.ts",
+      "fixed": "typescript/ai_sdk_sql_fixed.ts",
+      "class": "AI SDK tool input interpolated into SQL"
+    },
+    {
+      "id": "ai_sdk_shell",
+      "cwe": 78,
+      "expected_rule_id": "TNT-TS-AGENT-CMDI-001",
+      "vulnerable": "typescript/ai_sdk_shell_vulnerable.ts",
+      "fixed": "typescript/ai_sdk_shell_fixed.ts",
+      "class": "AI SDK tool input to execSync"
+    },
+    {
+      "id": "ai_sdk_legacy_fetch",
+      "cwe": 918,
+      "expected_rule_id": "TNT-TS-AGENT-SSRF-001",
+      "vulnerable": "typescript/ai_sdk_legacy_fetch_vulnerable.ts",
+      "fixed": "typescript/ai_sdk_legacy_fetch_fixed.ts",
+      "class": "AI SDK (parameters API) tool input to fetch"
+    },
+    {
+      "id": "ai_sdk_base_override",
+      "cwe": 918,
+      "expected_rule_id": "TNT-TS-AGENT-SSRF-001",
+      "vulnerable": "typescript/ai_sdk_base_override_vulnerable.ts",
+      "fixed": "typescript/ai_sdk_base_override_fixed.ts",
+      "class": "tool path resolved against a base URL can replace its host; path-only control is the fix"
+    },
+    {
+      "id": "langchain_js_path",
+      "cwe": 22,
+      "expected_rule_id": "TNT-TS-AGENT-PATH-001",
+      "vulnerable": "typescript/langchain_js_path_vulnerable.ts",
+      "fixed": "typescript/langchain_js_path_fixed.ts",
+      "class": "LangChain.js tool input joined into a file path"
+    },
+    {
+      "id": "llm_output_eval",
+      "cwe": 95,
+      "expected_rule_id": "TNT-TS-LLMOUT-EXEC-001",
+      "vulnerable": "typescript/llm_output_eval_vulnerable.ts",
+      "fixed": "typescript/llm_output_eval_fixed.ts",
+      "class": "AI SDK generateText output to eval"
+    },
+    {
+      "id": "llm_output_shell",
+      "cwe": 78,
+      "expected_rule_id": "TNT-TS-LLMOUT-CMDI-001",
+      "vulnerable": "typescript/llm_output_shell_vulnerable.ts",
+      "fixed": "typescript/llm_output_shell_fixed.ts",
+      "class": "OpenAI completion content to execSync"
+    },
+    {
+      "id": "xf_mcp_shell",
+      "cwe": 78,
+      "expected_rule_id": "CF-SINK-001",
+      "vulnerable": "typescript/xf_mcp_shell_vulnerable.ts",
+      "fixed": "typescript/xf_mcp_shell_fixed.ts",
+      "class": "MCP tool argument passed to a helper in another file that shells out"
+    },
+    {
+      "id": "xf_ai_sdk_path",
+      "cwe": 22,
+      "expected_rule_id": "CF-SINK-001",
+      "vulnerable": "typescript/xf_ai_sdk_path_vulnerable.ts",
+      "fixed": "typescript/xf_ai_sdk_path_fixed.ts",
+      "class": "AI SDK tool input passed to a helper in another file that builds a path"
+    },
+    {
+      "id": "xf_lowlevel_fetch",
+      "cwe": 918,
+      "expected_rule_id": "CF-SINK-001",
+      "vulnerable": "typescript/xf_lowlevel_fetch_vulnerable.ts",
+      "fixed": "typescript/xf_lowlevel_fetch_fixed.ts",
+      "class": "low-level MCP arguments passed to a helper in another file that fetches"
+    },
+    {
+      "id": "mcp_safeparse_exec",
+      "cwe": 78,
+      "expected_rule_id": "TNT-TS-AGENT-CMDI-001",
+      "vulnerable": "typescript/mcp_safeparse_exec_vulnerable.ts",
+      "fixed": "typescript/mcp_safeparse_exec_fixed.ts",
+      "class": "low-level CallTool arguments through zod safeParse (type validation, not a shell sanitizer) into a promisify(exec) alias (GHSA-xc68-rrqc-qgq3 shape)"
+    },
+    {
+      "id": "mcp_oauth_open",
+      "cwe": 78,
+      "expected_rule_id": "TNT-TS-AGENT-OAUTH-OPEN-001",
+      "vulnerable": "typescript/mcp_oauth_open_vulnerable.ts",
+      "fixed": "typescript/mcp_oauth_open_fixed.ts",
+      "class": "MCP client passes the server-supplied OAuth authorization URL to open(); a protocol allowlist is the fix (GHSA-9pw5-wx67-q964, GHSA-p6rm-483j-37jf shape)"
+    },
+    {
+      "id": "xf_service_method",
+      "cwe": 78,
+      "expected_rule_id": "CF-SINK-001",
+      "vulnerable": "typescript/xf_service_method_vulnerable.ts",
+      "fixed": "typescript/xf_service_method_fixed.ts",
+      "class": "MCP tool argument through a method call on a typed service object in another file, then this.run() to execSync (GHSA-gxw4-4fc5-9gr5 shape)"
+    }
+  ]
+}

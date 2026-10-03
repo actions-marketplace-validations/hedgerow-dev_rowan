@@ -1,0 +1,221 @@
+rules:
+- id: DK-CONFIG-001
+  languages:
+  - dockerfile
+  severity: WARNING
+  message: ':latest tag is mutable and non-reproducible. Pin to a specific
+
+    version tag or digest (e.g., python:3.12-alpine@sha256:...).'
+  patterns:
+  - pattern-regex: FROM\s+\S+:latest\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 1104
+    original_engine: neuroscan
+    rule_name: Latest tag in FROM
+- id: DK-CONFIG-002
+  languages:
+  - dockerfile
+  severity: ERROR
+  message: 'Container runs as root. If compromised, attacker gains root on host.
+
+    Add ''USER 1000'' after installing dependencies.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: ^USER\s+root\s*$
+    - pattern-regex: ^USER\s+0\s*$
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 250
+    original_engine: neuroscan
+    rule_name: Container running as root
+- id: DK-SUPPLY-001
+  languages:
+  - dockerfile
+  severity: ERROR
+  message: 'curl | bash downloads and executes untrusted remote scripts.
+
+    Verify checksums or use signed packages.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: curl\s+.*\s*\|\s*(bash|sh)\b
+    - pattern-regex: wget\s+.*\s*-O\s*-\s*\|\s*(bash|sh)\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 829
+    original_engine: neuroscan
+    rule_name: curl pipe bash
+- id: DK-SUPPLY-002
+  languages:
+  - dockerfile
+  severity: WARNING
+  message: 'ADD fetches remote URLs without verification. Use COPY for
+
+    local files, or curl/wget in RUN with checksum verification.'
+  patterns:
+  - pattern-regex: ^ADD\s+https?://
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 494
+    original_engine: neuroscan
+    rule_name: ADD from remote URL
+- id: DK-CONFIG-003
+  languages:
+  - dockerfile
+  severity: INFO
+  message: 'Exposing port < 1024 requires root. Use a high port (>1024)
+
+    and reverse proxy for 80/443 binding.'
+  patterns:
+  - pattern-regex: ^EXPOSE\s+[0-9]{1,4}\s*$
+  - pattern-not-regex: ^EXPOSE\s+[1-9][0-9]{3,4}
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 250
+    original_engine: neuroscan
+    original_severity: low
+    rule_name: Privileged port exposed
+- id: DK-CONFIG-004
+  languages:
+  - dockerfile
+  severity: ERROR
+  message: '--cap-add=ALL grants every Linux capability. Use minimal
+
+    capabilities (e.g., NET_BIND_SERVICE only).'
+  patterns:
+  - pattern-regex: --cap-add\s*=\s*ALL\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 250
+    original_engine: neuroscan
+    rule_name: CAP_ADD=ALL
+- id: DK-SUPPLY-003
+  languages:
+  - dockerfile
+  severity: INFO
+  message: 'apt-get install without cleanup bloats image and leaves caches.
+
+    Chain with: && apt-get clean && rm -rf /var/lib/apt/lists/*'
+  patterns:
+  - pattern-regex: apt-get\s+install
+  - pattern-not-regex: apt-get\s+clean
+  - pattern-not-regex: rm\s+-rf\s+/var/lib/apt/lists
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 459
+    original_engine: neuroscan
+    original_severity: low
+    rule_name: apt-get without cleanup
+- id: DK-CONFIG-005
+  languages:
+  - dockerfile
+  severity: WARNING
+  message: 'sudo installed in container. Unnecessary: the entrypoint
+
+    controls process identity. Remove to reduce attack surface.'
+  patterns:
+  - pattern-regex: install.*\bsudo\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 250
+    original_engine: neuroscan
+    rule_name: sudo installed in container
+- id: DK-CONFIG-006
+  languages:
+  - dockerfile
+  severity: INFO
+  message: 'Missing HEALTHCHECK instruction. Orchestrator cannot determine
+
+    container health. Add HEALTHCHECK --interval=30s CMD ...'
+  patterns:
+  - pattern-regex: ^(CMD|ENTRYPOINT)
+  - pattern-not-regex: HEALTHCHECK
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 665
+    original_engine: neuroscan
+    original_severity: low
+    rule_name: Missing HEALTHCHECK
+- id: DK-CONFIG-007
+  languages:
+  - dockerfile
+  severity: WARNING
+  message: 'COPY . . without .dockerignore copies .git/, .env, secrets, and
+
+    keys into the image. Add a .dockerignore file.'
+  patterns:
+  - pattern-regex: ^COPY\s+\.\s+(/app|/opt|/usr/src)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 538
+    original_engine: neuroscan
+    rule_name: COPY all without .dockerignore
+- id: DK-CONFIG-008
+  languages:
+  - dockerfile
+  severity: ERROR
+  message: 'Docker socket mounted into container. Grants full host Docker API
+
+    access enabling container escape.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: -v\s+/var/run/docker\.sock
+    - pattern-regex: --mount.*docker\.sock
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 250
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: Docker socket mounted
+    fix: Do not mount the Docker socket into a container unless absolutely required; if needed, proxy it through a socket-permission
+      gateway that restricts the exposed API surface.
+- id: DK-CONFIG-009
+  languages:
+  - dockerfile
+  severity: WARNING
+  message: 'setuid/setgid binary in container. Unnecessary privilege escalation
+
+    surface. Remove setuid bit from binaries.'
+  patterns:
+  - pattern-regex: chmod\s+[0-7]*[46][0-7]{2}\s
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 250
+    original_engine: neuroscan
+    rule_name: Setuid/setgid bit in COPY

@@ -1,0 +1,322 @@
+# Framework-independent Python security rules derived from recurring flaws in
+# agent, prompt, document-loader, and serialization libraries.  The rules key
+# on security semantics rather than package names so the same bug shapes are
+# found outside any one framework.
+
+rules:
+  - id: TNT-PY-FWK-DESER-001
+    mode: taint
+    message: >
+      Untrusted input reaches an object-graph deserializer. Structured formats
+      are not safe when the loader can revive framework objects or accepts a
+      broad type allowlist. Restrict the loader to an explicit set of inert
+      data types and validate the decoded schema before constructing objects.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [502]
+      category: deserialization
+      fix: "Do not revive objects from untrusted structured data. Parse into inert data, validate a schema, and use an explicit minimal type allowlist."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              # rowan-registry:begin source=user_input
+              - patterns:
+                  - pattern-either:
+                      - pattern: request.args.get(...)
+                      - pattern: request.args[...]
+                      - pattern: request.form.get(...)
+                      - pattern: request.form[...]
+                      - pattern: request.json.get(...)
+                      - pattern: request.json[...]
+                      - pattern: request.data
+                      - pattern: request.values.get(...)
+                      - pattern: request.files.get(...)
+                      - pattern: request.cookies.get(...)
+                      - pattern: request.headers.get(...)
+                      - pattern: request.GET.get(...)
+                      - pattern: request.GET[...]
+                      - pattern: request.POST.get(...)
+                      - pattern: request.POST[...]
+                      - pattern: request.body
+                      - pattern: request.query_params
+                      - pattern: input(...)
+                      - pattern: await request.json(...)
+                      - pattern: await request.form(...)
+                      - pattern: await request.body(...)
+                      - pattern: await websocket.recv(...)
+                      - pattern: await websocket.receive_text(...)
+                      - pattern: st.chat_input(...)
+                      - pattern: st.text_input(...)
+                      - pattern: st.file_uploader(...)
+                      - pattern: gr.File(...)
+                      - pattern: gr.UploadButton(...)
+              # rowan-registry:end source=user_input
+      - pattern: request.get_json(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $OBJ.loads($DATA)
+              - pattern: $OBJ.load($DATA)
+              - pattern: $OBJ.deserialize($DATA)
+              - pattern: $OBJ.decode_object($DATA)
+              - pattern: $LOAD($DATA, allowed_objects="all", ...)
+              - pattern: $LOAD($DATA, allowed_types="all", ...)
+              - pattern: $LOAD($DATA, allow_all=True, ...)
+          - focus-metavariable: $DATA
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: json.loads(...)
+              - pattern: orjson.loads(...)
+              - pattern: ujson.loads(...)
+              - pattern: rapidjson.loads(...)
+              - pattern: msgspec.json.decode(...)
+              - pattern: yaml.safe_load(...)
+              - pattern: $SCHEMA.model_validate(...)
+              - pattern: $SCHEMA.model_validate_json(...)
+
+  - id: TNT-PY-FWK-PATH-001
+    mode: taint
+    message: >
+      Untrusted input controls a framework file loader, search root, or glob
+      pattern. Joining or prefix-checking alone does not confine paths: resolve
+      the final target, including symlinks, and require it to remain beneath a
+      trusted root before reading or returning it.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [22, 59]
+      category: path_traversal
+      fix: "Resolve the final target and trusted root, then enforce target.is_relative_to(root); reject absolute paths, traversal, and symlink escapes."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              # rowan-registry:begin source=user_input
+              - patterns:
+                  - pattern-either:
+                      - pattern: request.args.get(...)
+                      - pattern: request.args[...]
+                      - pattern: request.form.get(...)
+                      - pattern: request.form[...]
+                      - pattern: request.json.get(...)
+                      - pattern: request.json[...]
+                      - pattern: request.data
+                      - pattern: request.values.get(...)
+                      - pattern: request.files.get(...)
+                      - pattern: request.cookies.get(...)
+                      - pattern: request.headers.get(...)
+                      - pattern: request.GET.get(...)
+                      - pattern: request.GET[...]
+                      - pattern: request.POST.get(...)
+                      - pattern: request.POST[...]
+                      - pattern: request.body
+                      - pattern: request.query_params
+                      - pattern: input(...)
+                      - pattern: await request.json(...)
+                      - pattern: await request.form(...)
+                      - pattern: await request.body(...)
+                      - pattern: await websocket.recv(...)
+                      - pattern: await websocket.receive_text(...)
+                      - pattern: st.chat_input(...)
+                      - pattern: st.text_input(...)
+                      - pattern: st.file_uploader(...)
+                      - pattern: gr.File(...)
+                      - pattern: gr.UploadButton(...)
+              # rowan-registry:end source=user_input
+      - pattern: request.get_json(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $OBJ.search_files(..., pattern=$PATH, ...)
+              - pattern: $OBJ.search_files(..., path=$PATH, ...)
+              - pattern: $OBJ.glob($PATH, ...)
+              - pattern: $OBJ.rglob($PATH, ...)
+              - pattern: glob.glob($PATH, ...)
+              - pattern: glob.iglob($PATH, ...)
+              - pattern: load_prompt($PATH, ...)
+              - pattern: load_chain($PATH, ...)
+              - pattern: load_agent($PATH, ...)
+              - pattern: load_config($PATH, ...)
+              - pattern: $OBJ.load_file($PATH, ...)
+              - pattern: $OBJ.from_file($PATH, ...)
+          - focus-metavariable: $PATH
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: secure_filename(...)
+              - pattern: os.path.basename(...)
+              - pattern: $ROOT.joinpath(...).resolve(...)
+
+  - id: TNT-PY-FWK-URLFETCH-001
+    mode: taint
+    message: >
+      Untrusted input reaches a helper that fetches or dereferences a URL.
+      Validate the destination at connection time, reject non-HTTP schemes and
+      non-public addresses, and revalidate every redirect. A check followed by
+      an independent DNS lookup remains vulnerable to rebinding.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [918]
+      category: ssrf
+      fix: "Use a guarded fetcher that pins the validated address, rejects private/link-local/reserved ranges, and revalidates each redirect target."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              # rowan-registry:begin source=user_input
+              - patterns:
+                  - pattern-either:
+                      - pattern: request.args.get(...)
+                      - pattern: request.args[...]
+                      - pattern: request.form.get(...)
+                      - pattern: request.form[...]
+                      - pattern: request.json.get(...)
+                      - pattern: request.json[...]
+                      - pattern: request.data
+                      - pattern: request.values.get(...)
+                      - pattern: request.files.get(...)
+                      - pattern: request.cookies.get(...)
+                      - pattern: request.headers.get(...)
+                      - pattern: request.GET.get(...)
+                      - pattern: request.GET[...]
+                      - pattern: request.POST.get(...)
+                      - pattern: request.POST[...]
+                      - pattern: request.body
+                      - pattern: request.query_params
+                      - pattern: input(...)
+                      - pattern: await request.json(...)
+                      - pattern: await request.form(...)
+                      - pattern: await request.body(...)
+                      - pattern: await websocket.recv(...)
+                      - pattern: await websocket.receive_text(...)
+                      - pattern: st.chat_input(...)
+                      - pattern: st.text_input(...)
+                      - pattern: st.file_uploader(...)
+                      - pattern: gr.File(...)
+                      - pattern: gr.UploadButton(...)
+              # rowan-registry:end source=user_input
+      - pattern: request.get_json(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $OBJ.split_text_from_url($URL, ...)
+              - pattern: $OBJ.load_from_url($URL, ...)
+              - pattern: $OBJ.fetch_url($URL, ...)
+              - pattern: $OBJ.download_url($URL, ...)
+          - focus-metavariable: $URL
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: ssrf_safe_get(...)
+              - pattern: safe_fetch(...)
+
+  - id: TNT-PY-FWK-IMAGECOUNT-001
+    mode: taint
+    message: >
+      A caller-supplied image or media URL reaches a token-counting helper that
+      may download it to determine dimensions. Use a guarded fetcher with
+      destination pinning and redirect validation, or disable remote fetching
+      during token counting.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [918]
+      category: ssrf
+      fix: "Do not dereference caller-supplied media URLs during token counting unless the fetch transport pins a validated public address and checks redirects."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: request.get_json()["image_url"]
+              - pattern: request.json["image_url"]
+              - pattern: request.args["image_url"]
+              - pattern: request.form["image_url"]
+              - pattern: request.get_json()["media_url"]
+              - pattern: request.json["media_url"]
+              - pattern: request.args["media_url"]
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $OBJ.get_num_tokens_from_messages($MESSAGES, ...)
+              - pattern: $OBJ.count_tokens($MESSAGES, ...)
+          - pattern-not: $OBJ.get_num_tokens_from_messages($MESSAGES, allow_fetching_images=False, ...)
+          - focus-metavariable: $MESSAGES
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: ssrf_safe_get(...)
+              - pattern: safe_fetch(...)
+
+  - id: TNT-PY-FWK-TEMPLATE-001
+    mode: taint
+    message: >
+      Untrusted text is used as a format/template program. Python-style field
+      expressions can traverse attributes and indexes, including nested fields
+      in format specifiers. Keep the template constant and pass untrusted text
+      only as a value, or parse against a strict identifier-only grammar.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [1336, 134]
+      category: ssti
+      fix: "Keep format strings constant. If dynamic templates are required, allow only simple identifier fields and recursively reject attribute, index, conversion, and nested format-spec traversal."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              # rowan-registry:begin source=user_input
+              - patterns:
+                  - pattern-either:
+                      - pattern: request.args.get(...)
+                      - pattern: request.args[...]
+                      - pattern: request.form.get(...)
+                      - pattern: request.form[...]
+                      - pattern: request.json.get(...)
+                      - pattern: request.json[...]
+                      - pattern: request.data
+                      - pattern: request.values.get(...)
+                      - pattern: request.files.get(...)
+                      - pattern: request.cookies.get(...)
+                      - pattern: request.headers.get(...)
+                      - pattern: request.GET.get(...)
+                      - pattern: request.GET[...]
+                      - pattern: request.POST.get(...)
+                      - pattern: request.POST[...]
+                      - pattern: request.body
+                      - pattern: request.query_params
+                      - pattern: input(...)
+                      - pattern: await request.json(...)
+                      - pattern: await request.form(...)
+                      - pattern: await request.body(...)
+                      - pattern: await websocket.recv(...)
+                      - pattern: await websocket.receive_text(...)
+                      - pattern: st.chat_input(...)
+                      - pattern: st.text_input(...)
+                      - pattern: st.file_uploader(...)
+                      - pattern: gr.File(...)
+                      - pattern: gr.UploadButton(...)
+              # rowan-registry:end source=user_input
+      - pattern: request.get_json(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $TEMPLATE.format(...)
+              - pattern: $TEMPLATE.format_map(...)
+              - pattern: string.Formatter().vformat($TEMPLATE, ...)
+          - focus-metavariable: $TEMPLATE
+      - patterns:
+          - pattern: $BUILDER(..., template=$TEMPLATE, ...)
+          - metavariable-regex:
+              metavariable: $BUILDER
+              regex: (?i).*template.*
+          - focus-metavariable: $TEMPLATE
+      - patterns:
+          - pattern: $BUILDER.from_messages($TEMPLATE, ...)
+          - metavariable-regex:
+              metavariable: $BUILDER
+              regex: (?i).*template.*
+          - focus-metavariable: $TEMPLATE
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: validate_identifier_template(...)
+              - pattern: escape_format_string(...)

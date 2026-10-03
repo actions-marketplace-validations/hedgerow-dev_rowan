@@ -1,0 +1,916 @@
+rules:
+- id: NS-SSRF-102
+  languages:
+  - python
+  severity: INFO
+  message: 'Outbound HTTP request with potentially user-controlled URL. SSRF possible if URL is not validated against an allowlist.
+    Surface signal only: confirmed flows are reported by the taint engine.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: requests\.(get|post|put|delete|patch|head)\(
+    - pattern-regex: urllib\.request\.urlopen\(
+    - pattern-regex: urllib\.request\.urlretrieve\(
+    - pattern-regex: urllib\.request\.Request\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ssrf
+    cwe:
+    - 918
+    original_engine: neuroscan
+    original_severity: low
+    residual:
+    - sanitizer
+- id: NS-SSRF-103
+  languages:
+  - javascript
+  - typescript
+  severity: INFO
+  message: Outbound HTTP request in Node.js with potentially user-controlled URL. SSRF possible without URL allowlist. Surface
+    signal only.
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bfetch\(
+    - pattern-regex: axios\.(get|post|put|delete|patch)\(
+    - pattern-regex: axios\(
+    - pattern-regex: \bhttp\.get\(
+    - pattern-regex: \bhttps\.request\(
+    - pattern-regex: \bgot\(
+    - pattern-regex: got\.(get|post|put)\(
+    - pattern-regex: \bneedle\.get\(
+    - pattern-regex: superagent\.get\(
+    - pattern-regex: \brequest\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ssrf
+    cwe:
+    - 918
+    original_engine: neuroscan
+    original_severity: low
+    residual:
+    - sanitizer
+- id: NS-SSRF-004
+  languages:
+  - python
+  severity: ERROR
+  message: SSRF via wget/curl in subprocess calls.
+  patterns:
+  - pattern-either:
+    - pattern-regex: subprocess\.\w+\(\s*\[(?:["\']wget|["\']curl)
+    - pattern-regex: os\.system\(\s*f?["\'].*\b(wget|curl)\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ssrf
+    cwe:
+    - 918
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-SSRF-006
+  languages:
+  - javascript
+  - python
+  severity: ERROR
+  message: SSRF via PDF/image generation tools with URL input.
+  patterns:
+  - pattern-either:
+    - pattern-regex: pdfkit\.from_url\(
+    - pattern-regex: imgkit\.from_url\(
+    - pattern-regex: weasyprint\.HTML\(
+    - pattern-regex: playwright.*\.goto\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ssrf
+    cwe:
+    - 918
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-SSRF-007
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: URL parsing validated but fetcher bypasses the check.
+  patterns:
+  - pattern-either:
+    - pattern-regex: urlparse\(
+    - pattern-regex: urllib\.parse\.urlparse\(
+    - pattern-regex: new URL\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ssrf
+    cwe:
+    - 918
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-PATH-002
+  languages:
+  - python
+  severity: ERROR
+  message: 'File open with os.path.join and request input: path traversal.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: os\.path\.join\(.*request\.(args|form|json|GET|POST)\.get\(
+    - pattern-regex: Path\(.*request\.(args|form|json)\.get\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: path_traversal
+    cwe:
+    - 22
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-PATH-003
+  languages:
+  - python
+  severity: ERROR
+  message: send_file / FileResponse with potentially user-controlled path.
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bsend_file\(
+    - pattern-regex: \bsend_from_directory\(
+    - pattern-regex: \bFileResponse\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: \bFileResponse\(\s*['"][^'"]*['"]\s*\)
+  - pattern-not-regex: \bsend_file\(\s*['"][^'"]*['"]\s*\)
+  metadata:
+    category: path_traversal
+    cwe:
+    - 22
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-PATH-008
+  languages:
+  - python
+  severity: WARNING
+  message: URL path built with str.format() and no encoding. A value substituted into a path template can contain ../ and
+    walk out of the intended prefix, and URL libraries normalize the traversal away rather than rejecting it, so the request
+    is sent to a different endpoint on the same host. Any credential the client is configured with (Authorization header,
+    cookie, API key) is sent with it. Percent-encode each substituted segment (urllib.parse.quote with safe='') and reject
+    segments containing '..' or '/'.
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.path\.format\(
+    - pattern-regex: \bpath\s*=\s*(?!["'\s])[^=\n]*\.format\(
+    - pattern-regex: \bendpoint\s*=\s*(?!["'\s])[^=\n]*\.format\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: path_traversal
+    cwe:
+    - 22
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-PATH-004
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: File system operations in Node.js with potentially user-controlled path.
+  patterns:
+  - pattern-either:
+    - pattern-regex: fs\.readFile\(
+    - pattern-regex: fs\.readFileSync\(
+    - pattern-regex: fs\.writeFile\(
+    - pattern-regex: fs\.writeFileSync\(
+    - pattern-regex: fs\.createReadStream\(
+    - pattern-regex: res\.sendFile\(
+    - pattern-regex: res\.download\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: path_traversal
+    cwe:
+    - 22
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-PATH-005
+  languages:
+  - python
+  severity: ERROR
+  message: 'Unsafe tarfile extractall without path filter: zip slip.'
+  patterns:
+  - pattern-regex: \.extractall\(
+  - pattern-not-regex: filter\s*=\s*["'\w]
+  - pattern-not-regex: members\s*=
+  - pattern-not-regex: 'tarfile\.open\([^)]*["'']r:'
+  - pattern-not-regex: tarfile\.open\([^)]*mode\s*=\s*["']r
+  - pattern-not-regex: ZipFile\([^)]*\).*\.extractall\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: path_traversal
+    cwe:
+    - 22
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-PATH-006
+  languages:
+  - python
+  severity: ERROR
+  message: Unsafe zipfile extractall without path validation.
+  patterns:
+  - pattern-either:
+    - pattern-regex: zipfile\.extractall\(
+    - pattern-regex: ZipFile\(.*\)\.extractall\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: path_traversal
+    cwe:
+    - 22
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-PATH-007
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: Unsafe archive extraction in Node.js (unzipper, adm-zip, decompress).
+  patterns:
+  - pattern-either:
+    - pattern-regex: unzipper\.Extract\(
+    - pattern-regex: AdmZip\(
+    - pattern-regex: extractAllTo\(
+    - pattern-regex: \bdecompress\(
+    - pattern-regex: extract-zip\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: path_traversal
+    cwe:
+    - 22
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-CMDI-002
+  languages:
+  - python
+  severity: ERROR
+  message: subprocess with shell=True.
+  patterns:
+  - pattern-regex: subprocess\.\w+\([^)]*shell\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: command_injection
+    cwe:
+    - 78
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-CMDI-003
+  languages:
+  - python
+  severity: ERROR
+  message: 'f-string or concatenation in OS command: data-dependent command.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: os\.system\(\s*f["']
+    - pattern-regex: os\.popen\(\s*f["']
+    - pattern-regex: subprocess\.\w+\(\s*f["']
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: command_injection
+    cwe:
+    - 78
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-CMDI-004
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: 'Command injection in Node.js: user input in exec/spawn.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: child_process\.exec\(
+    - pattern-regex: child_process\.execSync\(
+    - pattern-regex: child_process\.spawn\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: command_injection
+    cwe:
+    - 78
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-SSTI-102
+  languages:
+  - python
+  severity: ERROR
+  message: 'Jinja2/Flask template from string: SSTI.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: render_template_string\(
+    - pattern-regex: \bTemplate\(
+    - pattern-regex: jinja2\.Template\(
+  - pattern-not-regex: SandboxedEnvironment
+  - pattern-not-regex: ImmutableSandboxedEnvironment
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ssti
+    cwe:
+    - 1336
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-SSTI-004
+  languages:
+  - python
+  severity: ERROR
+  message: Mako/Tornado/Django template with user-controlled string.
+  patterns:
+  - pattern-either:
+    - pattern-regex: mako\.template\.Template\(
+    - pattern-regex: tornado\.template\.Template\(
+    - pattern-regex: django\.template\.Template\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ssti
+    cwe:
+    - 1336
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-SQLI-002
+  languages:
+  - python
+  severity: ERROR
+  message: f-string or concatenation in SQL cursor.execute.
+  patterns:
+  - pattern-either:
+    - pattern-regex: cursor\.execute\(\s*f["']
+    - pattern-regex: \.execute\(\s*f["']
+    - pattern-regex: \.raw\(\s*f["']
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 89
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-SQLI-003
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: 'Raw SQL query with template literal: SQL injection in Node.js.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.query\(\s*`
+    - pattern-regex: \.raw\(\s*`
+    - pattern-regex: sequelize\.query\(\s*`
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 89
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-SQLI-004
+  languages:
+  - java
+  severity: ERROR
+  message: 'SQL injection in Java: Statement.executeQuery without PreparedStatement.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.executeQuery\(
+    - pattern-regex: \.executeUpdate\(
+    - pattern-regex: createStatement\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 89
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-NOSQL-001
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: 'MongoDB query with user-controlled object: NoSQL injection.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.find\(req\.(body|query|params)
+    - pattern-regex: \.findOne\(req\.(body|query|params)
+    - pattern-regex: Model\.find\(req\.(body|query|params)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: nosql_injection
+    cwe:
+    - 943
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-PROTO-001
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: 'Object merge/assign without key sanitization: prototype pollution.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: Object\.assign\(
+    - pattern-regex: _\.merge\(
+    - pattern-regex: _\.defaultsDeep\(
+    - pattern-regex: lodash\.merge\(
+    - pattern-regex: \bdeepmerge\(
+    - pattern-regex: \bdeepMerge\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: prototype_pollution
+    cwe:
+    - 1321
+    original_engine: neuroscan
+- id: NS-XSS-002
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: 'innerHTML / document.write: DOM-based XSS sink.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.innerHTML\s*=
+    - pattern-regex: document\.write\(
+    - pattern-regex: \.outerHTML\s*=
+  - pattern-not-regex: \.innerHTML\s*=\s*['"]\s*['"]
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: xss
+    cwe:
+    - 79
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-XSS-003
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: dangerouslySetInnerHTML with dynamic content.
+  patterns:
+  - pattern-regex: dangerouslySetInnerHTML
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: xss
+    cwe:
+    - 79
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-XSS-004
+  languages:
+  - python
+  severity: ERROR
+  message: 'Flask Markup() with user input: bypasses auto-escaping.'
+  patterns:
+  - pattern-regex: \bMarkup\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: xss
+    cwe:
+    - 79
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-DESER-006
+  languages:
+  - python
+  severity: ERROR
+  message: 'torch.load without weights_only: arbitrary code execution.'
+  patterns:
+  - pattern-regex: torch\.load\(
+  - pattern-not-regex: weights_only\s*=\s*True
+  - pattern-not-regex: safetensors
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-DESER-007
+  languages:
+  - python
+  severity: ERROR
+  message: 'yaml.load without SafeLoader: arbitrary code execution.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: yaml\.load\(
+    - pattern-regex: yaml\.unsafe_load\(
+    - pattern-regex: yaml\.full_load\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-DESER-008
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: 'Unsafe deserialization in Node.js: node-serialize, js-yaml.load.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: node-serialize\.unserialize\(
+    - pattern-regex: serialize\.unserialize\(
+    - pattern-regex: js-yaml\.load\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-DESER-009
+  languages:
+  - python
+  severity: ERROR
+  message: 'unsafe XML parsing without defusedxml: XXE vulnerability.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: xml\.etree\.ElementTree\.parse\(
+    - pattern-regex: ET\.parse\(
+    - pattern-regex: ET\.fromstring\(
+    - pattern-regex: lxml\.etree\.parse\(
+    - pattern-regex: xml\.dom\.minidom\.parse\(
+    - pattern-regex: xml\.sax\.parse\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 611
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-DESER-010
+  languages:
+  - python
+  severity: ERROR
+  message: Keras/TensorFlow model loading with custom_objects.
+  patterns:
+  - pattern-regex: keras\.models\.model_from_json\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-DESER-011
+  languages:
+  - python
+  severity: ERROR
+  message: 'Celery pickle serializer enabled: RCE via task queue.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: CELERY_TASK_SERIALIZER\s*=\s*['"]pickle
+    - pattern-regex: CELERY_RESULT_SERIALIZER\s*=\s*['"]pickle
+    - pattern-regex: accept_content\s*=\s*\[.*['"]pickle
+    - pattern-regex: task_serializer\s*=\s*['"]pickle
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-DESER-012
+  languages:
+  - python
+  severity: ERROR
+  message: ZMQ recv_pyobj() unpickles every frame it receives, so any peer that can reach the socket gets remote code execution.
+    ZMQ has no authentication unless CURVE is configured. This is the shape of CVE-2026-3059 and CVE-2026-3060 in SGLang,
+    where a broker bound to all interfaces unpickled received frames.
+  patterns:
+  - pattern-regex: \.recv_pyobj\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    fix: Send a safe format over the socket (recv_json, msgpack, protobuf) with a known schema; if pickle is unavoidable,
+      enable CURVE auth and verify an HMAC over the frame before unpickling.
+    residual:
+    - sanitizer
+- id: NS-DESER-013
+  languages:
+  - python
+  severity: ERROR
+  message: multiprocessing.connection.Listener on a network address accepts connections whose recv() unpickles whatever the
+    peer sent, giving any peer that can connect remote code execution.
+  patterns:
+  - pattern-either:
+    - pattern-regex: multiprocessing\.connection\.Listener\(\s*\(
+    - pattern-regex: connection\.Listener\(\s*\(
+    - pattern-regex: (?<![\w.])Listener\(\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: authkey
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    fix: Bind the Listener to a Unix socket or named pipe instead of a host/port tuple, and pass an authkey so unauthenticated
+      peers cannot reach the unpickle.
+    residual:
+    - sanitizer
+- id: NS-AUTH-101
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: ERROR
+  message: JWT verification with algorithm=none or signature verification disabled.
+  patterns:
+  - pattern-either:
+    - pattern-regex: algorithms?\s*=\s*\[.*["']none["']
+    - pattern-regex: verify_signature.*False
+    - pattern-regex: jwt\.verify\(\s*\w+\s*,\s*["']
+    - pattern-regex: jwt\.decode\([^)]*verify\s*=\s*False
+    - pattern-regex: algorithm.*HS256.*RS256
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 347
+    original_engine: neuroscan
+- id: NS-AUTH-003
+  languages:
+  - javascript
+  - python
+  severity: WARNING
+  message: Missing auth decorator on sensitive endpoint.
+  patterns:
+  - pattern-either:
+    - pattern-regex: '@app\.route\([''"](?:admin|api|user)'
+    - pattern-regex: app\.(?:get|post|put|delete)\(['"](?:admin|api|user)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 306
+    original_engine: neuroscan
+- id: NS-CONFIG-101
+  languages:
+  - python
+  severity: ERROR
+  message: 'Web application debug / development mode is enabled (CWE-215). A running server with debug on exposes interactive
+    stack traces, source snippets, config, and (Werkzeug/Flask) an evaluable console: remote code and full config disclosure.
+    This fires on the debug flag being turned ON in code: Flask app.run(debug=True) / app.debug=True / app.config["DEBUG"]=True,
+    Django DEBUG=True, FastAPI/Starlette/Tornado(debug=True), and DEBUG read from an environment variable with a TRUTHY default
+    (a fail-open default that ships debug on unless the environment overrides it). Set debug off in production and make any
+    env-var default fail closed (default False / "0").'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.run\([^)]*\bdebug\s*=\s*True\b
+    - pattern-regex: \b(?:app|application|flask_app)\.debug\s*=\s*True\b
+    - pattern-regex: \.config\[\s*["']DEBUG["']\s*\]\s*=\s*True\b
+    - pattern-regex: \.config\.update\([^)]*\bDEBUG\s*=\s*True\b
+    - pattern-regex: \bDEBUG\s*=\s*True\b
+    - pattern-regex: (?:FastAPI|Starlette|Application)\([^)]*\bdebug\s*=\s*True\b
+    - pattern-regex: ^\s*debug\s*=\s*True\s*,?\s*$
+    - pattern-regex: \bbottle\.debug\(\s*True\s*\)
+    - pattern-regex: os\.(?:getenv|environ\.get)\(\s*["'][^"']*DEBUG[^"']*["']\s*,\s*["']?(?:1|[Tt]rue|[Yy]es|on|ON)\b
+    - pattern-regex: env\.bool\(\s*["'][^"']*DEBUG[^"']*["'][^)]*\bTrue\b
+    - pattern-regex: config\(\s*["'][^"']*DEBUG[^"']*["'][^)]*\bdefault\s*=\s*True\b
+    - pattern-regex: FLASK_DEBUG["']\s*\]?\s*[=:,]\s*["']?(?:1|[Tt]rue|on|ON)\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 215
+    original_engine: neuroscan
+- id: NS-CONFIG-002
+  languages:
+  - python
+  severity: ERROR
+  message: Django security misconfigurations.
+  patterns:
+  - pattern-either:
+    - pattern-regex: ALLOWED_HOSTS\s*=\s*\[.*\*
+    - pattern-regex: CSRF_COOKIE_SECURE\s*=\s*False
+    - pattern-regex: SESSION_COOKIE_SECURE\s*=\s*False
+    - pattern-regex: SECURE_SSL_REDIRECT\s*=\s*False
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 16
+    original_engine: neuroscan
+- id: NS-CRYPTO-101
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: ERROR
+  message: Insecure TLS verification disabled.
+  patterns:
+  - pattern-either:
+    - pattern-regex: verify\s*=\s*False
+    - pattern-regex: rejectUnauthorized\s*:\s*false
+    - pattern-regex: NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*0
+    - pattern-regex: ssl\._create_unverified_context\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: crypto
+    cwe:
+    - 295
+    original_engine: neuroscan
+- id: NS-CRYPTO-102
+  languages:
+  - javascript
+  - typescript
+  severity: WARNING
+  message: 'Weak cryptographic hash: MD5 or SHA-1 (JavaScript/TypeScript).'
+  patterns:
+  - pattern-either:
+    - pattern-regex: crypto\.createHash\(["']md5["']
+    - pattern-regex: crypto\.createHash\(["']sha1["']
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: crypto
+    cwe:
+    - 327
+    original_engine: neuroscan
+- id: NS-REDIRECT-001
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'Open redirect: user-controlled URL in redirect.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: redirect\(request\.(args|form|json|GET|POST)\.get\(
+    - pattern-regex: res\.redirect\(req\.(query|body|params)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 601
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-MASS-001
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: ERROR
+  message: 'Mass assignment: request data passed directly to model create/update.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \*\*request\.(POST|json|data)
+    - pattern-regex: \.create\(req\.body\)
+    - pattern-regex: Object\.assign\(\w+\s*,\s*req\.body\)
+    - pattern-regex: \.update\(.*\*\*request\.(POST|json|data)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 915
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-SANDBOX-001
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: 'Node.js VM sandbox escape potential: vm.createContext/runInContext.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: vm\.createContext\(
+    - pattern-regex: vm\.runInContext\(
+    - pattern-regex: vm\.runInNewContext\(
+    - pattern-regex: vm\.Script\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 265
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-GIT-001
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: ERROR
+  message: 'Unsafe git operations: user-controlled URL in git clone.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: subprocess\.run\(\[.git.\s*,\s*.clone.
+    - pattern-regex: git\.Repo\.clone_from\(
+    - pattern-regex: os\.system\(f["'].*git clone
+    - pattern-regex: child_process\.exec\(\s*`git clone
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: command_injection
+    cwe:
+    - 78
+    original_engine: neuroscan
+    residual:
+    - sanitizer
+- id: NS-CACHE-001
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'CORS misconfiguration: Access-Control-Allow-Origin wildcard.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: Access-Control-Allow-Origin.*\*
+    - pattern-regex: cors\(.*origin.*\*
+    - pattern-regex: CORS\(.*origins.*\*
+    - pattern-regex: allow_origins\s*=\s*\[.*\*\]
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 942
+    original_engine: neuroscan

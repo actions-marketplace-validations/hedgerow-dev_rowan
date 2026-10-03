@@ -1,0 +1,236 @@
+
+PER-CASE RESULTS  (o = flagged, . = not flagged)
+128 real models no scanner flagged are omitted; every flagged one is listed.
+
+case                                                                                                 truth   picklescan   modelscan    modelaudit   fickling     hayward      rowan      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+direct-os-system                                                                                     MAL     o            o            o            o            o            o          
+cve-2025-71350-collect-env                                                                           MAL     o            MISS         o            o            o            o          
+cve-2025-1716-pip-main                                                                               MAL     o            MISS         o            o            o            o          
+cve-2025-46417-linecache-read                                                                        MAL     MISS         MISS         MISS         o            o            o          
+cve-2025-46417-ssl-exfil                                                                             MAL     o            MISS         o            o            o            o          
+attrgetter-chain                                                                                     MAL     o            o            o            o            o            o          
+getattr-chain                                                                                        MAL     o            o            o            o            o            o          
+cloudpickle-make-function                                                                            MAL     o            MISS         o            o            o            o          
+stack-desync-ext1-pop                                                                                MAL     o            MISS         o            MISS         o            o          
+dup-amplification-billion-laughs                                                                     MAL     o            o            o            o            o            o          
+getattr-through-opaque-argument                                                                      MAL     o            o            o            o            o            o          
+legacy-layout-second-pickle                                                                          MAL     o            MISS         o            o            o            o          
+bin-extension-dispatch                                                                               MAL     o            MISS         o            o            o            o          
+skops-denied-type-reference                                                                          MAL     MISS         MISS         MISS         MISS         o            o          
+skops-methodnode-inconsistent                                                                        MAL     MISS         MISS         o            MISS         o            o          
+safetensors-name-traversal                                                                           MAL     MISS         MISS         MISS         MISS         o            o          
+safetensors-name-nul                                                                                 MAL     MISS         MISS         MISS         o            o            o          
+safetensors-name-crlf                                                                                MAL     MISS         MISS         MISS         o            o            o          
+gguf-tensor-name-traversal                                                                           MAL     MISS         MISS         MISS         o            o            o          
+onnx-external-data-ssrf                                                                              MAL     MISS         MISS         MISS         MISS         o            o          
+onnx-external-data-traversal                                                                         MAL     MISS         MISS         MISS         MISS         o            o          
+nested-pickle-literal                                                                                MAL     MISS         MISS         o            MISS         o            o          
+joblib-lzma-payload                                                                                  MAL     MISS         MISS         o            o            o            o          
+joblib-bz2-payload                                                                                   MAL     MISS         MISS         o            MISS         o            o          
+joblib-xz-payload                                                                                    MAL     MISS         MISS         o            MISS         o            o          
+joblib-payload-after-raw-array                                                                       MAL     MISS         MISS         o            MISS         o            o          
+benign-state-dict                                                                                    ben     .            .            .            FP           .            .          
+benign-stdlib-types                                                                                  ben     FP           .            .            FP           .            .          
+benign-custom-class                                                                                  ben     .            .            .            FP           .            .          
+benign-paths-and-urls                                                                                ben     .            .            .            .            .            .          
+benign-slashed-tensor-names                                                                          ben     .            .            .            .            .            .          
+benign-adjacent-offsets                                                                              ben     .            .            .            .            .            .          
+benign-onnx-sibling-weights                                                                          ben     .            .            .            .            .            .          
+benign-jinja-chat-template                                                                           ben     .            .            .            FP           .            .          
+benign-code-trained-vocab                                                                            ben     .            .            .            FP           .            .          
+benign-compressed-joblib                                                                             ben     .            .            .            .            .            .          
+benign-weights-starting-like-pickle                                                                  ben     .            .            FP           .            .            .          
+benign-pickle-after-raw-bytes                                                                        ben     .            .            .            .            .            .          
+AWeirdDev--human-disease-prediction--sklearn_model.joblib                                            ben     .            .            FP           FP           .            .          
+AbhishekS2005--mlforge-test-model--linear_regression.joblib                                          ben     .            .            .            FP           .            .          
+AbhishekS2005--mlforge-test-model--sgd_classifier.pkl                                                ben     .            .            .            FP           .            .          
+Dilipk--flask-classification-model--classification_model.joblib                                      ben     .            .            FP           FP           .            .          
+GoverningDocs--ccr-binary-logreg--ccr_binary_isotonic_calibrator.joblib                              ben     .            .            .            FP           .            .          
+GoverningDocs--ccr-binary-logreg--ccr_binary_logreg_tuned.joblib                                     ben     .            .            .            FP           .            .          
+Kratim-Budhimata--Regression-is-Attention--scaler_minmax_x.joblib                                    ben     .            .            .            FP           .            .          
+Kratim-Budhimata--Regression-is-Attention--scaler_minmax_y.joblib                                    ben     .            .            .            FP           .            .          
+NullRabbit--nr-network-known-class-detector--model.joblib                                            ben     .            .            .            FP           .            .          
+Steenslid--ecg-ptbxl-classification--ecg_cnn_final.keras                                             ben     .            .            FP           .            .            .          
+TasnimMer--callcenter-tfidf--tfidf_svm_model.pkl                                                     ben     .            .            FP           FP           .            .          
+danupurnomo--dummy-titanic--final_pipeline.pkl                                                       ben     .            .            FP           FP           .            .          
+danupurnomo--dummy-titanic--sklearn_model.joblib                                                     ben     .            .            FP           FP           .            .          
+daxa-ai--pebblo-classifier--label_encoder.joblib                                                     ben     .            .            .            FP           .            .          
+echarlaix--tiny-random-PhiForCausalLM--model.safetensors                                             ben     .            .            .            FP           .            .          
+google--bert_uncased_L-12_H-128_A-2--pytorch_model.bin                                               ben     .            .            .            FP           .            .          
+google--bert_uncased_L-2_H-128_A-2--model.safetensors                                                ben     .            .            .            FP           .            .          
+google--bert_uncased_L-2_H-128_A-2--pytorch_model.bin                                                ben     .            .            .            FP           .            .          
+google--bert_uncased_L-6_H-128_A-2--pytorch_model.bin                                                ben     .            .            .            FP           .            .          
+google--bert_uncased_L-8_H-128_A-2--pytorch_model.bin                                                ben     .            .            .            FP           .            .          
+griko--age_reg_svr_ecapa_voxceleb2--scaler.joblib                                                    ben     .            .            .            FP           .            .          
+handy-computer--whisper-tiny-gguf--whisper-tiny-Q4_K_M.gguf                                          ben     .            .            .            FP           .            .          
+handy-computer--whisper-tiny-gguf--whisper-tiny-Q5_K_M.gguf                                          ben     .            .            .            FP           .            .          
+handy-computer--whisper-tiny-gguf--whisper-tiny-Q6_K.gguf                                            ben     .            .            .            FP           .            .          
+hf-internal-testing--tiny-random-bert--tf_model.h5                                                   ben     .            .            .            FP           .            .          
+hf-internal-testing--tiny-random-t5--tf_model.h5                                                     ben     .            .            .            FP           .            .          
+imshriya--mlforge-cicd-test-model--sgd_classifier.pkl                                                ben     .            .            .            FP           .            .          
+incrediblestand--fedlytics-typhoid--minmax_scaler.joblib                                             ben     .            .            FP           FP           .            .          
+julien-c--wine-quality--sklearn_model.joblib                                                         ben     .            .            .            FP           .            .          
+kjfk--galaxy-bar-detection-resnet50--regression_ensemble--ensemble_test_pred.npy                     ben     .            .            .            FP           .            .          
+kjfk--galaxy-bar-detection-resnet50--regression_resnet50--test_pred.npy                              ben     .            .            .            FP           .            .          
+llamafactory--tiny-random-Llama-3--model.safetensors                                                 ben     .            .            .            FP           .            .          
+lysandre--test-trainer--model.safetensors                                                            ben     .            .            .            FP           .            .          
+mmx86--hf_heart--sklearn_model.joblib                                                                ben     .            .            .            FP           .            .          
+mohammed781234712--amazon-books-sentiment--label_encoder.pkl                                         ben     .            .            .            FP           .            .          
+mohammed781234712--amazon-books-sentiment--model.pkl                                                 ben     .            .            FP           FP           .            .          
+mradermacher--jina-reranker-v1-tiny-en-GGUF--jina-reranker-v1-tiny-en.IQ4_XS.gguf                    ben     .            .            .            FP           .            .          
+mradermacher--jina-reranker-v1-tiny-en-GGUF--jina-reranker-v1-tiny-en.Q2_K.gguf                      ben     .            .            .            FP           .            .          
+mradermacher--jina-reranker-v1-tiny-en-GGUF--jina-reranker-v1-tiny-en.Q3_K_L.gguf                    ben     .            .            .            FP           .            .          
+mrm8488--bert-tiny-finetuned-sms-spam-detection--model.safetensors                                   ben     .            .            .            FP           .            .          
+mrm8488--bert-tiny-finetuned-yahoo_answers_topics--model.safetensors                                 ben     .            .            .            FP           .            .          
+optimum-intel-internal-testing--tiny-random-BlenderbotModel--tf_model.h5                             ben     .            .            .            FP           .            .          
+optimum-intel-internal-testing--tiny-random-distilbert--tf_model.h5                                  ben     .            .            .            FP           .            .          
+optimum-intel-internal-testing--tiny-random-gpt2--tf_model.h5                                        ben     .            .            .            FP           .            .          
+optimum-intel-internal-testing--tiny-random-roberta--tf_model.h5                                     ben     .            .            .            FP           .            .          
+optimum-intel-internal-testing--tiny-random-whisper--model.safetensors                               ben     .            .            .            FP           .            .          
+patrickvonplaten--debug_repo--flax_wav2vec2--logits.npy                                              ben     .            .            .            FP           .            .          
+patrickvonplaten--t5-tiny-random--flax_model.msgpack                                                 ben     .            .            .            FP           .            .          
+patrickvonplaten--t5-tiny-random--pytorch_model.bin                                                  ben     .            .            .            FP           .            .          
+patrickvonplaten--t5-tiny-random--tf_model.h5                                                        ben     .            .            .            FP           .            .          
+pfizer-project-team--binary-segA-vs-segBC--sklearn_model.joblib                                      ben     .            .            .            FP           .            .          
+prabinpanta0--Patient-Readmission-Prediction--model_K_nearest.pkl                                    ben     .            .            FP           FP           .            .          
+prabinpanta0--Patient-Readmission-Prediction--model_Logistic_Regression.pkl                          ben     .            .            FP           FP           .            .          
+prajjwal1--albert-base-v1-mnli--training_args.bin                                                    ben     .            .            .            FP           .            .          
+prajjwal1--albert-base-v2-mnli--model.safetensors                                                    ben     .            .            .            FP           .            .          
+prajjwal1--albert-base-v2-mnli--training_args.bin                                                    ben     .            .            .            FP           .            .          
+prajjwal1--bert-tiny-mnli--flax_model.msgpack                                                        ben     .            .            .            FP           .            .          
+rawqubit--ClassicML-Prompt-Injection-Detector--sklearn_model.joblib                                  ben     .            .            .            FP           .            .          
+salnakuruvi--567-npy-put-underflow--model.npy                                                        ben     .            .            .            FP           .            .          
+sentence-transformers--paraphrase-albert-small-v2--model.safetensors                                 ben     .            .            .            FP           .            .          
+sshleifer--bart-tiny-random--pytorch_model.bin                                                       ben     .            .            .            FP           .            .          
+sshleifer--bart-tiny-random--tf_model.h5                                                             ben     .            .            .            FP           .            .          
+sshleifer--tiny-ctrl--pytorch_model.bin                                                              ben     .            .            .            FP           .            .          
+sshleifer--tiny-dbmdz-bert-large-cased-finetuned-conll03-english--flax_model.msgpack                 ben     .            .            .            FP           .            .          
+sshleifer--tiny-dbmdz-bert-large-cased-finetuned-conll03-english--pytorch_model.bin                  ben     .            .            .            FP           .            .          
+sshleifer--tiny-dbmdz-bert-large-cased-finetuned-conll03-english--tf_model.h5                        ben     .            .            .            FP           .            .          
+sshleifer--tiny-distilbert-base-cased--tf_model.h5                                                   ben     .            .            .            FP           .            .          
+sshleifer--tiny-distilbert-base-cased-distilled-squad--pytorch_model.bin                             ben     .            .            .            FP           .            .          
+sshleifer--tiny-distilbert-base-cased-distilled-squad--tf_model.h5                                   ben     .            .            .            FP           .            .          
+sshleifer--tiny-distilbert-base-uncased-finetuned-sst-2-english--tf_model.h5                         ben     .            .            .            FP           .            .          
+sshleifer--tiny-distilroberta-base--flax_model.msgpack                                               ben     .            .            .            FP           .            .          
+sshleifer--tiny-distilroberta-base--pytorch_model.bin                                                ben     .            .            .            FP           .            .          
+sshleifer--tiny-distilroberta-base--tf_model.h5                                                      ben     .            .            .            FP           .            .          
+sshleifer--tiny-marian-en-de--pytorch_model.bin                                                      ben     .            .            .            FP           .            .          
+sshleifer--tiny-mbart--pytorch_model.bin                                                             ben     .            .            .            FP           .            .          
+sshleifer--tiny-mbart--tf_model.h5                                                                   ben     .            .            .            FP           .            .          
+sshleifer--tiny-xlnet-base-cased--pytorch_model.bin                                                  ben     .            .            .            FP           .            .          
+timm--resnet18.a1_in1k--model.safetensors                                                            ben     .            .            .            FP           .            .          
+unsloth--DeepSeek-V4-Flash-0731-GGUF--UD-IQ1_M--DeepSeek-V4-Flash-0731-UD-IQ1_M-00001-of-00003.gguf  ben     .            .            .            FP           .            .          
+unsloth--DeepSeek-V4-Flash-0731-GGUF--UD-IQ1_S--DeepSeek-V4-Flash-0731-UD-IQ1_S-00001-of-00003.gguf  ben     .            .            .            FP           .            .          
+unsloth--DeepSeek-V4-Flash-0731-GGUF--UD-IQ2_M--DeepSeek-V4-Flash-0731-UD-IQ2_M-00001-of-00003.gguf  ben     .            .            .            FP           .            .          
+valhalla--ddpm-ema-pokemon-64--checkpoint-1000--random_states_0.pkl                                  ben     .            .            FP           .            .            .          
+vvmnnnkv--wine-quality--model.pkl                                                                    ben     .            .            FP           FP           .            .          
+vvmnnnkv--wine-quality--model_w_features.pkl                                                         ben     .            .            FP           FP           .            .          
+waghelad--dgvj-work--risk_classifier.joblib                                                          ben     .            .            .            FP           .            .          
+
+SUMMARY
+
+scanner                of files read    of corpus        false positives    coverage         errors
+----------------------------------------------------------------------------------------------
+picklescan             12/24 (50%)      12/26 (46%)      1/192 (1%)         216/251 (86%)    35
+picklescan +unknown    13/24 (54%)      13/26 (50%)      38/192 (20%)      
+modelscan              5/13 (38%)       5/26 (19%)       0/80 (0%)          93/251 (37%)     158
+modelaudit             18/26 (69%)      18/26 (69%)      14/225 (6%)        251/251 (100%)   -
+modelaudit +unknown    22/26 (85%)      22/26 (85%)      93/225 (41%)      
+fickling               16/17 (94%)      16/26 (62%)      88/92 (96%)        109/251 (43%)    142
+hayward                26/26 (100%)     26/26 (100%)     0/225 (0%)         251/251 (100%)   -
+hayward +unknown       26/26 (100%)     26/26 (100%)     7/225 (3%)        
+rowan                  26/26 (100%)     26/26 (100%)     0/225 (0%)         251/251 (100%)   -
+rowan +unknown         26/26 (100%)     26/26 (100%)     6/225 (3%)        
+
+Detection and false positives are reported separately and never
+combined into a single score. A scanner that flags every file has
+perfect detection, and one that flags nothing has a perfect false
+positive rate; only the pair means anything.
+
+Each scanner's main row is its strict threshold: only the tier its
+author calls actionable. The '+unknown' row adds that tool's unknown
+bucket (picklescan's suspicious, modelaudit's warning, fickling's
+SUSPICIOUS, hayward's INFO), the analogue of not-flagged for a
+human triager. Report both thresholds or neither: scoring one tool
+at its top tier while counting another's unknown tier is the
+specific unfairness this table exists to avoid. Run with --verbose
+to see each scanner's own verdict string per case.
+
+Detection is given twice. 'Of files read' asks whether a scanner
+finds the payload when it opens the file. 'Of corpus' asks what
+it catches from everything handed to it, counting the files it
+never read as misses. The second is what an operator gets, and
+the two diverge sharply for tools with low coverage: a scanner
+that reads a sixth of the corpus can score well on the first
+column while catching very little.
+
+Coverage is the share of files the scanner returned any verdict
+on. Errored files (parse failures, crashes, zero-file scans) are
+excluded from both numerators and denominators alike: a tool that
+never read the file has no verdict to its name.
+
+Cases marked KNOWN MISS are detected by nothing here, including
+the scanner this project is written alongside. They are carried on
+purpose: a corpus holding only cases its author passes is a corpus
+that flatters its author. A case losing that mark because someone
+fixed it is the most useful thing this benchmark can report.
+
+
+EXTERNALLY-AUTHORED CORPORA
+
+  picklescan test corpus  [MIT]
+  https://github.com/mmaitre314/picklescan
+    picklescan's own test suite, so picklescan scores near-perfectly on it by
+    construction and its column here means little. The informative columns are
+    everyone else's. Labels come from the filename convention the author uses
+    (malicious* / benign*).
+
+      picklescan           detection 34/35 (97%)    false positives 0/3 (0%) (38/39 covered)
+      modelscan            detection 24/29 (83%)    false positives 0/3 (0%) (32/39 covered)
+      modelaudit           detection 30/36 (83%)    false positives 0/3 (0%) (39/39 covered)
+      modelaudit +unknown  detection 31/36 (86%)    false positives 0/3 (0%)
+      fickling             detection 29/29 (100%)   false positives 0/3 (0%) (32/39 covered)
+      hayward              detection 35/35 (100%)   false positives 0/3 (0%) (38/39 covered)
+      rowan                detection 35/35 (100%)   false positives 0/3 (0%) (38/39 covered)
+
+  PickleCloak gadget exploits  [none declared (all rights reserved)]
+  https://github.com/Lyutoon/PickleCloak
+    Generated by a static-analysis plus LLM pipeline that mines the standard
+    library for gadget chains, so it contains resolvers nobody has put on a
+    list. Payloads are benign commands (touch, ls, whoami) per the authors'
+    ethics statement. NO BENIGN HALF: a scanner that flags every file scores
+    100%, so read detection here only alongside the false-positive column from
+    a corpus that has one.
+
+      picklescan           detection 27/57 (47%)    false positives no benign half (57/57 covered)
+      picklescan +unknown  detection 57/57 (100%)   false positives no benign half
+      modelscan            detection 0/57 (0%)      false positives no benign half (57/57 covered)
+      modelaudit           detection 51/57 (89%)    false positives no benign half (57/57 covered)
+      modelaudit +unknown  detection 57/57 (100%)   false positives no benign half
+      fickling             detection 57/57 (100%)   false positives no benign half (57/57 covered)
+      hayward              detection 49/57 (86%)    false positives no benign half (57/57 covered)
+      hayward +unknown     detection 57/57 (100%)   false positives no benign half
+      rowan                detection 50/57 (88%)    false positives no benign half (57/57 covered)
+      rowan +unknown       detection 57/57 (100%)   false positives no benign half
+
+  PickleCloak AEG chains  [none declared (all rights reserved)]
+  https://github.com/Lyutoon/PickleCloak
+    Chained-exploit variants from the same pipeline. NO BENIGN HALF: a scanner
+    that flags every file scores 100%, so read detection here only alongside
+    the false-positive column from a corpus that has one.
+
+      picklescan           detection 41/97 (42%)    false positives no benign half (97/97 covered)
+      picklescan +unknown  detection 97/97 (100%)   false positives no benign half
+      modelscan            detection 0/97 (0%)      false positives no benign half (97/97 covered)
+      modelaudit           detection 69/97 (71%)    false positives no benign half (97/97 covered)
+      modelaudit +unknown  detection 97/97 (100%)   false positives no benign half
+      fickling             detection 97/97 (100%)   false positives no benign half (97/97 covered)
+      hayward              detection 91/97 (94%)    false positives no benign half (97/97 covered)
+      hayward +unknown     detection 97/97 (100%)   false positives no benign half
+      rowan                detection 91/97 (94%)    false positives no benign half (97/97 covered)
+      rowan +unknown       detection 97/97 (100%)   false positives no benign half
+
+corpus: (temporary, discarded)
+scanners run: picklescan 1.0.5 [MIT], modelscan 0.8.8 [Apache-2.0], modelaudit 0.2.52 [MIT], fickling 0.1.12 [LGPL-3.0], hayward 1.0.1 [MIT], rowan 0.3.0 [MIT]
+wrote quickset-all-final.json

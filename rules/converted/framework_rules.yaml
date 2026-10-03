@@ -1,0 +1,476 @@
+rules:
+- id: ns-fw-js-001
+  languages:
+  - javascript
+  - typescript
+  severity: WARNING
+  message: 'Express app without Helmet middleware. Helmet sets security-related HTTP headers.
+
+    Install and use helmet(): app.use(helmet()).'
+  patterns:
+  - pattern-either:
+    - pattern-regex: express\(\)
+    - pattern-regex: \.listen\(
+  - pattern-not-regex: helmet\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 693
+    original_engine: neuroscan
+    rule_name: Express missing Helmet
+- id: ns-fw-js-002
+  languages:
+  - javascript
+  - typescript
+  severity: WARNING
+  message: CORS configured with wildcard origin (*). Restrict to specific trusted domains.
+  patterns:
+  - pattern-either:
+    - pattern-regex: cors\(.*origin.*\*
+    - pattern-regex: Access-Control-Allow-Origin.*\*
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 942
+    original_engine: neuroscan
+    rule_name: CORS wildcard origin
+- id: ns-fw-js-003
+  languages:
+  - javascript
+  - typescript
+  severity: WARNING
+  message: 'Express app with POST/PUT routes but no CSRF middleware detected.
+
+    Use csurf or csrf-csrf middleware for state-changing endpoints.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: express\(\)
+    - pattern-regex: \b(?:app|router)\.post\(
+    - pattern-regex: \b(?:app|router)\.put\(
+  - pattern-not-regex: csrf\(
+  - pattern-not-regex: csurf\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 352
+    original_engine: neuroscan
+    rule_name: Express missing CSRF protection
+- id: ns-fw-js-004
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: 'User input from req.params/query/body near a .query() call.
+
+    Use parameterized queries to prevent SQL injection.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: req\.(?:params|query|body)
+    - pattern-regex: \.query\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 89
+    original_engine: neuroscan
+    rule_name: SQL injection in Express route
+    residual:
+    - sanitizer
+- id: ns-fw-js-005
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: 'User input from request may be reflected in res.send() without encoding.
+
+    Sanitize or encode all user input before sending in responses.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: res\.send\(
+    - pattern-regex: req\.(?:params|query|body)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: xss
+    cwe:
+    - 79
+    original_engine: neuroscan
+    rule_name: Unsanitized response in Express
+    residual:
+    - sanitizer
+- id: ns-fw-java-001
+  languages:
+  - java
+  severity: ERROR
+  message: 'CSRF protection explicitly disabled in Spring Security configuration.
+
+    Only disable for stateless API endpoints using token-based auth.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.csrf\(\)\.disable\(\)
+    - pattern-regex: csrf\s*:\s*false
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 352
+    original_engine: neuroscan
+    rule_name: Spring CSRF disabled
+- id: ns-fw-java-002
+  languages:
+  - java
+  severity: WARNING
+  message: 'permitAll() grants unauthenticated access. Verify this is intentional
+
+    and does not expose admin or sensitive endpoints.'
+  patterns:
+  - pattern-regex: \.permitAll\(\)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 862
+    original_engine: neuroscan
+    rule_name: Spring permitAll on sensitive endpoint
+- id: ns-fw-java-003
+  languages:
+  - java
+  severity: ERROR
+  message: 'Spring Actuator endpoints exposed (env, heapdump, etc.).
+
+    Restrict exposure to health and info only. Protect with authentication.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: management\.endpoints\.web\.exposure\.include\s*=\s*\*
+    - pattern-regex: management\.endpoints\.web\.exposure\.include\s*=\s*.*\benv\b
+    - pattern-regex: management\.endpoints\.web\.exposure\.include\s*=\s*.*\bheapdump\b
+    - pattern-regex: /actuator/env\b
+    - pattern-regex: /actuator/heapdump\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 200
+    original_engine: neuroscan
+    rule_name: Spring Actuator endpoints exposed
+- id: ns-fw-java-004
+  languages:
+  - java
+  severity: ERROR
+  message: 'Spring Expression Language (SpEL) parsing detected. If user input reaches
+
+    parseExpression(), RCE is possible. Use SimpleEvaluationContext with restricted types.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: parseExpression\(
+    - pattern-regex: SimpleEvaluationContext
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 917
+    original_engine: neuroscan
+    rule_name: Spring SpEL injection
+    residual:
+    - sanitizer
+- id: ns-fw-java-005
+  languages:
+  - java
+  severity: ERROR
+  message: 'Mass assignment via BeanUtils.copyProperties() or @ModelAttribute. Attackers
+
+    can set unintended fields. Use DTOs with explicit field mapping.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: BeanUtils\.copyProperties\(
+    - pattern-regex: '@ModelAttribute'
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 915
+    original_engine: neuroscan
+    rule_name: Spring mass assignment
+    residual:
+    - sanitizer
+- id: ns-fw-cs-001
+  languages:
+  - csharp
+  severity: WARNING
+  message: 'State-changing HTTP endpoint without [Authorize] attribute.
+
+    Add [Authorize] to restrict access to authenticated users.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \[HttpPost\]
+    - pattern-regex: \[HttpPut\]
+    - pattern-regex: \[HttpDelete\]
+  - pattern-not-regex: \[Authorize
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 862
+    original_engine: neuroscan
+    rule_name: ASP.NET missing Authorize attribute
+- id: ns-fw-cs-002
+  languages:
+  - csharp
+  severity: WARNING
+  message: 'CORS allows any origin with credentials. This is a browser security violation
+
+    and exposes authenticated endpoints to any site.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.AllowAnyOrigin\(\)
+    - pattern-regex: \.AllowCredentials\(\)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 942
+    original_engine: neuroscan
+    rule_name: ASP.NET CORS any origin with credentials
+- id: ns-fw-cs-003
+  languages:
+  - csharp
+  severity: ERROR
+  message: 'Raw SQL execution in Entity Framework. Use FromSqlInterpolated()
+
+    or parameterized queries to prevent SQL injection.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: FromSqlRaw\(
+    - pattern-regex: ExecuteSqlRaw\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 89
+    original_engine: neuroscan
+    rule_name: ASP.NET raw SQL injection
+    residual:
+    - sanitizer
+- id: ns-fw-cs-004
+  languages:
+  - csharp
+  severity: WARNING
+  message: POST endpoint should use [ValidateAntiForgeryToken] for CSRF protection.
+  patterns:
+  - pattern-either:
+    - pattern-regex: \[HttpPost\]
+    - pattern-regex: \[ValidateAntiForgeryToken\]
+  - pattern-not-regex: \[ValidateAntiForgeryToken\]
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 352
+    original_engine: neuroscan
+    rule_name: ASP.NET missing anti-forgery token
+- id: ns-fw-cs-005
+  languages:
+  - csharp
+  severity: ERROR
+  message: 'UseDeveloperExceptionPage() exposes stack traces and source code.
+
+    Only enable in Development environment behind env.IsDevelopment() check.'
+  patterns:
+  - pattern-regex: UseDeveloperExceptionPage\(\)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 209
+    original_engine: neuroscan
+    rule_name: ASP.NET developer exception page in production
+- id: ns-fw-go-001
+  languages:
+  - go
+  severity: ERROR
+  message: 'User input from Gin/Echo context flows to db.Raw(), db.Exec(), or exec.Command().
+
+    Use parameterized queries and avoid shell commands with user input.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: c\.(?:Param|Query|PostForm)\(
+    - pattern-regex: db\.(?:Raw|Exec)\(
+    - pattern-regex: exec\.Command\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 89
+    - 78
+    original_engine: neuroscan
+    rule_name: Go framework unsanitized input to dangerous sink
+    residual:
+    - sanitizer
+- id: ns-fw-go-002
+  languages:
+  - go
+  severity: WARNING
+  message: CORS allows all origins. Restrict AllowOrigins to specific trusted domains.
+  patterns:
+  - pattern-either:
+    - pattern-regex: AllowAllOrigins\s*:\s*true
+    - pattern-regex: AllowOrigins\s*:\s*\[.*\*
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 942
+    original_engine: neuroscan
+    rule_name: Go CORS wildcard
+- id: ns-fw-go-003
+  languages:
+  - go
+  severity: ERROR
+  message: 'User input from Query/Param injected directly into HTML template rendering.
+
+    Sanitize input before passing to template context.'
+  patterns:
+  - pattern-regex: c\.HTML\(.*c\.(?:Query|Param)\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: xss
+    cwe:
+    - 79
+    original_engine: neuroscan
+    rule_name: Go HTML template injection
+    residual:
+    - sanitizer
+- id: ns-fw-go-005
+  languages:
+  - go
+  severity: WARNING
+  message: 'Redirect target from user input enables open redirect attacks.
+
+    Validate redirect URLs against an allowlist of trusted destinations.'
+  patterns:
+  - pattern-regex: c\.Redirect\(.*c\.(?:Query|Param)\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 601
+    original_engine: neuroscan
+    rule_name: Go open redirect
+    residual:
+    - sanitizer
+- id: ns-fw-py-001
+  languages:
+  - python
+  severity: ERROR
+  message: 'Flask running with debug=True. The Werkzeug debugger allows arbitrary
+
+    code execution. Never enable debug mode in production.'
+  patterns:
+  - pattern-regex: \.run\([^)]*debug\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 489
+    original_engine: neuroscan
+    rule_name: Flask debug mode enabled
+- id: ns-fw-py-003
+  languages:
+  - python
+  severity: ERROR
+  message: 'Redirect target from user input enables open redirect. Validate the
+
+    URL against a whitelist or use url_for() with known endpoints.'
+  patterns:
+  - pattern-regex: redirect\(request\.(?:args|form|GET|POST)\.get\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 601
+    original_engine: neuroscan
+    rule_name: Flask open redirect
+    residual:
+    - sanitizer
+- id: ns-fw-py-004
+  languages:
+  - python
+  severity: WARNING
+  message: 'Django MIDDLEWARE defined but CsrfViewMiddleware may be missing.
+
+    Ensure django.middleware.csrf.CsrfViewMiddleware is in the MIDDLEWARE list.'
+  patterns:
+  - pattern-regex: MIDDLEWARE
+  - pattern-not-regex: CsrfViewMiddleware
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 352
+    original_engine: neuroscan
+    rule_name: Django CSRF middleware missing
+- id: ns-fw-sess-001
+  languages:
+  - python
+  severity: WARNING
+  message: 'Session value set without regenerating the session ID. After login,
+
+    call session.cycle_key() (Django) or regenerate the session to prevent fixation.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: session\[
+    - pattern-regex: request\.session\b
+  - pattern-not-regex: session\.regenerate
+  - pattern-not-regex: cycle_key\(
+  - pattern-not-regex: flush\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 384
+    original_engine: neuroscan
+    rule_name: Session fixation risk

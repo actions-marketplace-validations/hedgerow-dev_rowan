@@ -1,0 +1,692 @@
+# Rowan AI/ML Taint Rules: Opengrep-compatible taint mode rules
+# These rules use Opengrep's dataflow engine for interprocedural taint tracking.
+# Requires: `--taint-intrafile` flag when running opengrep scan.
+
+rules:
+
+  # ── Deserialization ──────────────────────────────────────────────
+  - id: TNT-DESER-001
+    mode: taint
+    message: |
+      User-controlled data reaches pickle.load(): arbitrary code execution.
+      Attack vector: An attacker can send a malicious pickle payload that
+      executes arbitrary Python code when deserialized.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [502]
+      category: deserialization
+      fix: "Use pickle.loads only on trusted data, or switch to a safe format (json, safetensors); if you must accept untrusted pickles, use a restricted Unpickler that allowlists classes."
+    pattern-sources:
+      # rowan-registry:begin source=web_request
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=web_request
+
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: pickle.load($DATA)
+              - pattern: pickle.loads($DATA)
+              - pattern: dill.load($DATA)
+              - pattern: dill.loads($DATA)
+              - pattern: torch.load($DATA)
+              - pattern: joblib.load($DATA)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: yaml.safe_load(...)
+              - pattern: json.loads(...)
+              - pattern: safetensors.torch.load_file(...)
+              - pattern: weights_only=True
+
+  - id: TNT-DESER-002
+    mode: taint
+    message: |
+      Tainted data reaches torch.load without weights_only=True.
+      CVE-2025-32434: torch.load executes arbitrary pickle code.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [502]
+      category: deserialization
+      fix: "Add weights_only=True to torch.load(), or migrate the checkpoint to safetensors."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              # rowan-registry:begin source=user_input
+              - patterns:
+                  - pattern-either:
+                      - pattern: request.args.get(...)
+                      - pattern: request.args[...]
+                      - pattern: request.form.get(...)
+                      - pattern: request.form[...]
+                      - pattern: request.json.get(...)
+                      - pattern: request.json[...]
+                      - pattern: request.data
+                      - pattern: request.values.get(...)
+                      - pattern: request.files.get(...)
+                      - pattern: request.cookies.get(...)
+                      - pattern: request.headers.get(...)
+                      - pattern: request.GET.get(...)
+                      - pattern: request.GET[...]
+                      - pattern: request.POST.get(...)
+                      - pattern: request.POST[...]
+                      - pattern: request.body
+                      - pattern: request.query_params
+                      - pattern: input(...)
+                      - pattern: await request.json(...)
+                      - pattern: await request.form(...)
+                      - pattern: await request.body(...)
+                      - pattern: await websocket.recv(...)
+                      - pattern: await websocket.receive_text(...)
+                      - pattern: st.chat_input(...)
+                      - pattern: st.text_input(...)
+                      - pattern: st.file_uploader(...)
+                      - pattern: gr.File(...)
+                      - pattern: gr.UploadButton(...)
+              # rowan-registry:end source=user_input
+              - pattern: request.files[...]
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: torch.load($DATA)
+              - pattern: torch.load($DATA, ...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern: torch.load($DATA, weights_only=True, ...)
+
+  - id: TNT-DESER-003
+    mode: taint
+    message: |
+      User-controlled data reaches yaml.unsafe_load(): RCE possible via YAML deserialization.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [502]
+      category: deserialization
+      fix: "Replace yaml.unsafe_load()/yaml.load() with yaml.safe_load()."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              # rowan-registry:begin source=user_input
+              - patterns:
+                  - pattern-either:
+                      - pattern: request.args.get(...)
+                      - pattern: request.args[...]
+                      - pattern: request.form.get(...)
+                      - pattern: request.form[...]
+                      - pattern: request.json.get(...)
+                      - pattern: request.json[...]
+                      - pattern: request.data
+                      - pattern: request.values.get(...)
+                      - pattern: request.files.get(...)
+                      - pattern: request.cookies.get(...)
+                      - pattern: request.headers.get(...)
+                      - pattern: request.GET.get(...)
+                      - pattern: request.GET[...]
+                      - pattern: request.POST.get(...)
+                      - pattern: request.POST[...]
+                      - pattern: request.body
+                      - pattern: request.query_params
+                      - pattern: input(...)
+                      - pattern: await request.json(...)
+                      - pattern: await request.form(...)
+                      - pattern: await request.body(...)
+                      - pattern: await websocket.recv(...)
+                      - pattern: await websocket.receive_text(...)
+                      - pattern: st.chat_input(...)
+                      - pattern: st.text_input(...)
+                      - pattern: st.file_uploader(...)
+                      - pattern: gr.File(...)
+                      - pattern: gr.UploadButton(...)
+              # rowan-registry:end source=user_input
+              - pattern: request.files[...]
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: yaml.load($DATA)
+              - pattern: yaml.unsafe_load($DATA)
+              - pattern: yaml.full_load($DATA)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: yaml.safe_load(...)
+              - pattern: yaml.load($DATA, Loader=yaml.SafeLoader)
+              - pattern: yaml.load($DATA, Loader=yaml.CSafeLoader)
+
+  # ── Code Injection ───────────────────────────────────────────────
+  - id: TNT-INJECT-001
+    mode: taint
+    message: User-controlled data reaches eval(), allowing arbitrary code execution.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [95]
+      category: injection
+      fix: "Never call eval() on untrusted input; use ast.literal_eval() for data, or a proper parser for the expected format."
+    pattern-sources:
+      # rowan-registry:begin source=web_request
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=web_request
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: eval($CODE)
+              - pattern: exec($CODE)
+              - pattern: compile($CODE, ...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: ast.literal_eval(...)
+              - pattern: int($CODE)
+              - pattern: float($CODE)
+
+  - id: TNT-INJECT-002
+    mode: taint
+    message: Tainted data reaches subprocess command, enabling command injection.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [78]
+      category: command_injection
+      fix: "Use subprocess with a list of arguments and shell=False instead of a shell-interpolated command string."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: subprocess.run($CMD, shell=True, ...)
+              - pattern: subprocess.Popen($CMD, shell=True, ...)
+              - pattern: subprocess.call($CMD, shell=True, ...)
+              - pattern: os.system($CMD)
+              - pattern: os.popen($CMD)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: shlex.quote(...)
+              - pattern: subprocess.run([..., ...])
+              - pattern: subprocess.run(..., shell=False)
+
+  # ── SSRF ─────────────────────────────────────────────────────────
+  - id: TNT-SSRF-001
+    mode: taint
+    message: User-controlled URL reaches HTTP request, so SSRF is possible.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [918]
+      category: ssrf
+      fix: "Validate the destination host against an explicit allowlist of permitted domains/IPs before making the request; do not rely on URL parsing alone."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    # Engine note (DEF-40, re-verified empirically 2026-07-13): a bare
+    # `pattern-sanitizers` entry of `$URL in $ALLOWLIST` does NOT clear taint
+    # in this Opengrep engine version, regardless of whether the real code
+    # writes the positive form (`if url in ALLOWLIST: requests.get(url)`),
+    # the early-return negative form (`if url not in ALLOWLIST: return`),
+    # or the full if/else form -- confirmed live against the binary: the
+    # finding still fired in every guard-clause shape tested when expressed
+    # as a `pattern-sanitizers` entry (sanitizers only clear taint when the
+    # tainted value is itself reassigned/wrapped, e.g. `$X = validate($X)`;
+    # a boolean membership test is a disconnected expression node that never
+    # intercepts the flow). Replaced with a sink-level `pattern-not-inside`
+    # structural exclusion instead, which IS syntactic containment (does the
+    # sink call lexically appear inside the guarded branch?) rather than
+    # dataflow sanitization, and empirically does suppress both the
+    # positive-branch and if/else idioms while still firing on the
+    # unsanitized case. Residual gap, not fixed: the early-return idiom
+    # (`if url not in ALLOWLIST: return` followed by the sink at the same
+    # indentation level, no else) is not a containment relationship, so it
+    # is NOT recognized -- a correctly-guarded early-return case still
+    # produces a finding. Accepted as a known false positive (over-flagging,
+    # not a silent false negative) rather than reproducing the non-functional
+    # bare-boolean sanitizer.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: requests.get($URL)
+              - pattern: requests.post($URL)
+              - pattern: requests.put($URL)
+              - pattern: requests.delete($URL)
+              - pattern: httpx.get($URL)
+              - pattern: httpx.AsyncClient(...).get($URL)
+              - pattern: urllib.request.urlopen($URL)
+              - pattern: urllib.request.Request($URL)
+          - pattern-not-inside: |
+              if $URL in $ALLOWLIST:
+                  ...
+          - pattern-not-inside: |
+              if $URL not in $ALLOWLIST:
+                  ...
+              else:
+                  ...
+
+  # ── SSTI ─────────────────────────────────────────────────────────
+  - id: TNT-SSTI-001
+    mode: taint
+    message: |
+      User-controlled data reaches Jinja2 template rendering: SSTI → RCE.
+      Attacker-controlled template strings allow arbitrary Python execution.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [94, 1336]
+      category: ssti
+      fix: "Render user-controlled content as data (e.g. autoescaped Jinja2 variables), not as a template string; if templates must be dynamic, use jinja2.sandbox.SandboxedEnvironment."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-sinks:
+      - patterns:
+          # Django's `render(request, "literal.html", ctx)` shortcut resolves to
+          # `django.shortcuts.render(...)`, which `$TEMPLATE.render(...)` matches
+          # with $TEMPLATE = django.shortcuts. The template there is a literal
+          # file name and the tainted value is autoescaped context, not SSTI.
+          - pattern-not: django.shortcuts.render(...)
+          - pattern-either:
+              - pattern: $ENV.from_string($TEMPLATE)
+              - pattern: Template($TEMPLATE).render(...)
+              - pattern: $TEMPLATE.render(...)
+              - pattern: render_template_string($TEMPLATE)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: SandboxedEnvironment
+              - pattern: ImmutableSandboxedEnvironment
+
+  # ── AI/ML ───────────────────────────────────────────────────────
+  - id: TNT-AIML-001
+    mode: taint
+    message: |
+      User-controlled model path reaches from_pretrained() with trust_remote_code=True.
+      This allows arbitrary code execution via custom model code.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [94]
+      category: ai_ml
+      fix: "Never set trust_remote_code=True on a user-influenced model path; pin to an explicit, vetted allowlist of model repos instead."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    # Engine note (DEF-40, re-verified empirically 2026-07-13): see
+    # TNT-SSRF-001's identical engine note above -- same non-functional
+    # `pattern-sanitizers: $PATH in $ALLOWED_MODELS` bug, same
+    # `pattern-not-inside` fix, same residual early-return-idiom gap.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: AutoModel.from_pretrained($PATH, trust_remote_code=True)
+              - pattern: AutoTokenizer.from_pretrained($PATH, trust_remote_code=True)
+              - pattern: $MODEL.from_pretrained($PATH, trust_remote_code=True)
+          - pattern-not-inside: |
+              if $PATH in $ALLOWED_MODELS:
+                  ...
+          - pattern-not-inside: |
+              if $PATH not in $ALLOWED_MODELS:
+                  ...
+              else:
+                  ...
+
+  - id: TNT-AIML-002
+    mode: taint
+    message: |
+      User input flows into LLM system prompt: prompt injection.
+      Malicious input can override system instructions.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [94]
+      category: prompt_injection
+      fix: "Keep user input in a separate message role (e.g. the `user` turn) rather than concatenating it into the system prompt; treat model output as untrusted for any downstream action."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $LLM.generate($INPUT, system_prompt=$PROMPT)
+              - pattern: |
+                  $LLM.chat([{"role": "system", "content": $PROMPT}, ...])
+              - pattern: |
+                  openai.ChatCompletion.create(messages=[{"role": "system", "content": $PROMPT}, ...])
+
+  # ── msgpack object/ext-hook reconstruction on checkpoint load ───────
+  # (CVE-2026-28277) GitHub issue #291. A checkpoint is deserialized with
+  # msgpack using a custom `object_hook` / `ext_hook` (or a custom
+  # serializer's own `.loads`), which reconstructs arbitrary Python
+  # objects on load. An attacker who can modify the stored checkpoint
+  # bytes triggers that reconstruction -> gadget path; chains with the
+  # metadata-key SQLi (TNT-LG-001 / CVE-2025-67644) to RCE on self-hosted
+  # LangGraph (CVSS 6.8).
+  #
+  # Precision (mirrors BACKLOG DEF-11 -- do not treat a memory-safe
+  # decoder as a code-exec sink): the sink MUST carry an
+  # object_hook/ext_hook/custom-serializer argument. A bare
+  # `msgpack.unpackb(data)` into plain dicts is memory-safe and MUST NOT
+  # fire -- every msgpack sink below requires the hook kwarg to be
+  # present, so the no-hook decode is silent. Verified empirically against
+  # the opengrep binary: the hook-carrying fixtures fire, the bare
+  # `msgpack.unpackb(data, raw=False)` fixture does not.
+  #
+  # Disjointness vs. ns-aiml-041 (rules/ai_security.yaml, the msgpack
+  # WITH-pickle-fallback case): ns-aiml-041 is a broad regex on
+  # `msgpack.unpackb(`/`msgpack.loads(` and owns the pickle-fallback
+  # shape (a bare unpackb followed by an `except: pickle.loads`). This
+  # rule deliberately does NOT fire on that no-hook shape (it has no
+  # hook), so the pickle-fallback case stays with ns-aiml-041; this rule
+  # adds the distinct object-hook/ext-hook reconstruction path
+  # ns-aiml-041 cannot express. Confirmed: the pickle-fallback fixture
+  # fires ns-aiml-041 and NOT this rule.
+  #
+  # Generality: not LangGraph-specific. Any project that feeds untrusted
+  # bytes (a request body, a Redis/DB blob read, a file read) into
+  # `msgpack.unpackb(..., object_hook=)` / `msgpack.Unpacker(...,
+  # ext_hook=)` has the bug; LangGraph's JsonPlusSerializer is one
+  # instance, matched by the serializer-`.loads` sink.
+  - id: TNT-DESER-007
+    mode: taint
+    message: |
+      Untrusted checkpoint/blob bytes reach a msgpack decode that
+      reconstructs Python objects via a custom object_hook/ext_hook (or a
+      custom serializer's .loads). CVE-2026-28277: an attacker who can
+      modify the stored checkpoint triggers object reconstruction on load,
+      a deserialization gadget path. A bare msgpack.unpackb() into plain
+      dicts is memory-safe and is intentionally NOT flagged -- only the
+      hook-carrying reconstruction is. Chains with TNT-LG-001 to RCE.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [502]
+      category: deserialization
+      fix: "Do not run object reconstruction on an untrusted checkpoint. Decode with raw=True / strict_map_key and no object_hook/ext_hook, validate the plain result against an explicit schema, and only then rebuild trusted objects. Never register an object_hook/ext_hook that instantiates arbitrary classes from attacker-modifiable bytes."
+    pattern-sources:
+      # rowan-registry:begin source=web_request
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=web_request
+      # Checkpoint-store read shapes not covered by web_request: a blob
+      # fetched from a DB/Redis connection or read from a checkpoint file.
+      - patterns:
+          - pattern-either:
+              - pattern: $CONN.get(...)
+              - pattern: open(...).read()
+              - pattern: $F.read()
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: msgpack.unpackb($DATA, ..., object_hook=$H, ...)
+              - pattern: msgpack.unpackb($DATA, ..., ext_hook=$H, ...)
+              - pattern: msgpack.unpack($DATA, ..., object_hook=$H, ...)
+              - pattern: msgpack.unpack($DATA, ..., ext_hook=$H, ...)
+              - pattern: msgpack.Unpacker($DATA, ..., object_hook=$H, ...)
+              - pattern: msgpack.Unpacker($DATA, ..., ext_hook=$H, ...)
+              - pattern: ormsgpack.unpackb($DATA, ..., ext_hook=$H, ...)
+              # LangGraph JsonPlusSerializer and any custom serializer's own
+              # loads/_loads entry point (the custom-serializer case);
+              # receiver constrained so this is not a bare `.loads` on any
+              # object.
+              - patterns:
+                  - pattern-either:
+                      - pattern: $SER.loads($DATA)
+                      - pattern: $SER._loads($DATA)
+                  - metavariable-regex:
+                      metavariable: $SER
+                      regex: (?i).*(serializer|serde|jsonplus).*
+    # Reassignment-style schema-validation sanitizer only (a bare validate
+    # call that does not rebind the decoded value is not honored by this
+    # engine version -- see agent_taint.yaml's header note). The primary
+    # safe path (raw=True / no hook) needs no sanitizer: it simply does not
+    # match a hook-carrying sink.
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $VAR = $MODEL.model_validate($X)
+              - pattern: $VAR = $MODEL.model_validate_json($X)

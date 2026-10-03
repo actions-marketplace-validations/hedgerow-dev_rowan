@@ -1,0 +1,284 @@
+{
+  "description": "AI-surface snippets scored with taint analysis ON (vuln_cases is scored with taint OFF, so a mode: taint rule can never score there). Each case names the file, its language, its CWE, and the exact expected_rule_id a taint-on scan of the language directory MUST report for that file. Cases are attributed by language plus basename, so basenames must be unique within each language directory. `pool` works as in vuln_cases: \"regression\" (default) gates CI at 100%; \"holdout\" is reported and only compared against the committed baseline (it may go up freely, a drop fails).",
+  "cases": [
+    {
+      "file": "python/llm_sql.py",
+      "language": "python",
+      "cwe": 89,
+      "expected_rule_id": "TNT-LLMOUT-001",
+      "description": "OpenAI completion text (response.choices[0].message.content) is executed as SQL via cursor.execute()."
+    },
+    {
+      "file": "java/placeholder_llm_sql.java",
+      "language": "java",
+      "cwe": 89,
+      "expected_rule_id": "tnt-ja-ai-llmout-sql-001",
+      "pool": "holdout",
+      "description": "Spring AI chatClient.prompt().user(q).call().content() flows into Statement.executeQuery(sql). Landed under JG-05."
+    },
+    {
+      "file": "go/placeholder_mcp_exec.go",
+      "language": "go",
+      "cwe": 78,
+      "expected_rule_id": "tnt-go-ai-mcptool-exec-001",
+      "pool": "holdout",
+      "description": "mcp-go tool argument req.GetString(\"cmd\", \"\") flows into exec.Command(\"sh\", \"-c\", cmd). Landed under JG-10."
+    },
+    {
+      "file": "java/tool_exec.java",
+      "language": "java",
+      "cwe": 78,
+      "expected_rule_id": "tnt-ja-ai-toolexec-001",
+      "pool": "regression",
+      "description": "Spring AI @Tool method's @ToolParam String command flows into new ProcessBuilder(\"sh\", \"-c\", command)."
+    },
+    {
+      "file": "java/tool_path.java",
+      "language": "java",
+      "cwe": 22,
+      "expected_rule_id": "tnt-ja-ai-toolpath-001",
+      "pool": "regression",
+      "description": "LangChain4j @Tool method's @P String fileName is joined onto a fixed directory and read via Files.readString(Paths.get(...))."
+    },
+    {
+      "file": "java/tool_sql.java",
+      "language": "java",
+      "cwe": 89,
+      "expected_rule_id": "tnt-ja-ai-toolsql-001",
+      "pool": "regression",
+      "description": "Spring AI @Tool method's String name is concatenated into the SQL text passed to JdbcTemplate.queryForList."
+    },
+    {
+      "file": "java/tool_ssrf.java",
+      "language": "java",
+      "cwe": 918,
+      "expected_rule_id": "tnt-ja-ai-toolssrf-001",
+      "pool": "regression",
+      "description": "Spring AI @Tool method's @ToolParam String url is fetched with Jsoup.connect(url).get()."
+    },
+    {
+      "file": "go/mcp_path.go",
+      "language": "go",
+      "cwe": 22,
+      "expected_rule_id": "tnt-go-ai-mcptool-path-001",
+      "description": "mcp-go tool argument req.RequireString(\"path\") flows into os.ReadFile with no allowlist check."
+    },
+    {
+      "file": "go/mcp_sql.go",
+      "language": "go",
+      "cwe": 89,
+      "expected_rule_id": "tnt-go-ai-mcptool-sql-001",
+      "description": "mcp-go tool argument req.RequireString(\"name\") is concatenated into the statement text passed to db.QueryContext."
+    },
+    {
+      "file": "go/mcp_ssrf.go",
+      "language": "go",
+      "cwe": 918,
+      "expected_rule_id": "tnt-go-ai-mcptool-ssrf-001",
+      "description": "Official go-sdk typed tool argument args.URL flows into http.Get."
+    },
+    {
+      "file": "go/llm_sql.go",
+      "language": "go",
+      "cwe": 89,
+      "expected_rule_id": "tnt-go-ai-llmout-sql-001",
+      "description": "openai-go resp.Choices[0].Message.Content is executed via db.QueryContext."
+    },
+    {
+      "file": "go/llm_exec.go",
+      "language": "go",
+      "cwe": 78,
+      "expected_rule_id": "tnt-go-ai-llmout-exec-001",
+      "description": "langchaingo llms.GenerateFromSinglePrompt return flows into exec.CommandContext(ctx, \"sh\", \"-c\", cmd)."
+    },
+    {
+      "file": "go/llm_ssrf.go",
+      "language": "go",
+      "cwe": 918,
+      "expected_rule_id": "tnt-go-ai-llmout-ssrf-001",
+      "description": "anthropic-sdk-go msg.Content[0].Text flows into http.Get."
+    },
+    {
+      "file": "go/llm_path.go",
+      "language": "go",
+      "cwe": 22,
+      "expected_rule_id": "tnt-go-ai-llmout-path-001",
+      "description": "go-openai resp.Choices[0].Message.Content flows into os.ReadFile."
+    },
+    {
+      "file": "go/mcp_bind.go",
+      "language": "go",
+      "cwe": 306,
+      "expected_rule_id": "tnt-go-ai-mcpbind-001",
+      "description": "mcp-go server.NewSSEServer(s).Start(\"0.0.0.0:8080\") with no auth middleware (search-mode inventory rule in go_ai_opengrep.yaml)."
+    },
+    {
+      "file": "java/llmout_exec.java",
+      "language": "java",
+      "cwe": 78,
+      "expected_rule_id": "tnt-ja-ai-llmout-exec-001",
+      "pool": "regression",
+      "description": "Spring AI chatClient.prompt().user(q).call().content() flows into new ProcessBuilder(\"sh\", \"-c\", cmd). Landed under JG-05."
+    },
+    {
+      "file": "java/llmout_ssrf.java",
+      "language": "java",
+      "cwe": 918,
+      "expected_rule_id": "tnt-ja-ai-llmout-ssrf-001",
+      "pool": "regression",
+      "description": "Spring AI completion text flows into restTemplate.getForObject(url, ...). Landed under JG-05."
+    },
+    {
+      "file": "java/llmout_path.java",
+      "language": "java",
+      "cwe": 22,
+      "expected_rule_id": "tnt-ja-ai-llmout-path-001",
+      "pool": "regression",
+      "description": "Spring AI completion text flows into new File(name). Landed under JG-05."
+    },
+    {
+      "file": "java/llmout_xss.java",
+      "language": "java",
+      "cwe": 79,
+      "expected_rule_id": "tnt-ja-ai-llmout-xss-001",
+      "pool": "regression",
+      "description": "Spring AI completion text is written unescaped via HttpServletResponse.getWriter().println(html). Landed under JG-05."
+    },
+    {
+      "file": "java/llmout_spel.java",
+      "language": "java",
+      "cwe": 917,
+      "expected_rule_id": "tnt-ja-ai-llmout-spel-001",
+      "pool": "regression",
+      "description": "Spring AI completion text is evaluated via SpelExpressionParser.parseExpression(expr). Landed under JG-05."
+    },
+    {
+      "file": "java/llmout_deser.java",
+      "language": "java",
+      "cwe": 502,
+      "expected_rule_id": "tnt-ja-ai-llmout-deser-001",
+      "pool": "regression",
+      "description": "Spring AI completion text is loaded via new Yaml().load(body). Landed under JG-05."
+    },
+    {
+      "file": "java/sysprompt.java",
+      "language": "java",
+      "cwe": 20,
+      "expected_rule_id": "tnt-ja-ai-sysprompt-001",
+      "pool": "regression",
+      "description": "A @RequestParam value becomes new SystemMessage(persona). Landed under JG-06."
+    },
+    {
+      "file": "java/mcpcmd.java",
+      "language": "java",
+      "cwe": 78,
+      "expected_rule_id": "tnt-ja-ai-mcpcmd-001",
+      "pool": "regression",
+      "description": "A @RequestParam value flows into StdioMcpTransport.command(cmd). Landed under JG-06."
+    },
+    {
+      "file": "java/mcpcmd_db.java",
+      "language": "java",
+      "cwe": 78,
+      "expected_rule_id": "tnt-ja-ai-mcpcmd-002",
+      "pool": "regression",
+      "description": "StdioMcpTransport.command(entity.getStdioCommand()) is a non-literal command (search-mode rule in java_llm_opengrep.yaml, the aideepin UserMcpService shape). Landed under JG-06."
+    },
+    {
+      "file": "java/unsafe_yaml.java",
+      "language": "java",
+      "cwe": 502,
+      "expected_rule_id": "tnt-ja-ai-yaml-001",
+      "pool": "regression",
+      "description": "A @RequestParam value is loaded via new Yaml().load(body) with no SafeConstructor. Landed under JG-06."
+    },
+    {
+      "file": "java/vector_filter.java",
+      "language": "java",
+      "cwe": 943,
+      "expected_rule_id": "tnt-ja-ai-vectorq-001",
+      "pool": "regression",
+      "description": "A @RequestParam value is run directly as Cypher via Session.run(cypher). Landed under JG-06."
+    },
+    {
+      "file": "python/localexec.py",
+      "language": "python",
+      "cwe": 94,
+      "expected_rule_id": "tnt-py-ai-localexec-001",
+      "pool": "holdout",
+      "description": "smolagents CodeAgent(executor_type=\"local\", additional_authorized_imports=[\"os\", \"subprocess\"]) fed request text. PLANNED under PY-04."
+    },
+    {
+      "file": "python/bypassperm.py",
+      "language": "python",
+      "cwe": 250,
+      "expected_rule_id": "tnt-py-ai-bypassperm-001",
+      "pool": "holdout",
+      "description": "Claude Agent SDK ClaudeAgentOptions(permission_mode=\"bypassPermissions\", allowed_tools=[\"Bash\", \"Write\"]) with query(prompt=user_text). PLANNED under PY-04."
+    },
+    {
+      "file": "python/msghistory.py",
+      "language": "python",
+      "cwe": 918,
+      "expected_rule_id": "tnt-py-ai-msghistory-001",
+      "pool": "holdout",
+      "description": "Pydantic AI agent.run(..., message_history=) built from a request body via ModelMessagesTypeAdapter.validate_json (CVE-2026-25580 chain). PLANNED under PY-05."
+    },
+    {
+      "file": "python/mcpopenapi.py",
+      "language": "python",
+      "cwe": 918,
+      "expected_rule_id": "tnt-py-ai-mcpopenapi-001",
+      "pool": "holdout",
+      "description": "FastMCP.from_openapi(spec, client=httpx.AsyncClient(...)) where the spec comes from a request-controlled URL (CVE-2026-32871). PLANNED under PY-05."
+    },
+    {
+      "file": "python/mcpauth.py",
+      "language": "python",
+      "cwe": 306,
+      "expected_rule_id": "tnt-py-ai-mcpauth-001",
+      "pool": "holdout",
+      "description": "FastMCP 2 mcp.run(transport=\"http\", host=\"0.0.0.0\") with no auth= on the server. PLANNED under PY-05/PY-06."
+    },
+    {
+      "file": "python/sessionscope.py",
+      "language": "python",
+      "cwe": 639,
+      "expected_rule_id": "tnt-py-ai-sessionscope-001",
+      "pool": "holdout",
+      "description": "OpenAI Agents SQLiteSession(session_id) keyed on a request-supplied id with no user principal. PLANNED under PY-08."
+    },
+    {
+      "file": "python/handoffpriv.py",
+      "language": "python",
+      "cwe": 269,
+      "expected_rule_id": "tnt-py-ai-handoffpriv-001",
+      "pool": "holdout",
+      "description": "OpenAI Agents Agent(handoffs=[child]) where the child holds ShellTool(executor=LocalShellExecutor()). PLANNED under PY-07."
+    },
+    {
+      "file": "python/hitl.py",
+      "language": "python",
+      "cwe": 862,
+      "expected_rule_id": "tnt-py-ai-hitl-001",
+      "pool": "holdout",
+      "description": "LangGraph plan -> run edge where run executes a model-written shell command and no interrupt() sits between. PLANNED under PY-07."
+    },
+    {
+      "file": "python/skfilter.py",
+      "language": "python",
+      "cwe": 94,
+      "expected_rule_id": "tnt-py-ai-skfilter-001",
+      "pool": "holdout",
+      "description": "Semantic Kernel InMemoryVectorStore collection.search(query, filter=request_text) (CVE-2026-26030). PLANNED under PY-05."
+    },
+    {
+      "file": "python/sktemplate.py",
+      "language": "python",
+      "cwe": 1336,
+      "expected_rule_id": "tnt-py-ai-sktemplate-001",
+      "pool": "holdout",
+      "description": "Semantic Kernel KernelPromptTemplate built from PromptTemplateConfig(template=request_text) and rendered. PLANNED under PY-05."
+    }
+  ]
+}

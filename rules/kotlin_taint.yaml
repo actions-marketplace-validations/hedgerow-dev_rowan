@@ -1,0 +1,317 @@
+rules:
+  - id: tnt-kt-sqli-001
+    mode: taint
+    languages: [kotlin]
+    severity: ERROR
+    message: >-
+      User input flows into a SQL query without parameterization, enabling SQL injection.
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      confidence: HIGH
+      category: security
+      fix: "Use PreparedStatement with bound parameters (setString/setInt) or JdbcTemplate's args parameter instead of interpolating input into SQL text."
+    pattern-sources:
+      # Javalin (io.javalin.http.Context)
+      - pattern: $CTX.queryParam(...)
+      - pattern: $CTX.pathParam(...)
+      - pattern: $CTX.formParam(...)
+      - pattern: $CTX.header(...)
+      - pattern: $CTX.body()
+      - pattern: $CTX.bodyAsClass(...)
+      # Ktor (ApplicationCall)
+      - pattern: $CALL.parameters[...]
+      - pattern: $CALL.request.queryParameters[...]
+      - pattern: $CALL.receiveText()
+      - pattern: $CALL.receive<$T>()
+      # Servlet
+      - pattern: $REQ.getParameter(...)
+      - pattern: $REQ.getHeader(...)
+      # Spring annotated parameters. Kotlin puts the type after the name and
+      # allows expression-bodied functions, so both function shapes are listed.
+      - patterns:
+          - pattern: $PARAM
+          - pattern-either:
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestParam(...) $PARAM: $TYPE, ...) {
+                    ...
+                  }
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestParam(...) $PARAM: $TYPE, ...) = $BODY
+      - patterns:
+          - pattern: $PARAM
+          - pattern-either:
+              - pattern-inside: |
+                  fun $METHOD(..., @PathVariable(...) $PARAM: $TYPE, ...) {
+                    ...
+                  }
+              - pattern-inside: |
+                  fun $METHOD(..., @PathVariable(...) $PARAM: $TYPE, ...) = $BODY
+      - patterns:
+          - pattern: $PARAM
+          - pattern-either:
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestBody(...) $PARAM: $TYPE, ...) {
+                    ...
+                  }
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestBody(...) $PARAM: $TYPE, ...) = $BODY
+      - patterns:
+          - pattern: $PARAM
+          - pattern-either:
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestHeader(...) $PARAM: $TYPE, ...) {
+                    ...
+                  }
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestHeader(...) $PARAM: $TYPE, ...) = $BODY
+    pattern-sinks:
+      - pattern: $S.executeQuery(...)
+      - pattern: $S.executeUpdate(...)
+      - pattern: $C.prepareStatement(...)
+      - pattern: $T.queryForObject(...)
+      # Typed on purpose: bare `$S.execute(...)` / `$T.query(...)` /
+      # `$T.update(...)` would match any executor, cache or repository call.
+      # Opengrep resolves the type from parameter and constructor-property
+      # declarations, not from a locally inferred `val`.
+      - pattern: "($S : Statement).execute(...)"
+      - pattern: "($T : JdbcTemplate).query(...)"
+      - pattern: "($T : JdbcTemplate).update(...)"
+    pattern-sanitizers:
+      - pattern: $X.toInt()
+      - pattern: $X.toLong()
+      - pattern: $X.toIntOrNull()
+      - pattern: Integer.parseInt(...)
+
+  - id: tnt-kt-cmdi-001
+    mode: taint
+    languages: [kotlin]
+    severity: ERROR
+    message: >-
+      User input flows into a command execution call, enabling OS command injection.
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      confidence: HIGH
+      category: security
+      fix: "Pass arguments to ProcessBuilder/Runtime.exec() as separate array elements, never via a shell-interpolated string."
+    pattern-sources:
+      # Javalin (io.javalin.http.Context)
+      - pattern: $CTX.queryParam(...)
+      - pattern: $CTX.pathParam(...)
+      - pattern: $CTX.formParam(...)
+      - pattern: $CTX.header(...)
+      - pattern: $CTX.body()
+      - pattern: $CTX.bodyAsClass(...)
+      # Ktor (ApplicationCall)
+      - pattern: $CALL.parameters[...]
+      - pattern: $CALL.request.queryParameters[...]
+      - pattern: $CALL.receiveText()
+      - pattern: $CALL.receive<$T>()
+      # Servlet
+      - pattern: $REQ.getParameter(...)
+      - pattern: $REQ.getHeader(...)
+      # Spring annotated parameters. Kotlin puts the type after the name and
+      # allows expression-bodied functions, so both function shapes are listed.
+      - patterns:
+          - pattern: $PARAM
+          - pattern-either:
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestParam(...) $PARAM: $TYPE, ...) {
+                    ...
+                  }
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestParam(...) $PARAM: $TYPE, ...) = $BODY
+      - patterns:
+          - pattern: $PARAM
+          - pattern-either:
+              - pattern-inside: |
+                  fun $METHOD(..., @PathVariable(...) $PARAM: $TYPE, ...) {
+                    ...
+                  }
+              - pattern-inside: |
+                  fun $METHOD(..., @PathVariable(...) $PARAM: $TYPE, ...) = $BODY
+      - patterns:
+          - pattern: $PARAM
+          - pattern-either:
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestBody(...) $PARAM: $TYPE, ...) {
+                    ...
+                  }
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestBody(...) $PARAM: $TYPE, ...) = $BODY
+      - patterns:
+          - pattern: $PARAM
+          - pattern-either:
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestHeader(...) $PARAM: $TYPE, ...) {
+                    ...
+                  }
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestHeader(...) $PARAM: $TYPE, ...) = $BODY
+    pattern-sinks:
+      - pattern: Runtime.getRuntime().exec(...)
+      - pattern: ProcessBuilder(...)
+    pattern-sanitizers:
+      - pattern: $X.toInt()
+      - pattern: $X.toLong()
+      - pattern: $X.toIntOrNull()
+      - pattern: Integer.parseInt(...)
+
+  - id: tnt-kt-path-001
+    mode: taint
+    languages: [kotlin]
+    severity: ERROR
+    message: >-
+      User input flows into a filesystem path, enabling path traversal attacks.
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+      confidence: HIGH
+      category: security
+      fix: "Resolve with Path.normalize() and verify the result is still under the intended base directory (startsWith the base's real path) before use, or keep only File(input).name to discard directory components."
+    pattern-sources:
+      # Javalin (io.javalin.http.Context)
+      - pattern: $CTX.queryParam(...)
+      - pattern: $CTX.pathParam(...)
+      - pattern: $CTX.formParam(...)
+      - pattern: $CTX.header(...)
+      - pattern: $CTX.body()
+      - pattern: $CTX.bodyAsClass(...)
+      # Ktor (ApplicationCall)
+      - pattern: $CALL.parameters[...]
+      - pattern: $CALL.request.queryParameters[...]
+      - pattern: $CALL.receiveText()
+      - pattern: $CALL.receive<$T>()
+      # Servlet
+      - pattern: $REQ.getParameter(...)
+      - pattern: $REQ.getHeader(...)
+      # Spring annotated parameters. Kotlin puts the type after the name and
+      # allows expression-bodied functions, so both function shapes are listed.
+      - patterns:
+          - pattern: $PARAM
+          - pattern-either:
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestParam(...) $PARAM: $TYPE, ...) {
+                    ...
+                  }
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestParam(...) $PARAM: $TYPE, ...) = $BODY
+      - patterns:
+          - pattern: $PARAM
+          - pattern-either:
+              - pattern-inside: |
+                  fun $METHOD(..., @PathVariable(...) $PARAM: $TYPE, ...) {
+                    ...
+                  }
+              - pattern-inside: |
+                  fun $METHOD(..., @PathVariable(...) $PARAM: $TYPE, ...) = $BODY
+      - patterns:
+          - pattern: $PARAM
+          - pattern-either:
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestBody(...) $PARAM: $TYPE, ...) {
+                    ...
+                  }
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestBody(...) $PARAM: $TYPE, ...) = $BODY
+      - patterns:
+          - pattern: $PARAM
+          - pattern-either:
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestHeader(...) $PARAM: $TYPE, ...) {
+                    ...
+                  }
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestHeader(...) $PARAM: $TYPE, ...) = $BODY
+    pattern-sinks:
+      # Kotlin has no `new`, so constructors are bare calls.
+      - pattern: File(...)
+      - pattern: FileInputStream(...)
+      - pattern: FileOutputStream(...)
+      - pattern: FileReader(...)
+      - pattern: Paths.get(...)
+    pattern-sanitizers:
+      - pattern: $X.toInt()
+      - pattern: $X.toLong()
+      - pattern: $X.toIntOrNull()
+      - pattern: Integer.parseInt(...)
+
+  - id: tnt-kt-ssrf-001
+    mode: taint
+    languages: [kotlin]
+    severity: ERROR
+    message: >-
+      User input flows into an outbound HTTP request URL, enabling server-side request forgery.
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery (SSRF)"
+      confidence: HIGH
+      category: security
+      fix: "Validate the destination host against an explicit allowlist of permitted domains/IPs before making the request."
+    pattern-sources:
+      # Javalin (io.javalin.http.Context)
+      - pattern: $CTX.queryParam(...)
+      - pattern: $CTX.pathParam(...)
+      - pattern: $CTX.formParam(...)
+      - pattern: $CTX.header(...)
+      - pattern: $CTX.body()
+      - pattern: $CTX.bodyAsClass(...)
+      # Ktor (ApplicationCall)
+      - pattern: $CALL.parameters[...]
+      - pattern: $CALL.request.queryParameters[...]
+      - pattern: $CALL.receiveText()
+      - pattern: $CALL.receive<$T>()
+      # Servlet
+      - pattern: $REQ.getParameter(...)
+      - pattern: $REQ.getHeader(...)
+      # Spring annotated parameters. Kotlin puts the type after the name and
+      # allows expression-bodied functions, so both function shapes are listed.
+      - patterns:
+          - pattern: $PARAM
+          - pattern-either:
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestParam(...) $PARAM: $TYPE, ...) {
+                    ...
+                  }
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestParam(...) $PARAM: $TYPE, ...) = $BODY
+      - patterns:
+          - pattern: $PARAM
+          - pattern-either:
+              - pattern-inside: |
+                  fun $METHOD(..., @PathVariable(...) $PARAM: $TYPE, ...) {
+                    ...
+                  }
+              - pattern-inside: |
+                  fun $METHOD(..., @PathVariable(...) $PARAM: $TYPE, ...) = $BODY
+      - patterns:
+          - pattern: $PARAM
+          - pattern-either:
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestBody(...) $PARAM: $TYPE, ...) {
+                    ...
+                  }
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestBody(...) $PARAM: $TYPE, ...) = $BODY
+      - patterns:
+          - pattern: $PARAM
+          - pattern-either:
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestHeader(...) $PARAM: $TYPE, ...) {
+                    ...
+                  }
+              - pattern-inside: |
+                  fun $METHOD(..., @RequestHeader(...) $PARAM: $TYPE, ...) = $BODY
+    pattern-sinks:
+      - pattern: URL(...)
+      - pattern: URI(...)
+      - pattern: HttpRequest.newBuilder(...)
+      # Typed on purpose: bare `$C.get(...)` would match every Map/List get.
+      - pattern: "($CLIENT : HttpClient).get(...)"
+      - pattern: "($CLIENT : HttpClient).post(...)"
+    pattern-sanitizers:
+      - pattern: $X.toInt()
+      - pattern: $X.toLong()
+      - pattern: $X.toIntOrNull()
+      - pattern: Integer.parseInt(...)

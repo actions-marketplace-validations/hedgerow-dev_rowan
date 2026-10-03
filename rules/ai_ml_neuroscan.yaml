@@ -1,0 +1,495 @@
+# Enhanced AI/ML NeuroScan Rules: Gradio, MCP, OmegaConf, vector store, agent exposure
+rules:
+
+  # ── Chat Template SSTI (CVE-2026-5760): precision rules ────────
+  - id: NS-AIML-029
+    name: Unsandboxed Jinja2 Template from chat_template (CVE-2026-5760)
+    severity: critical
+    category: ssti
+    cwe: [94, 1336]
+    fix: "Render chat templates in a sandboxed Jinja2 environment (jinja2.sandbox.SandboxedEnvironment); never render a template string sourced from model metadata directly."
+    languages: [python]
+    patterns:
+      - '\bTemplate\(.*chat_template'
+      - '\bTemplate\(self\.chat_template'
+    pattern-not:
+      - 'SandboxedEnvironment'
+      - 'ImmutableSandboxedEnvironment'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      CRITICAL: Chat template rendered with unsandboxed Jinja2 Template().
+      CVE-2026-5760: Model-provided chat_template can inject SSTI payloads
+      achieving RCE when loaded from GGUF/tokenizer_config.json.
+      Fix: Use jinja2.sandbox.ImmutableSandboxedEnvironment instead of Template().
+
+  # ── Gradio / Streamlit sandbox escapes ──────────────────────────
+  - id: NS-AIML-005
+    name: Gradio file upload without validation
+    severity: high
+    category: ai_ml
+    cwe: [434]
+    languages: [python]
+    patterns:
+      - 'gr\.File\s*\('
+      - 'gr\.UploadButton\s*\('
+    pattern-not:
+      - 'file_count\s*='
+      - 'file_types\s*='
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Gradio file input without file type or count restrictions. Attackers can
+      upload arbitrary files including pickle payloads. Set file_types and file_count.
+
+  - id: NS-AIML-006
+    name: Gradio live reload enabled
+    severity: medium
+    category: ai_ml
+    cwe: [94]
+    languages: [python]
+    patterns:
+      - '\.launch\s*\([^)]*share\s*=\s*True'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Gradio app with share=True exposes the app publicly via Gradio's tunnel.
+      Combined with file upload or code execution, this is remotely exploitable.
+
+  - id: NS-AIML-007
+    name: Gradio auth bypass
+    severity: high
+    category: auth
+    cwe: [287]
+    languages: [python]
+    patterns:
+      - 'auth_message\s*=\s*None'
+      - 'auth\s*=\s*None'
+    pattern-not:
+      - 'auth\s*=\s*login_check'
+      - 'auth\s*=\s*\['
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Gradio app without authentication. All endpoints including file upload
+      and code execution are publicly accessible.
+
+  - id: NS-AIML-008
+    name: Streamlit caching of potentially sensitive data
+    severity: medium
+    category: deserialization
+    cwe: [502]
+    languages: [python]
+    patterns:
+      - 'st\.cache_data\s*\('
+      - 'st\.cache_resource\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Streamlit's @st.cache_data/@st.cache_resource decorators serialize the
+      function's return value for reuse. This is presence-only: confirm the
+      cached function does not deserialize or re-execute attacker-influenced
+      data, and that the cache itself isn't reachable by an untrusted party
+      (e.g. shared disk-backed cache in a multi-tenant deployment).
+
+  # ── MCP / Agent tool exposure ───────────────────────────────────
+  - id: NS-AIML-009
+    name: MCP server tool exposure
+    severity: high
+    category: ai_ml
+    cwe: [749]
+    languages: [python]
+    patterns:
+      - '@server\.(tool|call_tool)\b'
+      - 'mcp\.server\.Server\s*\('
+    pattern-not:
+      - 'auth.*required'
+      - 'require.*auth'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      MCP server tool exposed without authentication check. An attacker who can
+      reach the MCP endpoint can execute arbitrary tools on the server.
+
+  - id: NS-AIML-010
+    name: Agent tool with system access
+    severity: WARNING
+    category: ai_ml
+    cwe: [94]
+    languages: [python]
+    patterns:
+      - 'os\.system\s*\('
+      - 'subprocess\.(run|Popen|call)\s*\('
+    pattern-not:
+      - 'shell\s*=\s*False'
+      - '(?:argparse|sys\.argv|--help|setup\.py|pip\s+install|pip\s+uninstall)'
+      - 'subprocess\.run\(\[["''](?:git|docker|pip|npm|cargo|go|make|cmake)["'']'
+      - 'subprocess\.(?:run|Popen|call)\([^)]*capture_output\s*=\s*True'
+      - 'subprocess\.(?:run|Popen|call)\([^)]*check\s*=\s*True'
+      - 'subprocess\.(?:run|Popen|call)\([^)]*text\s*=\s*True'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+      - '(?:@fixture|@pytest)'
+    message: |
+      Presence signal: AI agent tool wrapping shell execution. Only a confirmed
+      vulnerability when an LLM-agent can invoke this function AND user input
+      reaches it. Restrict tool capabilities to non-shell operations.
+
+  - id: NS-AIML-011
+    name: LangChain tool with exec/eval
+    severity: critical
+    category: ai_ml
+    cwe: [94]
+    fix: "Validate LLM-chosen tool arguments against an explicit allowlist before execution; never let a tool directly wrap eval()/exec()."
+    languages: [python]
+    patterns:
+      - '@tool\b.*\bexec\b'
+      - '@tool\b.*\beval\b'
+      - 'class.*Tool.*\bexec\b'
+      - 'class.*Tool.*\beval\b'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      LangChain/agent tool wrapping exec()/eval(). An LLM that can invoke this
+      tool has arbitrary Python execution. Never expose eval/exec as tools.
+
+  - id: NS-AIML-012
+    name: MCP stdio transport in production
+    severity: medium
+    category: ai_ml
+    cwe: [749]
+    languages: [python]
+    patterns:
+      - 'StdioServerTransport\s*\('
+    pattern-not:
+      - '__main__'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      MCP using stdio transport in non-development context. stdout transport allows
+      any child process to inject responses. Use HTTP/SSE transport in production.
+
+  # ── OmegaConf / Config injection ────────────────────────────────
+  - id: NS-AIML-013
+    name: OmegaConf merge with user input
+    severity: high
+    category: ai_ml
+    cwe: [94]
+    languages: [python]
+    patterns:
+      - 'OmegaConf\.merge\s*\('
+      - 'OmegaConf\.unsafe_merge\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      OmegaConf.merge() with user-controlled config enables config injection.
+      Attackers can override arbitrary config values. Validate/sanitize user config.
+
+  - id: NS-AIML-014
+    name: Dynamic YAML config loading
+    severity: high
+    category: ai_ml
+    cwe: [502]
+    languages: [python]
+    patterns:
+      - 'OmegaConf\.load\s*\('
+    pattern-not:
+      - 'struct\s*=\s*True'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      OmegaConf.load() without struct validation allows arbitrary key injection.
+      Use OmegaConf.structured() with a schema, or set struct=True.
+
+  # ── Vector store / RAG ──────────────────────────────────────────
+  - id: NS-AIML-015
+    name: Pinecone insert without validation
+    severity: medium
+    category: ai_ml
+    cwe: [74]
+    languages: [python]
+    patterns:
+      - 'pinecone\.(upsert|insert)\s*\('
+    pattern-not:
+      - '\.(embeddings|embed)\('
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Raw data inserted into vector store without embedding. Attacker-controlled
+      vectors can manipulate search results. Always embed and validate.
+
+  - id: NS-AIML-016
+    name: ChromaDB with telemetry enabled
+    severity: low
+    category: ai_ml
+    cwe: [200]
+    languages: [python]
+    patterns:
+      - 'chromadb\.Settings\s*\([^)]*anonymized_telemetry\s*=\s*True'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      ChromaDB with telemetry enabled may leak query patterns. Disable in
+      environments handling sensitive data.
+
+  - id: NS-AIML-017
+    name: Weaviate GraphQL without auth
+    severity: high
+    category: auth
+    cwe: [306]
+    languages: [python]
+    patterns:
+      - 'weaviate\.Client\s*\('
+    pattern-not:
+      - 'auth_client_secret\s*='
+      - 'api_key\s*='
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Weaviate client without authentication. Unauthenticated access to vector
+      database allows data exfiltration and poisoning.
+
+  # ── ML supply chain deep ────────────────────────────────────────
+  - id: NS-AIML-018
+    name: torch.hub.load from user input
+    severity: critical
+    category: supply_chain
+    cwe: [829]
+    fix: "Pin torch.hub.load() to a vetted, explicit allowlist of repositories rather than a user-influenced path."
+    languages: [python]
+    patterns:
+      - 'torch\.hub\.load\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      torch.hub.load() downloads and executes code from GitHub repositories.
+      If the repo/user is user-controlled, this is arbitrary code execution.
+      Pin to trusted repos and specific commits.
+
+  - id: NS-AIML-019
+    name: Unpinned pip install in ML code
+    severity: medium
+    category: supply_chain
+    cwe: [829]
+    languages: [python]
+    patterns:
+      - 'subprocess.*pip.*install.*(transformers|torch|tensorflow|keras)'
+    pattern-not:
+      - '=='
+      - '>='
+      - 'requirements'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Unpinned ML package installation. Supply chain attack via dependency
+      confusion or malicious version. Pin exact versions.
+
+  - id: NS-AIML-020
+    name: ML model download from dynamic URL
+    severity: high
+    category: supply_chain
+    cwe: [494]
+    languages: [python]
+    patterns:
+      - 'wget\.download\s*\('
+      - 'urlretrieve\s*\('
+      - 'requests\.get.*\.(pt|pth|onnx|h5|keras|gguf)'
+    pattern-not:
+      - '\.(startswith|endswith)\('
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      ML model downloaded from potentially user-controlled URL. Could deliver
+      backdoored model files. Validate source and verify checksums.
+
+  # ── Fine-tuning / inference API exposure ────────────────────────
+  - id: NS-AIML-021
+    name: Fine-tuning endpoint without auth
+    severity: critical
+    category: ai_ml
+    cwe: [306]
+    fix: "Require authentication on any fine-tuning/training endpoint that accepts uploaded data or models."
+    languages: [python]
+    patterns:
+      - '@app\.(post|route).*fine.?tun(e|ing)'
+      - '@app\.(post|route).*train'
+    pattern-not:
+      - '@login_required'
+      - '@auth'
+      - 'require.*auth'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Fine-tuning or training endpoint without authentication. Attackers can
+      upload poisoned training data or override model weights.
+
+  - id: NS-AIML-022
+    name: Model inference with raw file upload
+    severity: high
+    category: ai_ml
+    cwe: [434]
+    languages: [python]
+    patterns:
+      - 'request\.files.*\.(read|save)\s*\('
+    pattern-not:
+      - 'secure_filename\s*\('
+      - '\.endswith\(.*allowed'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      File upload to model inference without filename/type validation.
+      Attackers can upload backdoored model files or malicious inputs.
+
+  # ── LangChain / agent framework specifics ───────────────────────
+  - id: NS-AIML-023
+    name: LangChain structured object serialization boundary
+    severity: critical
+    category: deserialization
+    cwe: [502]
+    fix: "Do not round-trip untrusted dictionaries through an object serializer. Upgrade affected langchain-core versions, keep untrusted data inert, and use an explicit minimal allowed_objects list when loading objects."
+    languages: [python]
+    patterns:
+      - 'langchain_core\.load\.(loads?|dump[ds]?)\s*\('
+      - 'langchain\.load\.(loads?|dump[ds]?)\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      LangChain structured object serialization is used at this boundary.
+      Affected langchain-core versions allowed attacker dictionaries containing
+      reserved serialization markers to be revived as trusted framework objects
+      after a dumps/load round trip (CVE-2025-68664). This is not pickle and is
+      not automatically RCE; impact depends on the revived object's constructor
+      and secrets available to the loader. Keep untrusted data inert, upgrade,
+      and restrict object allowlists.
+
+  - id: NS-AIML-024
+    name: LangGraph checkpoint without validation
+    severity: medium
+    category: ai_ml
+    cwe: [502]
+    languages: [python]
+    patterns:
+      - 'SqliteSaver\s*\('
+      - 'MemorySaver\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      LangGraph checkpoint saver used without input validation. Malicious
+      checkpoint data could inject state. Validate all checkpoint inputs.
+
+  - id: NS-AIML-025
+    name: CrewAI/autogen multi-agent without sandbox
+    severity: high
+    category: ai_ml
+    cwe: [749]
+    languages: [python]
+    patterns:
+      - 'crewai\.Agent\s*\('
+      - 'autogen\.AssistantAgent\s*\('
+    pattern-not:
+      - 'allow_code_execution\s*=\s*False'
+      - 'code_execution_config\s*='
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Multi-agent framework without code execution restrictions. LLMs can
+      generate and execute arbitrary code through agent tools. Restrict code execution.
+
+  # ── HuggingFace specifics ───────────────────────────────────────
+  - id: NS-AIML-027
+    name: HF dataset streaming from URL
+    severity: medium
+    category: supply_chain
+    cwe: [829]
+    languages: [python]
+    patterns:
+      - 'load_dataset\s*\([^)]*streaming\s*=\s*True'
+    pattern-not:
+      - 'split\s*='
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      HF dataset streaming without split specification. Could consume unlimited
+      resources or deliver poisoned data. Specify split and limit samples.
+
+  - id: NS-AIML-028
+    name: ONNX model from untrusted source
+    severity: high
+    category: ai_ml
+    cwe: [502]
+    languages: [python]
+    patterns:
+      - 'onnx\.load\s*\('
+      - 'onnxruntime\.InferenceSession\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      ONNX model loading from untrusted source. ONNX runtime has had multiple
+      CVEs for model-triggered code execution. Validate model provenance.
+
+  # ── numpy / ONNX native-code loading surface ────────────────────
+
+  - id: NS-AIML-030
+    name: numpy ctypeslib loads arbitrary native library
+    severity: high
+    category: supply_chain
+    cwe: [829]
+    fix: "Load only libraries from a fixed, vetted install path; never build the library name or search path from model metadata, config files, or other untrusted input."
+    languages: [python]
+    patterns:
+      - 'numpy\.ctypeslib\.load_library\s*\('
+      - '\bctypeslib\.load_library\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      numpy.ctypeslib.load_library() loads and executes an arbitrary native
+      shared library by name from a search path. If the library name or path
+      is influenced by model metadata, config, or other untrusted input, this
+      is native code execution. Pin to a fixed, vetted library path.
+
+  - id: NS-AIML-031
+    name: numpy f2py compiles and runs arbitrary source
+    severity: critical
+    category: injection
+    cwe: [94]
+    fix: "Never pass untrusted Fortran/C source to numpy.f2py.compile(); only compile source that ships with the trusted codebase."
+    languages: [python]
+    patterns:
+      - 'numpy\.f2py\.compile\s*\('
+      - '\bf2py\.compile\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      numpy.f2py.compile() compiles Fortran/C source and can execute the
+      resulting extension module. Untrusted source reaching this call is
+      direct code execution, not just deserialization.
+
+  - id: NS-AIML-032
+    name: ONNX Runtime loads custom native ops library
+    severity: critical
+    category: supply_chain
+    cwe: [829]
+    fix: "Only register custom-ops libraries you built and vetted yourself; never load a native library that shipped alongside an untrusted ONNX model."
+    languages: [python]
+    patterns:
+      - 'register_custom_ops_library\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      SessionOptions.register_custom_ops_library() loads an arbitrary native
+      .so/.dll into the process, distinct from and more dangerous than
+      loading an untrusted ONNX model file (NS-AIML-028), since it runs
+      native code directly rather than going through the ONNX op-graph
+      sandbox. Only load custom-ops libraries you built yourself.

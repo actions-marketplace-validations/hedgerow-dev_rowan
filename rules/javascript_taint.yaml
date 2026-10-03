@@ -1,0 +1,313 @@
+rules:
+  - id: tnt-js-sqli-001
+    mode: taint
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      User input flows into a SQL query without parameterization, enabling SQL injection.
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      confidence: HIGH
+      category: security
+      fix: "Use parameterized queries (the driver's placeholder/prepared-statement API) instead of concatenating input into SQL text."
+    pattern-sources:
+      - pattern: req.query
+      - pattern: req.body
+      - pattern: req.params
+      - pattern: req.headers
+      - pattern: request.query
+      - pattern: request.body
+      - pattern: request.params
+      - pattern: ctx.query
+      - pattern: ctx.request.body
+      - pattern: ctx.params
+      - pattern: ctx.headers
+    # Only the SQL text argument is the sink; a tainted value in the
+    # placeholder-values argument (`pool.query("... $1", [req.query.id])`)
+    # is parameterized, not injected (RT-01).
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.query($SQL, ...)
+              - pattern: $DB.execute($SQL, ...)
+              - pattern: db.run($SQL, ...)
+              - pattern: connection.query($SQL, ...)
+              - pattern: pool.query($SQL, ...)
+              - pattern: sequelize.query($SQL, ...)
+              - pattern: knex.raw($SQL, ...)
+          - focus-metavariable: $SQL
+    pattern-sanitizers:
+      - pattern: $DB.where(...)
+      - pattern: $DB.create(...)
+      - pattern: parseInt(...)
+      - pattern: Number(...)
+
+  - id: tnt-js-cmdi-001
+    mode: taint
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      User input flows into a command execution call, enabling OS command injection.
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      confidence: HIGH
+      category: security
+      fix: "Use child_process.execFile()/spawn() with an argument array instead of exec() with a shell-interpolated string."
+    pattern-sources:
+      - pattern: req.query
+      - pattern: req.body
+      - pattern: req.params
+      - pattern: req.headers
+      - pattern: request.query
+      - pattern: request.body
+      - pattern: request.params
+      - pattern: ctx.query
+      - pattern: ctx.request.body
+      - pattern: ctx.params
+      - pattern: ctx.headers
+    pattern-sinks:
+      - pattern: exec(...)
+      - pattern: execSync(...)
+      - pattern: spawn(...)
+      - pattern: child_process.exec(...)
+    pattern-sanitizers:
+      - pattern: spawn($CMD, [...])
+
+  - id: tnt-js-path-001
+    mode: taint
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      User input flows into a filesystem path, enabling path traversal attacks.
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+      confidence: HIGH
+      category: security
+      fix: "Resolve with path.resolve() and verify the result is still under the intended base directory (startsWith the base's resolved path) before use, or use path.basename() to discard directory components entirely."
+    pattern-sources:
+      - pattern: req.query
+      - pattern: req.body
+      - pattern: req.params
+      - pattern: req.headers
+      - pattern: request.query
+      - pattern: request.body
+      - pattern: request.params
+      - pattern: ctx.query
+      - pattern: ctx.request.body
+      - pattern: ctx.params
+      - pattern: ctx.headers
+    pattern-sinks:
+      - pattern: fs.readFile(...)
+      - pattern: fs.readFileSync(...)
+      - pattern: fs.writeFile(...)
+      - pattern: path.join(...)
+      - pattern: res.sendFile(...)
+      - pattern: res.download(...)
+    pattern-sanitizers:
+      - pattern: path.basename(...)
+
+  - id: tnt-js-ssrf-001
+    mode: taint
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      User input flows into an outbound HTTP request URL, enabling server-side request forgery.
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery (SSRF)"
+      confidence: HIGH
+      category: security
+      fix: "Validate the destination host against an explicit allowlist of permitted domains/IPs before making the request."
+    pattern-sources:
+      - pattern: req.query
+      - pattern: req.body
+      - pattern: req.params
+      - pattern: req.headers
+      - pattern: request.query
+      - pattern: request.body
+      - pattern: request.params
+      - pattern: ctx.query
+      - pattern: ctx.request.body
+      - pattern: ctx.params
+      - pattern: ctx.headers
+    pattern-sinks:
+      - pattern: fetch(...)
+      - pattern: axios.get(...)
+      - pattern: axios(...)
+      - pattern: http.get(...)
+      - pattern: https.request(...)
+      - pattern: got(...)
+    pattern-sanitizers:
+      - pattern: validateUrl(...)
+
+  - id: tnt-js-xss-001
+    mode: taint
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      User input flows into an HTML output context without sanitization, enabling cross-site scripting.
+    metadata:
+      cwe:
+        - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
+      confidence: HIGH
+      category: security
+      fix: "Assign user input via textContent (not innerHTML), or sanitize with DOMPurify.sanitize() before inserting into the DOM."
+    pattern-sources:
+      - pattern: req.query
+      - pattern: req.body
+      - pattern: req.params
+      - pattern: req.headers
+      - pattern: request.query
+      - pattern: request.body
+      - pattern: request.params
+      - pattern: ctx.query
+      - pattern: ctx.request.body
+      - pattern: ctx.params
+      - pattern: ctx.headers
+    pattern-sinks:
+      - pattern: res.send(...)
+      - pattern: $EL.innerHTML = $VAL
+      - pattern: document.write(...)
+      - patterns:
+          - pattern: $PROPS.dangerouslySetInnerHTML
+    pattern-sanitizers:
+      - pattern: DOMPurify.sanitize(...)
+      - pattern: encodeURIComponent(...)
+
+  - id: tnt-js-nosql-001
+    mode: taint
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      User input flows into a NoSQL query operator, enabling NoSQL injection.
+    metadata:
+      cwe:
+        - "CWE-943: Improper Neutralization of Special Elements in Data Query Logic"
+      confidence: HIGH
+      category: security
+      fix: "Reject non-primitive query values (e.g. an object where a string is expected) so operators like $ne/$gt can't be injected, or use a schema-validating ODM."
+    pattern-sources:
+      - pattern: req.query
+      - pattern: req.body
+      - pattern: req.params
+      - pattern: req.headers
+      - pattern: request.query
+      - pattern: request.body
+      - pattern: request.params
+      - pattern: ctx.query
+      - pattern: ctx.request.body
+      - pattern: ctx.params
+      - pattern: ctx.headers
+    pattern-sinks:
+      - pattern: $COLLECTION.find(...)
+      - pattern: $COLLECTION.findOne(...)
+      - pattern: Model.find(...)
+      - pattern: $COLLECTION.updateOne(...)
+    pattern-sanitizers:
+      - pattern: mongoSanitize(...)
+      - pattern: ObjectId(...)
+
+  - id: tnt-js-log-001
+    mode: taint
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: >-
+      User input flows into a log statement without sanitization, enabling log injection.
+    metadata:
+      cwe:
+        - "CWE-117: Improper Output Neutralization for Logs"
+      confidence: MEDIUM
+      category: security
+      fix: "Strip or encode newline/CR characters before writing user input to a log entry, so a single log line can't be forged."
+    pattern-sources:
+      - pattern: req.query
+      - pattern: req.body
+      - pattern: req.params
+      - pattern: req.headers
+      - pattern: request.query
+      - pattern: request.body
+      - pattern: request.params
+      - pattern: ctx.query
+      - pattern: ctx.request.body
+      - pattern: ctx.params
+      - pattern: ctx.headers
+    pattern-sinks:
+      - pattern: console.log(...)
+      - pattern: console.info(...)
+      - pattern: logger.info(...)
+      - pattern: logger.warn(...)
+      - pattern: logger.error(...)
+    pattern-sanitizers:
+      - pattern: JSON.stringify(...)
+
+  - id: tnt-js-header-001
+    mode: taint
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      User input flows into an HTTP response header, enabling header injection or response splitting.
+    metadata:
+      cwe:
+        - "CWE-113: Improper Neutralization of CRLF Sequences in HTTP Headers ('HTTP Response Splitting')"
+      confidence: HIGH
+      category: security
+      fix: "Reject or strip CR/LF characters from values written into HTTP response headers before setting them."
+    pattern-sources:
+      - pattern: req.query
+      - pattern: req.body
+      - pattern: req.params
+      - pattern: req.headers
+      - pattern: request.query
+      - pattern: request.body
+      - pattern: request.params
+      - pattern: ctx.query
+      - pattern: ctx.request.body
+      - pattern: ctx.params
+      - pattern: ctx.headers
+    pattern-sinks:
+      - pattern: res.setHeader(...)
+      - pattern: res.set(...)
+      - pattern: res.header(...)
+      - pattern: res.cookie(...)
+      - pattern: res.redirect(...)
+    pattern-sanitizers:
+      - pattern: encodeURIComponent(...)
+
+  - id: tnt-js-proto-001
+    mode: taint
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      User input flows into an unsafe object merge, enabling prototype pollution.
+    metadata:
+      cwe:
+        - "CWE-1321: Improperly Controlled Modification of Object Prototype Attributes ('Prototype Pollution')"
+      confidence: HIGH
+      category: security
+      fix: "Reject keys named `__proto__`/`constructor`/`prototype` before merging user-controlled objects, or use Object.create(null)/a merge library with prototype-pollution protection."
+    pattern-sources:
+      - pattern: req.query
+      - pattern: req.body
+      - pattern: req.params
+      - pattern: req.headers
+      - pattern: request.query
+      - pattern: request.body
+      - pattern: request.params
+      - pattern: ctx.query
+      - pattern: ctx.request.body
+      - pattern: ctx.params
+      - pattern: ctx.headers
+    pattern-sinks:
+      - pattern: Object.assign(...)
+      - pattern: "_.merge(...)"
+      - pattern: lodash.merge(...)
+      - pattern: deepmerge(...)
+    pattern-sanitizers:
+      - pattern: Object.create(null)
+      - pattern: Object.freeze(...)
+      - pattern: $JOI.validate(...)
+      - pattern: $YUP.validate(...)
+      - pattern: $ZOD.parse(...)

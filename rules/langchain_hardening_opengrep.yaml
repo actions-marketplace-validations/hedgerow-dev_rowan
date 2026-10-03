@@ -1,0 +1,109 @@
+# LangChain hardening rulepack (Hedgerow), Opengrep search-mode rules.
+#
+# Portable: this file is standard Opengrep YAML, so it runs both inside
+# rowan (auto-discovered by the *_opengrep.yaml glob in passes/taint.py)
+# and standalone via `opengrep --config rules/langchain_hardening_opengrep.yaml`.
+#
+# These close the code-pattern detection gap found by the langchain-vuln-demo
+# baseline (see Security-research/LANGCHAIN-SECURE-LAYER-PLAN.md, M0 result).
+# Flow-based (taint) siblings live in langchain_hardening_taint.yaml.
+
+rules:
+  # V5: unsafe deserialization of an untrusted vector index / store.
+  - id: LC-HARDEN-DESER-001
+    name: allow_dangerous_deserialization=True on a vector store load
+    message: >
+      allow_dangerous_deserialization=True lets a pickle inside the serialized
+      index execute arbitrary code at load time. It is safe only for an index
+      you built and fully control; a downloaded, user-supplied, or shared index
+      is attacker-influenced. Rebuild the index locally, or load from a safe
+      format, instead of enabling this flag.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [502]
+      category: deserialization
+      source_rule: LC-HARDEN
+      references:
+        - https://hedgerow.dev/blog/langchain-threat-model
+      fix: "Remove allow_dangerous_deserialization=True; only load indexes you produced yourself in a trusted environment."
+    patterns:
+      - pattern: $F(..., allow_dangerous_deserialization=True, ...)
+
+  # V3: jinja2-format LangChain prompt template splices user data into a
+  # template that evaluates {{...}} at render time (fewshot / prompt injection).
+  - id: LC-HARDEN-JINJA-FEWSHOT-001
+    name: jinja2 template_format on a LangChain prompt template
+    message: >
+      A LangChain PromptTemplate or FewShotPromptTemplate built with
+      template_format="jinja2" renders {{...}} in its input as template code.
+      When user-controlled text (a question, or fewshot example content) is
+      spliced into the template, an attacker can inject jinja2 that executes at
+      render time, leaking data or reaching Python internals. Use the default
+      f-string format, or strictly validate and escape any user data before it
+      reaches a jinja2 template.
+    # Precision: WARNING, not ERROR. This search rule fires on the construct
+    # regardless of taint; a constant/developer-controlled jinja2 template is
+    # not a bug. The high-precision ERROR path is LC-HARDEN-TAINT-JINJA-001.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [1336, 94]
+      category: injection
+      source_rule: LC-HARDEN
+      references:
+        - https://hedgerow.dev/blog/langchain-threat-model
+      fix: "Drop template_format=\"jinja2\" (use the default f-string format), or validate and escape user data before it enters a jinja2 template."
+    patterns:
+      - pattern: $T(..., template_format="jinja2", ...)
+
+  # V8: vectorstore similarity_search filter built as a variable (often via
+  # string concatenation) instead of a scoped literal dict -> cross-tenant reads.
+  - id: LC-HARDEN-VECTORFILTER-001
+    name: vectorstore similarity_search filter from an unscoped variable
+    message: >
+      similarity_search(..., filter=<var>) passes a metadata filter that is not
+      an inline literal dict. When that filter is assembled from request params
+      (for example by string concatenation), a crafted value can break out of
+      the intended tenant or scope and read other tenants' documents. Build the
+      filter as a scoped literal dict from validated fields instead of splicing
+      user input.
+    # Precision: WARNING, not ERROR. Cross-tenant read depends on how the var
+    # was built; a non-literal filter is not always attacker-controlled. The
+    # taint story (a request value into the filter) is the confirmer.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [943]
+      category: injection
+      source_rule: LC-HARDEN
+      references:
+        - https://hedgerow.dev/blog/langchain-threat-model
+      fix: "Build the filter as a scoped literal dict from validated fields; never assemble it from concatenated request params."
+    patterns:
+      - pattern: $STORE.similarity_search(..., filter=$F, ...)
+      - pattern-not: $STORE.similarity_search(..., filter={...}, ...)
+
+  # allow_dangerous_requests=True lets a GraphCypherQAChain run model-generated
+  # Cypher with no restriction. This is a config smell (no data flow needed):
+  # real recall in the wild comes from the flag, not from single-file taint.
+  - id: LC-HARDEN-CYPHER-DANGEROUS-001
+    name: GraphCypherQAChain with allow_dangerous_requests=True
+    message: >
+      GraphCypherQAChain.from_llm(..., allow_dangerous_requests=True) lets the
+      chain execute the Cypher it generates from a question with no read-only
+      restriction. On any user-facing endpoint a crafted question can emit
+      MERGE/DELETE/CREATE and mutate or destroy the graph. Constrain the chain
+      to a read-only Neo4j role, or validate the generated Cypher, instead of
+      enabling this flag.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [943]
+      category: injection
+      source_rule: LC-HARDEN
+      references:
+        - https://hedgerow.dev/blog/langchain-threat-model
+      fix: "Do not set allow_dangerous_requests=True on a user-facing chain; use a read-only graph role or validate the generated Cypher."
+    patterns:
+      - pattern: GraphCypherQAChain.from_llm(..., allow_dangerous_requests=True, ...)

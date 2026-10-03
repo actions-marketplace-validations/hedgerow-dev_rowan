@@ -1,0 +1,221 @@
+rules:
+- id: CS-INJECT-001
+  languages:
+  - csharp
+  severity: ERROR
+  message: 'Process.Start() with shell execution is a command injection sink.
+
+    Use ProcessStartInfo with UseShellExecute=false and argument array.'
+  patterns:
+  - pattern-regex: Process\.Start\s*\(
+  - pattern-not-regex: UseShellExecute\s*=\s*false
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: command_injection
+    cwe:
+    - 78
+    original_engine: neuroscan
+    rule_name: Process.Start command injection
+    residual:
+    - sanitizer
+- id: CS-INJECT-002
+  languages:
+  - csharp
+  severity: ERROR
+  message: 'SQL query constructed via string concatenation. Use SqlParameter
+
+    with @param placeholders for parameterized queries.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: SqlCommand\(.*\+
+    - pattern-regex: \.CommandText\s*=.*\+
+  - pattern-not-regex: SqlParameter\b
+  - pattern-not-regex: \.Parameters\.Add\(
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: injection
+    cwe:
+    - 89
+    original_engine: neuroscan
+    rule_name: SQL injection via string concat
+    residual:
+    - sanitizer
+- id: CS-DESER-001
+  languages:
+  - csharp
+  severity: ERROR
+  message: 'Unsafe binary deserialization. Known RCE gadget. Use System.Text.Json
+
+    or XmlSerializer with type whitelist.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: BinaryFormatter.*\.Deserialize\s*\(
+    - pattern-regex: NetDataContractSerializer.*\.Deserialize\s*\(
+    - pattern-regex: LosFormatter.*\.Deserialize\s*\(
+    - pattern-regex: new\s+BinaryFormatter\s*\(
+    - pattern-regex: new\s+NetDataContractSerializer\s*\(
+    - pattern-regex: new\s+LosFormatter\s*\(
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: Unsafe binary deserialization
+    fix: Avoid BinaryFormatter/insecure deserializers on untrusted data; use System.Text.Json or a restricted XmlSerializer
+      with a known target type.
+    residual:
+    - sanitizer
+- id: CS-XXE-001
+  languages:
+  - csharp
+  severity: ERROR
+  message: 'XML parser without DTD processing disabled. XXE risk. Set
+
+    XmlReaderSettings.DtdProcessing = DtdProcessing.Prohibit.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: new\s+XmlDocument\s*\(\s*\)
+    - pattern-regex: XDocument\.(Load|Parse)\s*\(
+  - pattern-not-regex: DtdProcessing\.(Prohibit|Ignore)
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: injection
+    cwe:
+    - 611
+    original_engine: neuroscan
+    rule_name: XML parser without DTD protection
+    residual:
+    - sanitizer
+- id: CS-CRYPTO-001
+  languages:
+  - csharp
+  severity: WARNING
+  message: MD5 and SHA1 are cryptographically broken. Use SHA256.Create().
+  patterns:
+  - pattern-regex: (MD5|SHA1|SHA1Managed)\.Create\s*\(
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: crypto
+    cwe:
+    - 328
+    original_engine: neuroscan
+    rule_name: Weak hash algorithm
+- id: CS-CRYPTO-002
+  languages:
+  - csharp
+  severity: WARNING
+  message: 'System.Random is predictable. Use RNGCryptoServiceProvider or
+
+    RandomNumberGenerator for cryptographic contexts.'
+  patterns:
+  - pattern-regex: new\s+Random\s*\(
+  - pattern-not-regex: RNGCryptoServiceProvider
+  - pattern-not-regex: RandomNumberGenerator\.
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: crypto
+    cwe:
+    - 330
+    original_engine: neuroscan
+    rule_name: System.Random for security
+- id: CS-XSS-001
+  languages:
+  - csharp
+  severity: ERROR
+  message: 'Response.Write() with unsanitized input is reflected XSS. Use
+
+    HttpUtility.HtmlEncode() or Razor auto-escaping.'
+  patterns:
+  - pattern-regex: Response\.Write\s*\(
+  - pattern-not-regex: HttpUtility\.HtmlEncode\s*\(
+  - pattern-not-regex: Server\.HtmlEncode\s*\(
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: xss
+    cwe:
+    - 79
+    original_engine: neuroscan
+    rule_name: Response.Write XSS
+    residual:
+    - sanitizer
+- id: CS-PATH-001
+  languages:
+  - csharp
+  severity: ERROR
+  message: 'User-controlled filesystem path. Sanitize with Path.GetFullPath()
+
+    and validate root directory.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (File\.(Open|ReadAllBytes|ReadAllText|WriteAllBytes|WriteAllText)|Path\.Combine)\(.*\bRequest\b
+    - pattern-regex: (File\.(Open|ReadAllBytes|ReadAllText)|Path\.Combine)\(.*\bUser\b
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: path_traversal
+    cwe:
+    - 22
+    original_engine: neuroscan
+    rule_name: User-controlled file path
+    residual:
+    - sanitizer
+- id: CS-SSRF-001
+  languages:
+  - csharp
+  severity: ERROR
+  message: 'Outbound HTTP with user-controlled URL enables SSRF. Validate
+
+    destination against allowlist before making requests.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: HttpClient\.(Get|Post|Put)\w*\s*\(
+    - pattern-regex: WebRequest\.Create\s*\(
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: ssrf
+    cwe:
+    - 918
+    original_engine: neuroscan
+    rule_name: Unvalidated outbound HTTP
+    residual:
+    - sanitizer
+- id: CS-CONFIG-001
+  languages:
+  - csharp
+  severity: INFO
+  message: 'HttpClient without timeout can hang indefinitely. Use
+
+    IHttpClientFactory and set a timeout.'
+  patterns:
+  - pattern-regex: new\s+HttpClient\s*\(\s*\)
+  - pattern-not-regex: \.Timeout\s*=
+  - pattern-not-regex: IHttpClientFactory\.CreateClient\s*\(
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: config
+    cwe:
+    - 400
+    original_engine: neuroscan
+    original_severity: low
+    rule_name: HttpClient without timeout
+- id: CS-INJECT-003
+  languages:
+  - csharp
+  severity: WARNING
+  message: 'LDAP filter built from user input enables LDAP injection.
+
+    Escape special characters: * ( ) \ & |.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: DirectorySearcher\s*\(.*\+
+    - pattern-regex: DirectoryEntry\s*\(.*\+
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: injection
+    cwe:
+    - 90
+    original_engine: neuroscan
+    rule_name: LDAP injection
+    residual:
+    - sanitizer

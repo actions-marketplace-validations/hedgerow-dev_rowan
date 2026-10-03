@@ -1,0 +1,93 @@
+{
+  "description": "Paired Python MCP corpus: FastMCP @mcp.tool() functions and low-level @server.call_tool() handlers receive model-chosen arguments. A passing run requires the expected rule on every vulnerable file and no same-rule finding on its fixed pair.",
+  "cases": [
+    {
+      "id": "fastmcp_read",
+      "cwe": 22,
+      "expected_rule_id": "AGENT-TOOL-001",
+      "vulnerable": "python/fastmcp_read_vulnerable.py",
+      "fixed": "python/fastmcp_read_fixed.py",
+      "class": "FastMCP tool argument to open(); a confining resolver is the fix"
+    },
+    {
+      "id": "fastmcp_shell",
+      "cwe": 78,
+      "expected_rule_id": "AGENT-TOOL-001",
+      "vulnerable": "python/fastmcp_shell_vulnerable.py",
+      "fixed": "python/fastmcp_shell_fixed.py",
+      "class": "FastMCP tool argument in a shell=True command; an argument list is the fix"
+    },
+    {
+      "id": "fastmcp_fetch",
+      "cwe": 918,
+      "expected_rule_id": "AGENT-TOOL-001",
+      "vulnerable": "python/fastmcp_fetch_vulnerable.py",
+      "fixed": "python/fastmcp_fetch_fixed.py",
+      "class": "FastMCP tool argument as the request URL; a fixed host with only the path controlled is the fix"
+    },
+    {
+      "id": "lowlevel_call_tool",
+      "cwe": 22,
+      "expected_rule_id": "AGENT-TOOL-001",
+      "vulnerable": "python/lowlevel_call_tool_vulnerable.py",
+      "fixed": "python/lowlevel_call_tool_fixed.py",
+      "class": "low-level @server.call_tool() arguments to open(); basename under a fixed root is the fix"
+    },
+    {
+      "id": "xf_py_tool",
+      "cwe": 78,
+      "expected_rule_id": "CF-SINK-001",
+      "vulnerable": "python/xf_py_tool_vulnerable.py",
+      "fixed": "python/xf_py_tool_fixed.py",
+      "class": "FastMCP tool argument passed to a helper module that shells out"
+    },
+    {
+      "id": "pathlib_read",
+      "cwe": 22,
+      "expected_rule_id": "AGENT-TOOL-001",
+      "vulnerable": "python/pathlib_read_vulnerable.py",
+      "fixed": "python/pathlib_read_fixed.py",
+      "class": "tool argument to Path(...).read_text(); keeping only .name under a fixed root is the fix"
+    },
+    {
+      "id": "httpx_client",
+      "cwe": 918,
+      "expected_rule_id": "AGENT-TOOL-001",
+      "vulnerable": "python/httpx_client_vulnerable.py",
+      "fixed": "python/httpx_client_fixed.py",
+      "class": "tool argument as the URL of an httpx.AsyncClient request; a fixed host is the fix"
+    },
+    {
+      "id": "helper_read",
+      "cwe": 22,
+      "expected_rule_id": "AGENT-TOOL-001",
+      "vulnerable": "python/helper_read_vulnerable.py",
+      "fixed": "python/helper_read_fixed.py",
+      "class": "tool argument passed to a same-file helper that opens the path"
+    },
+    {
+      "id": "xf_py_http_tool",
+      "cwe": 918,
+      "expected_rule_id": "AGENT-TOOL-001",
+      "vulnerable": "python/xf_py_http_tool_vulnerable.py",
+      "fixed": "python/xf_py_http_tool_fixed.py",
+      "class": "tool argument passed to a helper module that fetches it with an httpx client"
+    },
+    {
+      "id": "fastmcp_sympy",
+      "cwe": 95,
+      "expected_rule_id": "AGENT-TOOL-001",
+      "vulnerable": "python/fastmcp_sympy_vulnerable.py",
+      "fixed": "python/fastmcp_sympy_fixed.py",
+      "class": "FastMCP tool argument to sympy parse_expr, which evaluates its input as Python (GHSA-mw6r-2hvm-4rp2 shape); a strict arithmetic allowlist is the fix"
+    },
+    {
+      "id": "fastmcp_workbook",
+      "cwe": 22,
+      "expected_rule_id": "AGENT-TOOL-001",
+      "vulnerable": "python/fastmcp_workbook_vulnerable.py",
+      "fixed": "python/fastmcp_workbook_fixed.py",
+      "class": "FastMCP tool argument through a path helper that accepts absolute paths into openpyxl load_workbook (GHSA-j98m-w3xp-9f56 shape); realpath + commonpath containment is the fix"
+    }
+  ]
+}

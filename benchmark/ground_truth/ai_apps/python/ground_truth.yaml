@@ -1,0 +1,443 @@
+# Oracle (Python) -- planted-vulnerability ground truth (PY-02, benchmark answer key).
+#
+# Schema follows Langfail's benchmarks/ground_truth.yaml: meta, vulnerabilities with
+# id/title/cwe/tier/exploitable/source/sink/taint_path/sanitizers_present/notes,
+# and decoys with id/resembles/why_safe/location. Extended with
+# `expected_rule_ids`: the Rowan rule id(s) that should catch each vuln, or
+# fire as a false positive on each decoy. Ids that exist today are written
+# as they appear in rules/ or rowan/passes/; ids named
+# `tnt-py-ai-<class>-001` are PLANNED (BACKLOG.md PY-04..PY-08) and are
+# expected to score MISS until the rule lands. Each planned id is marked in
+# `notes`, and tests/test_benchmark_ai_apps.py holds the allow-list.
+#
+# This file is NOT referenced by the app source under app/ -- the app must
+# contain no vuln markers, same discipline as Langfail.
+
+meta:
+  app: oracle-python
+  source_dir: .
+  tiers:
+    1: single-file (tool parameter, LLM output or config to sink in one function)
+    2: cross-function, same module (agent built in one function, privilege in another)
+    3: cross-file (route -> service -> tool registration -> implementation)
+
+vulnerabilities:
+  - id: PY-01
+    title: "OpenAI Agents @function_tool parameter to subprocess.run(shell=True)"
+    cwe: CWE-78
+    tier: 1
+    exploitable: true
+    source: {file: app/openai_agents.py, symbol: run_shell, note: "command (tool parameter chosen by the model)"}
+    sink: {file: app/openai_agents.py, symbol: run_shell, line_hint: 33}
+    taint_path:
+      - "app/openai_agents.py:run_shell (command, @function_tool)"
+      - "app/openai_agents.py:run_shell (subprocess.run(command, shell=True))"
+    sanitizers_present: []
+    expected_rule_ids: [AGENT-TOOL-001]
+    notes: >
+      The @function_tool decorator is not in cross_file's _TOOL_DECORATOR_NAMES
+      today, so the boundary is invisible; PY-03 acceptance target.
+
+  - id: PY-02
+    title: "Runner.run_sync final_output executed as SQL"
+    cwe: CWE-89
+    tier: 1
+    exploitable: true
+    source: {file: app/openai_agents.py, symbol: answer_with_sql, note: "result.final_output"}
+    sink: {file: app/openai_agents.py, symbol: answer_with_sql, line_hint: 62}
+    taint_path:
+      - "app/openai_agents.py:answer_with_sql (sql <- Runner.run_sync(...).final_output)"
+      - "app/openai_agents.py:answer_with_sql (conn.execute(text(sql)))"
+    sanitizers_present: []
+    expected_rule_ids: [TNT-LLMOUT-001]
+    notes: "Needs the final_output source shape from PY-01."
+
+  - id: PY-03
+    title: "ShellTool(executor=LocalShellExecutor()) on an agent fed request text"
+    cwe: CWE-78
+    tier: 1
+    exploitable: true
+    source: {file: app/openai_agents.py, symbol: inspect_host, note: "user_text -> Runner.run_sync(host_agent, ...)"}
+    sink: {file: app/openai_agents.py, symbol: host_agent, line_hint: 69}
+    taint_path:
+      - "app/openai_agents.py:host_agent (tools=[ShellTool(executor=LocalShellExecutor())])"
+      - "app/openai_agents.py:inspect_host (Runner.run_sync(host_agent, user_text))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-py-ai-localexec-001]
+    notes: "PLANNED id (PY-04 local code-execution surface)."
+
+  - id: PY-04
+    title: "Pydantic AI @agent.tool parameter to open()"
+    cwe: CWE-22
+    tier: 1
+    exploitable: true
+    source: {file: app/pydantic_agent.py, symbol: read_note, note: "path (tool parameter chosen by the model)"}
+    sink: {file: app/pydantic_agent.py, symbol: read_note, line_hint: 30}
+    taint_path:
+      - "app/pydantic_agent.py:read_note (path, @notes_agent.tool)"
+      - "app/pydantic_agent.py:read_note (open(path))"
+    sanitizers_present: []
+    expected_rule_ids: [AGENT-TOOL-001]
+
+  - id: PY-05
+    title: "Pydantic AI run_sync output fetched with httpx.get (SSRF)"
+    cwe: CWE-918
+    tier: 1
+    exploitable: true
+    source: {file: app/pydantic_agent.py, symbol: fetch_citation, note: "result.output"}
+    sink: {file: app/pydantic_agent.py, symbol: fetch_citation, line_hint: 78}
+    taint_path:
+      - "app/pydantic_agent.py:fetch_citation (url <- citation_agent.run_sync(claim).output)"
+      - "app/pydantic_agent.py:fetch_citation (httpx.get(url))"
+    sanitizers_present: []
+    expected_rule_ids: [TNT-LLMOUT-004]
+    notes: "Needs the RunResult.output source shape from PY-01."
+
+  - id: PY-06
+    title: "Request-controlled message_history passed to agent.run"
+    cwe: CWE-918
+    tier: 1
+    exploitable: true
+    source: {file: app/pydantic_agent.py, symbol: continue_chat, note: "turn.history (request body) -> ModelMessagesTypeAdapter.validate_json"}
+    sink: {file: app/pydantic_agent.py, symbol: continue_chat, line_hint: 65}
+    taint_path:
+      - "app/pydantic_agent.py:continue_chat (history <- ModelMessagesTypeAdapter.validate_json(turn.history))"
+      - "app/pydantic_agent.py:continue_chat (notes_agent.run(..., message_history=history))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-py-ai-msghistory-001]
+    notes: >
+      PLANNED id (PY-05). The CVE-2026-25580 / 46678 / 48782 chain: a
+      caller-supplied message history can carry tool-return and
+      binary-content parts the model treats as trusted.
+
+  - id: PY-07
+    title: "Pydantic AI @agent.tool_plain parameter to os.system"
+    cwe: CWE-78
+    tier: 1
+    exploitable: true
+    source: {file: app/pydantic_agent.py, symbol: rotate_logs, note: "service (tool parameter chosen by the model)"}
+    sink: {file: app/pydantic_agent.py, symbol: rotate_logs, line_hint: 47}
+    taint_path:
+      - "app/pydantic_agent.py:rotate_logs (service, @notes_agent.tool_plain)"
+      - "app/pydantic_agent.py:rotate_logs (os.system(f\"... {service}\"))"
+    sanitizers_present: []
+    expected_rule_ids: [AGENT-TOOL-001]
+    notes: "tool_plain is not a recognised decorator name today; PY-03 target."
+
+  - id: PY-08
+    title: "ADK bare function in Agent(tools=[fn]) parameter to os.popen"
+    cwe: CWE-78
+    tier: 1
+    exploitable: true
+    source: {file: app/adk_agent.py, symbol: disk_usage, note: "mount (tool parameter chosen by the model)"}
+    sink: {file: app/adk_agent.py, symbol: disk_usage, line_hint: 18}
+    taint_path:
+      - "app/adk_agent.py:metrics_agent (tools=[disk_usage])"
+      - "app/adk_agent.py:disk_usage (os.popen(f\"df -h {mount}\"))"
+    sanitizers_present: []
+    expected_rule_ids: [AGENT-TOOL-001]
+    notes: "List-form tool boundary (no decorator at all); PY-03 target."
+
+  - id: PY-09
+    title: "ADK UnsafeLocalCodeExecutor as code_executor"
+    cwe: CWE-94
+    tier: 1
+    exploitable: true
+    source: {file: app/adk_agent.py, symbol: run_agent, note: "user_text -> Runner.run_async(new_message=...)"}
+    sink: {file: app/adk_agent.py, symbol: analyst_agent, line_hint: 33}
+    taint_path:
+      - "app/adk_agent.py:analyst_agent (code_executor=UnsafeLocalCodeExecutor())"
+      - "app/main.py:metrics_analyse (run_agent(analyst_agent, ..., body.text))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-py-ai-localexec-001]
+    notes: "PLANNED id (PY-04). UnsafeLocalCodeExecutor is a raw exec() of model output."
+
+  - id: PY-10
+    title: "ADK Runner.run_async event part.text passed to eval"
+    cwe: CWE-95
+    tier: 1
+    exploitable: true
+    source: {file: app/adk_agent.py, symbol: evaluate_formula, note: "part.text from runner.run_async(new_message=...) events"}
+    sink: {file: app/adk_agent.py, symbol: evaluate_formula, line_hint: 68}
+    taint_path:
+      - "app/adk_agent.py:evaluate_formula (expression <- event.content.parts[].text)"
+      - "app/adk_agent.py:evaluate_formula (eval(expression, {\"__builtins__\": {}}, ...))"
+    sanitizers_present: ["restricted __builtins__ dict (bypassable, see ns-aiml-137)"]
+    expected_rule_ids: [TNT-LLMOUT-003]
+    notes: "Needs the ADK event.content.parts[].text source shape from PY-01."
+
+  - id: PY-11
+    title: "smolagents CodeAgent executor_type=\"local\" with os/subprocess authorised"
+    cwe: CWE-94
+    tier: 1
+    exploitable: true
+    source: {file: app/smol.py, symbol: analyse, note: "task (request text) -> analysis_agent.run(task)"}
+    sink: {file: app/smol.py, symbol: analysis_agent, line_hint: 13}
+    taint_path:
+      - "app/smol.py:analysis_agent (CodeAgent(executor_type=\"local\", additional_authorized_imports=[\"os\", \"subprocess\", ...]))"
+      - "app/smol.py:analyse (analysis_agent.run(task))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-py-ai-localexec-001]
+    notes: "PLANNED id (PY-04). CVE-2025-5120 / CVE-2025-9959 class."
+
+  - id: PY-12
+    title: "smolagents LocalPythonExecutor called directly on request text"
+    cwe: CWE-94
+    tier: 1
+    exploitable: true
+    source: {file: app/smol.py, symbol: run_snippet, note: "code (request text)"}
+    sink: {file: app/smol.py, symbol: run_snippet, line_hint: 38}
+    taint_path:
+      - "app/smol.py:run_snippet (executor = LocalPythonExecutor(additional_authorized_imports=[\"os\", \"subprocess\"]))"
+      - "app/smol.py:run_snippet (executor(code))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-py-ai-localexec-001]
+    notes: "PLANNED id (PY-04)."
+
+  - id: PY-13
+    title: "LangGraph create_react_agent bare tool function parameter into cursor.execute(f\"...\")"
+    cwe: CWE-89
+    tier: 1
+    exploitable: true
+    source: {file: app/graph.py, symbol: run_query, note: "term (tool parameter chosen by the model)"}
+    sink: {file: app/graph.py, symbol: run_query, line_hint: 23}
+    taint_path:
+      - "app/graph.py:search_agent (create_react_agent(model, tools=[run_query]))"
+      - "app/graph.py:run_query (cursor.execute(f\"... LIKE '%{term}%'\"))"
+    sanitizers_present: []
+    expected_rule_ids: [AGENT-TOOL-001]
+    notes: "List-form boundary via create_react_agent(tools=); PY-03 target."
+
+  - id: PY-14
+    title: "LangGraph SqliteSaver thread_id taken from the request with no user scope"
+    cwe: CWE-639
+    tier: 1
+    exploitable: true
+    source: {file: app/graph.py, symbol: search_tickets, note: "thread_id (request body), no principal"}
+    sink: {file: app/graph.py, symbol: search_tickets, line_hint: 31}
+    taint_path:
+      - "app/graph.py:checkpointer (SqliteSaver(...))"
+      - "app/graph.py:search_tickets (config = {\"configurable\": {\"thread_id\": thread_id}})"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-py-ai-sessionscope-001]
+    notes: "PLANNED id (PY-08). Any caller who guesses a thread_id reads and extends another user's conversation."
+
+  - id: PY-15
+    title: "FastMCP @mcp.tool parameter to subprocess.check_output(shell=True)"
+    cwe: CWE-78
+    tier: 1
+    exploitable: true
+    source: {file: app/mcp_server.py, symbol: host_exec, note: "cmd (tool argument from any MCP client)"}
+    sink: {file: app/mcp_server.py, symbol: host_exec, line_hint: 21}
+    taint_path:
+      - "app/mcp_server.py:host_exec (cmd, @mcp.tool)"
+      - "app/mcp_server.py:host_exec (subprocess.check_output(cmd, shell=True))"
+    sanitizers_present: []
+    expected_rule_ids: [AGENT-TOOL-001]
+
+  - id: PY-16
+    title: "FastMCP run(transport=\"http\", host=\"0.0.0.0\") with no auth"
+    cwe: CWE-306
+    tier: 1
+    exploitable: true
+    source: {file: app/mcp_server.py, symbol: serve, note: "hardcoded bind, no auth= on FastMCP(...)"}
+    sink: {file: app/mcp_server.py, symbol: serve, line_hint: 31}
+    taint_path:
+      - "app/mcp_server.py:mcp (FastMCP(\"oracle-host\"), no auth=)"
+      - "app/mcp_server.py:serve (mcp.run(transport=\"http\", host=\"0.0.0.0\", port=8000))"
+    sanitizers_present: []
+    expected_rule_ids: [ns-aiml-126, ns-aiml-127, MCP-HTTP-BIND-001, tnt-py-ai-mcpauth-001]
+    notes: >
+      ns-aiml-126 fires on the bind today; ns-aiml-127 and MCP-HTTP-BIND-001
+      do not know the FastMCP 2 "http" shorthand (PY-06). tnt-py-ai-mcpauth-001
+      is PLANNED (PY-05): the missing auth= is the finding, not the bind.
+
+  - id: PY-17
+    title: "FastMCP.from_openapi built from a request-controlled spec URL"
+    cwe: CWE-918
+    tier: 1
+    exploitable: true
+    source: {file: app/mcp_server.py, symbol: proxy_openapi, note: "spec_url (request body)"}
+    sink: {file: app/mcp_server.py, symbol: proxy_openapi, line_hint: 48}
+    taint_path:
+      - "app/mcp_server.py:proxy_openapi (spec <- httpx.get(spec_url).json())"
+      - "app/mcp_server.py:proxy_openapi (FastMCP.from_openapi(spec, client=httpx.AsyncClient(base_url=spec[...])))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-py-ai-mcpopenapi-001]
+    notes: "PLANNED id (PY-05). CVE-2026-32871 class: the spec chooses the routes and the upstream."
+
+  - id: PY-18
+    title: "fastmcp.Client sampling_handler forwards to the model with no approval"
+    cwe: CWE-862
+    tier: 1
+    exploitable: true
+    source: {file: app/mcp_server.py, symbol: sampling_handler, note: "messages and params from the remote MCP server"}
+    sink: {file: app/mcp_server.py, symbol: call_peer, line_hint: 62}
+    taint_path:
+      - "app/mcp_server.py:sampling_handler (openai_client.chat.completions.create(messages=chat), no review)"
+      - "app/mcp_server.py:call_peer (Client(url, sampling_handler=sampling_handler))"
+    sanitizers_present: []
+    expected_rule_ids: [MCP-SAMPLING-APPROVAL-001]
+    notes: "The pass knows mcp's sampling_callback= only, not fastmcp.Client(sampling_handler=); PY-06 target."
+
+  - id: PY-19
+    title: "ClaudeAgentOptions permission_mode=\"bypassPermissions\" with Bash and Write allowed"
+    cwe: CWE-250
+    tier: 1
+    exploitable: true
+    source: {file: app/claude_sdk.py, symbol: maintain, note: "user_text -> query(prompt=user_text, options=...)"}
+    sink: {file: app/claude_sdk.py, symbol: maintain, line_hint: 21}
+    taint_path:
+      - "app/claude_sdk.py:maintain (ClaudeAgentOptions(permission_mode=\"bypassPermissions\", allowed_tools=[\"Bash\", \"Write\"]))"
+      - "app/claude_sdk.py:maintain (query(prompt=user_text, options=options))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-py-ai-bypassperm-001]
+    notes: "PLANNED id (PY-04)."
+
+  - id: PY-20
+    title: "Claude Agent SDK ResultMessage.result executed as a shell command"
+    cwe: CWE-78
+    tier: 1
+    exploitable: true
+    source: {file: app/claude_sdk.py, symbol: suggest_and_run, note: "message.result"}
+    sink: {file: app/claude_sdk.py, symbol: suggest_and_run, line_hint: 40}
+    taint_path:
+      - "app/claude_sdk.py:suggest_and_run (command <- ResultMessage.result from query(...))"
+      - "app/claude_sdk.py:suggest_and_run (subprocess.run(command, shell=True))"
+    sanitizers_present: []
+    expected_rule_ids: [TNT-LLMOUT-002]
+    notes: "Needs the claude_agent_sdk.query source shape from PY-01."
+
+  - id: PY-21
+    title: "Semantic Kernel KernelPromptTemplate rendered from request text"
+    cwe: CWE-1336
+    tier: 1
+    exploitable: true
+    source: {file: app/sk.py, symbol: render_report, note: "template_text (request body)"}
+    sink: {file: app/sk.py, symbol: render_report, line_hint: 35}
+    taint_path:
+      - "app/sk.py:render_report (PromptTemplateConfig(template=template_text))"
+      - "app/sk.py:render_report (KernelPromptTemplate(...).render(kernel, ...))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-py-ai-sktemplate-001]
+    notes: "PLANNED id (PY-05). The template language can call any kernel function."
+
+  - id: PY-22
+    title: "Semantic Kernel InMemoryVectorStore search with a request-controlled filter string"
+    cwe: CWE-94
+    tier: 1
+    exploitable: true
+    source: {file: app/sk.py, symbol: search_notes, note: "filter_expr (request body)"}
+    sink: {file: app/sk.py, symbol: search_notes, line_hint: 42}
+    taint_path:
+      - "app/sk.py:search_notes (notes.search(query, filter=filter_expr))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-py-ai-skfilter-001]
+    notes: "PLANNED id (PY-05). CVE-2026-26030: the in-memory store evaluates the filter string."
+
+  - id: PY-23
+    title: "Cross-file: route -> service -> tool(search_impl) -> cursor.execute(f\"...\")"
+    cwe: CWE-89
+    tier: 3
+    exploitable: true
+    source: {file: app/research/routes.py, symbol: ask, note: "body.question -> service.answer"}
+    sink: {file: app/research/queries.py, symbol: search_impl, line_hint: 13}
+    taint_path:
+      - "app/research/routes.py:ask (service.answer(body.question))"
+      - "app/research/service.py:answer (research_agent.invoke, tools=RESEARCH_TOOLS)"
+      - "app/research/tools.py (search = tool(search_impl))"
+      - "app/research/queries.py:search_impl (cursor.execute(f\"... LIKE '%{term}%'\"))"
+    sanitizers_present: []
+    expected_rule_ids: [AGENT-TOOL-001, CF-SINK-001]
+    notes: >
+      The call-form boundary: tool(fn) in one file wrapping a function
+      defined in another. Verified invisible on agent-service-toolkit and
+      maverick-mcp in the 2026-09-17 survey; PY-03 acceptance target.
+
+  - id: PY-24
+    title: "OpenAI Agents handoffs=[child] where the child holds a local ShellTool"
+    cwe: CWE-269
+    tier: 2
+    exploitable: true
+    source: {file: app/research/service.py, symbol: triage, note: "user_text -> Runner.run_sync(triage_agent, ...)"}
+    sink: {file: app/research/service.py, symbol: build_triage_agent, line_hint: 36}
+    taint_path:
+      - "app/research/service.py:build_ops_agent (tools=[ShellTool(executor=LocalShellExecutor())])"
+      - "app/research/service.py:build_triage_agent (handoffs=[ops_agent], no input_filter, no guardrail)"
+      - "app/research/service.py:triage (Runner.run_sync(triage_agent, user_text))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-py-ai-handoffpriv-001]
+    notes: "PLANNED id (PY-07). Agent Audit AGENT-112 class: the front agent is unprivileged, the child is not."
+
+  - id: PY-25
+    title: "Cross-file: toolkit class with @register_tool methods passed as tools=toolkit.get_tools()"
+    cwe: CWE-78
+    tier: 3
+    exploitable: true
+    source: {file: app/research/toolkit.py, symbol: restart_service, note: "service (tool parameter chosen by the model)"}
+    sink: {file: app/research/toolkit.py, symbol: restart_service, line_hint: 30}
+    taint_path:
+      - "app/research/service.py:build_host_agent (Agent(tools=HostToolkit(host).get_tools()))"
+      - "app/research/toolkit.py:HostToolkit.get_tools (function_tool(method) for each @register_tool method)"
+      - "app/research/toolkit.py:HostToolkit.restart_service (subprocess.run(f\"systemctl restart {service}\", shell=True))"
+    sanitizers_present: []
+    expected_rule_ids: [AGENT-TOOL-001]
+    notes: "The youtu-agent toolkit shape from the survey; PY-03 target."
+
+  - id: PY-26
+    title: "LangGraph graph runs a model-written shell command with no interrupt() before it"
+    cwe: CWE-862
+    tier: 1
+    exploitable: true
+    source: {file: app/graph.py, symbol: plan_deploy, note: "reply.content from model.invoke -> state[\"command\"]"}
+    sink: {file: app/graph.py, symbol: build_deploy_graph, line_hint: 59}
+    taint_path:
+      - "app/graph.py:plan_deploy (command <- model.invoke(...).content)"
+      - "app/graph.py:build_deploy_graph (add_edge(\"plan\", \"run\"), no interrupt node between)"
+      - "app/graph.py:run_deploy (subprocess.run(state[\"command\"], shell=True))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-py-ai-hitl-001]
+    notes: "PLANNED id (PY-07). Agent Audit AGENT-118 class; contrast build_reviewed_graph (PYD-02)."
+
+decoys:
+  - id: PYD-01
+    resembles: "PY-11 (smolagents local executor)"
+    why_safe: "build_sandboxed_agent() sets executor_type=\"e2b\", so model-written code runs in a remote E2B sandbox, not on the host"
+    location: {file: app/smol.py, symbol: build_sandboxed_agent}
+    expected_rule_ids: [tnt-py-ai-localexec-001]
+
+  - id: PYD-02
+    resembles: "PY-26 (LangGraph shell node without a checkpoint)"
+    why_safe: "build_reviewed_graph() routes plan -> confirm -> run, and confirm_deploy() calls interrupt() and clears the command when the human declines"
+    location: {file: app/graph.py, symbol: build_reviewed_graph}
+    expected_rule_ids: [tnt-py-ai-hitl-001]
+
+  - id: PYD-03
+    resembles: "PY-16 (FastMCP HTTP transport without auth)"
+    why_safe: "serve_authenticated() builds FastMCP(..., auth=JWTVerifier(jwks_uri=..., issuer=..., audience=...)), so every request must carry a valid bearer token"
+    location: {file: app/mcp_server.py, symbol: serve_authenticated}
+    expected_rule_ids: [ns-aiml-127, MCP-HTTP-BIND-001, tnt-py-ai-mcpauth-001]
+
+  - id: PYD-04
+    resembles: "PY-14 (session store without a user scope)"
+    why_safe: "ask_ops_guarded() keys SQLiteSession on f\"{user_id}:{conversation_id}\" where user_id comes from the authenticated header, so one user cannot open another's session"
+    location: {file: app/openai_agents.py, symbol: ask_ops_guarded}
+    expected_rule_ids: [tnt-py-ai-sessionscope-001]
+
+  - id: PYD-05
+    resembles: "PY-01 (function_tool parameter to shell)"
+    why_safe: "run_shell_guarded() carries tool_input_guardrails=[allowlist_binary], which rejects any command whose first word is not in ALLOWED_BINARIES, and the agent has input_guardrails=[reject_destructive]"
+    location: {file: app/openai_agents.py, symbol: run_shell_guarded}
+    expected_rule_ids: [AGENT-TOOL-001, tnt-py-ai-hitl-001]
+
+  - id: PYD-06
+    resembles: "PY-04 (tool parameter to open())"
+    why_safe: "read_note_safe() resolves the joined path and rejects it unless is_relative_to(base), the Path.resolve() + is_relative_to idiom"
+    location: {file: app/pydantic_agent.py, symbol: read_note_safe}
+    expected_rule_ids: [AGENT-TOOL-001, TNT-PATH-002]
+
+  - id: PYD-07
+    resembles: "PY-19 (bypassPermissions)"
+    why_safe: "maintain_reviewed() uses permission_mode=\"default\" and a can_use_tool callback that denies any Bash command outside git status/log/diff"
+    location: {file: app/claude_sdk.py, symbol: maintain_reviewed}
+    expected_rule_ids: [tnt-py-ai-bypassperm-001]

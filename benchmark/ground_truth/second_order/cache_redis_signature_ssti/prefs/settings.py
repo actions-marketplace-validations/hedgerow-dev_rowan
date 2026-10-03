@@ -1,0 +1,2 @@
+SIGNATURE_TTL = 900
+DEFAULT_SIGNATURE = "<p>Sent from Acme</p>"

@@ -1,0 +1,292 @@
+# Supply chain and multi-step taint propagator rules
+# These model intermediate functions that carry taint across function boundaries:
+# the core of every Tier 1 bug bounty finding in the triage report.
+
+rules:
+
+  # ===========================================================================
+  # HF Hub: repo_id → downloaded file path carries taint
+  # Detects: smolagents, skops, kserve supply chain chains
+  # ===========================================================================
+  - id: TNT-SUPPLY-001
+    mode: taint
+    message: >
+      User-controlled HuggingFace repo ID flows to model loading sink.
+      Attackers can host malicious models on HF Hub to achieve RCE.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [502, 829]
+      category: supply_chain
+      fix: "Pin model-loading calls to a vetted, explicit allowlist of HuggingFace repo IDs rather than a user-influenced value."
+    pattern-sources:
+      # rowan-registry:begin source=web_request
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=web_request
+        label: USER
+      # Generic loaders only count once the value came out of a Hub download
+      # that the user steered. Without this the rule fired on every direct
+      # request -> pickle.loads / eval flow, which the deserialization and
+      # code-injection rules already report (86 false positives, 0 true, on
+      # RealVuln 2026-10-02).
+      - label: DOWNLOADED
+        requires: USER
+        pattern-either:
+          - pattern: hf_hub_download(...)
+          - pattern: snapshot_download(...)
+    pattern-sinks:
+      - requires: USER
+        patterns:
+          - pattern: $FUNC.from_pretrained(...)
+      - requires: DOWNLOADED
+        patterns:
+          - pattern-either:
+              - pattern: pickle.loads(...)
+              - pattern: pickle.load(...)
+              - pattern: torch.load(...)
+              - pattern: joblib.load(...)
+              - pattern: exec(...)
+              - pattern: eval(...)
+
+  # ===========================================================================
+  # Network download: user URL → response body carries taint
+  # Detects: pycaret SSRF→pickle, fastembed SSRF→LFI chains
+  # ===========================================================================
+  - id: TNT-SSRF-003
+    mode: taint
+    message: >
+      User-controlled URL flows through HTTP request to file write or
+      deserialization sink: multi-step SSRF-to-RCE chain.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [918, 502]
+      category: ssrf
+      fix: "Validate the destination host against an explicit allowlist of permitted domains/IPs before fetching a URL that feeds a file write or deserialization sink."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+        label: USER
+      # The chain needs a fetch in the middle: only the response of an HTTP
+      # request whose arguments carry user input is FETCHED. Without this the
+      # rule fired on every direct request -> pickle.loads / write_bytes flow,
+      # which the deserialization and file rules already report, and labelled
+      # them SSRF (196 false positives, 0 true, on RealVuln 2026-10-02).
+      - label: FETCHED
+        requires: USER
+        pattern-either:
+          - pattern: requests.get(...)
+          - pattern: requests.post(...)
+          - pattern: requests.request(...)
+          - pattern: httpx.get(...)
+          - pattern: httpx.post(...)
+          - pattern: urllib.request.urlopen(...)
+          - pattern: urlopen(...)
+    pattern-sinks:
+      - requires: FETCHED
+        patterns:
+          - pattern-either:
+              - pattern: pickle.loads(...)
+              - pattern: pickle.load(...)
+              - pattern: torch.load(...)
+              - pattern: joblib.load(...)
+              - pattern: open($PATH, ...)
+              - pattern: $PATH.write_text(...)
+              - pattern: $PATH.write_bytes(...)
+              - pattern: exec(...)
+              - pattern: eval(...)
+
+  # ===========================================================================
+  # Base64 decode → pickle.loads propagator
+  # Detects: smolagents pickle RCE (base64.b64decode → pickle.loads)
+  # ===========================================================================
+  - id: TNT-DESER-006
+    mode: taint
+    message: >
+      Base64-decoded user data flows to pickle deserialization.
+      Attacker sends crafted base64 pickle payload for RCE.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [502]
+      category: deserialization
+      fix: "Never base64-decode-then-unpickle untrusted data; use a safe format (json) with a known schema."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-propagators:
+      - patterns:
+          - pattern: |
+              $DECODED = base64.b64decode($DATA)
+        from: $DATA
+        to: $DECODED
+      - patterns:
+          - pattern: |
+              $PARSED = json.loads($DATA)
+        from: $DATA
+        to: $PARSED
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: pickle.loads(...)
+              - pattern: pickle.load(...)
+
+  # ===========================================================================
+  # Decoded request data → exec/eval
+  # Split out of TNT-DESER-006, whose message, CWE-502 and fix text are all
+  # pickle-specific while its sink list quietly also accepted exec/eval. An
+  # exec() finding therefore reported "crafted base64 pickle payload for RCE",
+  # which is confidently wrong. Same sources and propagators, correct labels.
+  # ===========================================================================
+  - id: TNT-INJECT-004
+    mode: taint
+    message: >
+      Request data reaches exec()/eval() after a decode step (base64 or JSON),
+      so an attacker controls the code that runs. Encoding is not a boundary.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [94]
+      category: injection
+      fix: "Never pass request-derived data to exec()/eval(). Parse it into a typed structure and dispatch on an allowlist of known operations."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-propagators:
+      - patterns:
+          - pattern: |
+              $DECODED = base64.b64decode($DATA)
+        from: $DATA
+        to: $DECODED
+      - patterns:
+          - pattern: |
+              $PARSED = json.loads($DATA)
+        from: $DATA
+        to: $PARSED
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: exec(...)
+              - pattern: eval(...)

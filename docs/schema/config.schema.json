@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hedgerow-dev/rowan/blob/main/docs/schema/config.schema.json",
+  "title": "Rowan Scan Configuration",
+  "description": "Configuration options for an Rowan scan run. All fields correspond to CLI flags or ScanConfig dataclass attributes.",
+  "type": "object",
+  "required": ["target"],
+  "properties": {
+    "target": {
+      "type": "string",
+      "description": "Path to the directory to scan."
+    },
+    "output": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Path to write the output report. Null for stdout."
+    },
+    "output_format": {
+      "type": "string",
+      "enum": ["text", "json", "sarif"],
+      "default": "text",
+      "description": "Report output format."
+    },
+    "severity": {
+      "type": ["string", "null"],
+      "enum": ["critical", "high", "medium", "low", "info", null],
+      "default": null,
+      "description": "Minimum severity to include in results. Null for all severities."
+    },
+    "languages": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "python", "javascript", "typescript", "java", "go",
+          "csharp", "ruby", "php", "rust", "terraform", "dockerfile"
+        ]
+      },
+      "default": [],
+      "description": "Languages to scan. Empty array means all languages."
+    },
+    "no_sca": {
+      "type": "boolean",
+      "default": false,
+      "description": "Skip dependency vulnerability scanning (OSV.dev)."
+    },
+    "no_taint": {
+      "type": "boolean",
+      "default": false,
+      "description": "Skip Opengrep taint analysis."
+    },
+    "ci_mode": {
+      "type": "boolean",
+      "default": false,
+      "description": "CI mode: exit with code 1 if any findings match severity filter."
+    },
+    "rules_dir": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Path to custom rules directory. Null uses built-in rules."
+    },
+    "neuroscan_rules": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Path to custom NeuroScan rules YAML file."
+    },
+    "taint_rules_dir": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Path to custom taint rules directory."
+    },
+    "max_file_lines": {
+      "type": "integer",
+      "default": 5000,
+      "minimum": 100,
+      "description": "Maximum lines per file before skipping."
+    },
+    "timeout_per_file": {
+      "type": "integer",
+      "default": 30,
+      "minimum": 1,
+      "description": "Timeout in seconds per file."
+    },
+    "concurrency": {
+      "type": "integer",
+      "default": 4,
+      "minimum": 1,
+      "description": "Number of concurrent workers."
+    },
+    "network_concurrency": {
+      "type": ["integer", "null"],
+      "default": null,
+      "minimum": 1,
+      "description": "Maximum in-flight advisory/enrichment requests; defaults to concurrency."
+    },
+    "verbose": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable verbose logging."
+    }
+  }
+}

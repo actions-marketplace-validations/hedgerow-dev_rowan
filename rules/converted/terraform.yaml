@@ -1,0 +1,222 @@
+rules:
+- id: TF-CONFIG-001
+  languages:
+  - terraform
+  severity: ERROR
+  message: 'Security group allows inbound from 0.0.0.0/0 (entire internet).
+
+    Restrict CIDR blocks to specific trusted IP ranges.'
+  patterns:
+  - pattern-regex: cidr_blocks\s*=\s*\[[^\]]*"0\.0\.0\.0\/0"
+  - pattern-not-regex: description\s*=.*(load.?balancer|cdn|public)
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 284
+    original_engine: neuroscan
+    rule_name: Security group open to internet
+- id: TF-CONFIG-002
+  languages:
+  - terraform
+  severity: ERROR
+  message: 'S3 bucket with public ACL. Use acl = "private" and explicit
+
+    bucket policies for least-privilege access.'
+  patterns:
+  - pattern-regex: acl\s*=\s*"(public-read|public-read-write|authenticated-read)"
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 284
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: S3 bucket with public ACL
+    fix: Set acl = "private" and grant access via an explicit bucket policy or IAM role instead of a public ACL.
+- id: TF-CONFIG-003
+  languages:
+  - terraform
+  severity: ERROR
+  message: 'IAM policy action/resource is ''*''. Grants unrestricted access.
+
+    Scope to specific actions and resources with conditions.'
+  patterns:
+  - pattern-regex: (Action|Resource)\s*=\s*\[[^\]]*"\*"
+  - pattern-not-regex: Condition\s*=\s*\{
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 285
+    original_engine: neuroscan
+    rule_name: IAM policy with wildcard
+- id: TF-CONFIG-004
+  languages:
+  - terraform
+  severity: ERROR
+  message: 'RDS instance is publicly accessible. Set publicly_accessible = false
+
+    and use security groups for controlled access.'
+  patterns:
+  - pattern-regex: publicly_accessible\s*=\s*true
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 668
+    original_engine: neuroscan
+    rule_name: RDS publicly accessible
+- id: TF-CONFIG-005
+  languages:
+  - terraform
+  severity: WARNING
+  message: 'CloudFront allows weak TLS or no encryption. Set
+
+    minimum_protocol_version = "TLSv1.2_2021" and redirect HTTP to HTTPS.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: viewer_protocol_policy\s*=\s*"(allow-all|tcp)"
+    - pattern-regex: minimum_protocol_version\s*=\s*"(SSLv3|TLSv1|TLSv1_2016)"
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 327
+    original_engine: neuroscan
+    rule_name: CloudFront weak TLS
+- id: TF-CONFIG-006
+  languages:
+  - terraform
+  severity: ERROR
+  message: 'EKS cluster API is publicly accessible. Disable or restrict to
+
+    specific CIDR blocks via public_access_cidrs.'
+  patterns:
+  - pattern-regex: endpoint_public_access\s*=\s*true
+  - pattern-not-regex: endpoint_private_access\s*=\s*true
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 668
+    original_engine: neuroscan
+    rule_name: EKS public endpoint
+- id: TF-CONFIG-007
+  languages:
+  - terraform
+  severity: ERROR
+  message: 'S3 Block Public Access setting disabled. Enable all four:
+
+    block_public_acls, block_public_policy, ignore_public_acls,
+
+    restrict_public_buckets.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: block_public_acls\s*=\s*false
+    - pattern-regex: block_public_policy\s*=\s*false
+    - pattern-regex: restrict_public_buckets\s*=\s*false
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 284
+    original_engine: neuroscan
+    rule_name: S3 Block Public Access disabled
+- id: TF-CONFIG-008
+  languages:
+  - terraform
+  severity: WARNING
+  message: 'KMS key rotation disabled. Set enable_key_rotation = true for
+
+    automated annual key rotation.'
+  patterns:
+  - pattern-regex: enable_key_rotation\s*=\s*false
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 324
+    original_engine: neuroscan
+    rule_name: KMS key rotation disabled
+- id: TF-CONFIG-009
+  languages:
+  - terraform
+  severity: WARNING
+  message: 'CloudTrail without KMS encryption. Trail logs stored unencrypted.
+
+    Add kms_key_id for encryption at rest.'
+  patterns:
+  - pattern-regex: resource\s+"aws_cloudtrail"
+  - pattern-not-regex: kms_key_id\s*=
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 311
+    original_engine: neuroscan
+    rule_name: CloudTrail without encryption
+- id: TF-CONFIG-010
+  languages:
+  - terraform
+  severity: WARNING
+  message: 'ALB listener uses HTTP without HTTPS redirect. Sensitive data
+
+    transmitted in cleartext. Add HTTPS redirect action.'
+  patterns:
+  - pattern-regex: protocol\s*=\s*"HTTP"
+  - pattern-not-regex: type\s*=\s*"redirect"
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 319
+    original_engine: neuroscan
+    rule_name: ALB listener HTTP without redirect
+- id: TF-CONFIG-011
+  languages:
+  - terraform
+  severity: WARNING
+  message: 'SQS queue without encryption. Add kms_master_key_id for
+
+    server-side encryption.'
+  patterns:
+  - pattern-regex: resource\s+"aws_sqs_queue"
+  - pattern-not-regex: kms_master_key_id\s*=
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 311
+    original_engine: neuroscan
+    rule_name: SQS queue unencrypted
+- id: TF-CONFIG-012
+  languages:
+  - terraform
+  severity: INFO
+  message: 'Lambda not in VPC has unrestricted outbound internet. Consider
+
+    VPC placement for access to internal resources.'
+  patterns:
+  - pattern-regex: resource\s+"aws_lambda_function"
+  - pattern-not-regex: vpc_config\s*\{
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: config
+    cwe:
+    - 668
+    original_engine: neuroscan
+    original_severity: low
+    rule_name: Lambda without VPC config

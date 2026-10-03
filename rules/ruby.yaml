@@ -1,0 +1,199 @@
+# Ruby Security Rules
+rules:
+
+  - id: RB-INJECT-001
+    name: eval() code injection
+    severity: critical
+    category: injection
+    cwe: [95]
+    fix: "Never call eval() on untrusted input; use a proper parser for the expected format."
+    languages: [ruby]
+    patterns:
+      - '\beval\b'
+    pattern-not:
+      - '(?m)^\s*#'
+    message: |
+      Kernel#eval executes arbitrary Ruby from a string. Avoid evaluating
+      user-controlled input.
+
+  - id: RB-INJECT-002
+    name: Shell command injection
+    severity: high
+    category: command_injection
+    cwe: [78]
+    languages: [ruby]
+    # DEF-23: bare `\bexec\s*\(` matched "exec" as a method name on ANY
+    # receiver, not just Ruby's Kernel#exec shell primitive. Confirmed on
+    # a real corpus scan (discourse): 100% of 617 fires were DB.exec(sql)/
+    # builder.exec(...)/connection.exec("CREATE TABLE...") -- a SQL query
+    # wrapper's execute method, zero relation to shell execution. Genuine
+    # Kernel#exec is always called without an explicit receiver (bare
+    # `exec("cmd")`), so `(?<![.\w])` (matching NS-INJECT-002's Python
+    # equivalent) excludes any `receiver.exec(...)` member call.
+    patterns:
+      - '\bsystem\s*\('
+      - '(?<![.\w])exec\s*\('
+      - '`[^`]+\$\{[^`]+`'
+      - '%x\s*\('
+    pattern-not:
+      - 'system\s*\(\s*\['
+      - 'def exec\b'
+      - '(?m)^\s*#'
+    message: |
+      system(), exec(), backticks, and %x() are shell execution sinks.
+      Use array form or Open3.capture3 with separate arguments.
+
+  - id: RB-INJECT-003
+    name: SQL injection in ActiveRecord
+    severity: high
+    category: injection
+    cwe: [89]
+    languages: [ruby]
+    patterns:
+      - '\.find_by_sql\s*\('
+      - '\.(where|having)\s*\(.*#\{'
+    pattern-not:
+      - '(?m)^\s*#'
+    message: |
+      ActiveRecord raw SQL or string interpolation in where() is SQL-injectable.
+      Use parameterized queries with ? placeholders.
+
+  - id: RB-DESER-001
+    name: Unsafe YAML/Marshal deserialization
+    severity: critical
+    category: deserialization
+    cwe: [502]
+    fix: "Replace YAML.load()/Marshal.load() with YAML.safe_load() (or Marshal with a trusted source only) for untrusted data."
+    languages: [ruby]
+    patterns:
+      - 'YAML\.load\s*\('
+      - 'Marshal\.load\s*\('
+      - 'Oj\.load\s*\('
+    pattern-not:
+      - 'YAML\.safe_load\s*\('
+      # Marshal.load(Marshal.dump(x)) is Ruby's deep-copy idiom: input is the
+      # process's own serialization, never external data.
+      - 'Marshal\.load\s*\(\s*Marshal\.dump\s*\('
+      # Oj strict/compat modes parse plain JSON without object instantiation.
+      # (?m)^.* prefix: see RB-PATH-001 note on pattern-not range semantics.
+      - '(?m)^.*mode:\s*:strict'
+      - '(?m)^.*mode:\s*:compat'
+      - '(?m)^\s*#'
+    message: |
+      Unsafe YAML.load() or Marshal.load() enables arbitrary object
+      deserialization leading to RCE. Use YAML.safe_load().
+
+  - id: RB-SSTI-001
+    name: ERB template injection
+    severity: high
+    category: ssti
+    cwe: [94]
+    languages: [ruby]
+    patterns:
+      - 'ERB\.new\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+    message: |
+      ERB.new() with user-supplied template enables server-side template
+      injection. Sanitize template input or use a sandboxed renderer.
+
+  - id: RB-INJECT-004
+    name: Kernel#open injection
+    severity: high
+    category: command_injection
+    cwe: [78]
+    languages: [ruby]
+    patterns:
+      - '\bopen\s*\(\s*\|'
+    pattern-not:
+      - '(?m)^\s*#'
+    message: |
+      Kernel#open() with pipe character opens a subprocess. If input is
+      user-controlled, this is command injection. Use File.open() or URI.open().
+
+  - id: RB-PATH-001
+    name: Unanalysed file path at filesystem sink
+    severity: high
+    category: path_traversal
+    cwe: [22]
+    languages: [ruby]
+    patterns:
+      # (?<!\w::) keeps Zip::File.open (a different class) from matching while
+      # still matching top-level ::File.open.
+      - '(?<!\w::)(?<![\w.])(File\.(open|read|write|delete)|Dir\.(chdir|glob))\s*\('
+    pattern-not:
+      - 'File\.basename\s*\('
+      - 'File\.join\s*\('
+      # Pure string-literal path argument: not attacker-reachable. Single-quoted
+      # Ruby strings cannot interpolate; double-quoted excluded only without #{.
+      - '(File\.(open|read|write|delete)|Dir\.(chdir|glob))\s*\(\s*''[^'']*''\s*[,)]'
+      - '(File\.(open|read|write|delete)|Dir\.(chdir|glob))\s*\(\s*"(?:[^"#]|#[^{])*"\s*[,)]'
+      # Application-root/script-relative anchoring with a literal join argument.
+      # (?m)^.* prefix: opengrep pattern-not-regex only excludes a match its own
+      # range covers, so the exclusion must span from line start past the sink.
+      - '(?m)^.*Rails\.root\.join\(\s*[''"]'
+      - '(?m)^.*(?:__dir__|__FILE__)'
+      - '(?m)^\s*#'
+    message: |
+      Filesystem access whose path argument was not analysed for user control
+      (no Ruby dataflow support yet). Verify the path cannot be influenced by
+      request input; File.basename/File.join on user input prevents traversal.
+
+  - id: RB-SSRF-001
+    name: Unvalidated HTTP client
+    severity: high
+    category: ssrf
+    cwe: [918]
+    languages: [ruby]
+    patterns:
+      - 'Net::HTTP\.(get|post|start|new)\s*\('
+      - 'HTTParty\.(get|post)\s*\('
+      - 'RestClient\.(get|post)\s*\('
+      - 'Faraday\.new\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+    message: |
+      Outbound HTTP with unvalidated URL enables SSRF. Validate
+      destination hosts against an allowlist.
+
+  - id: RB-CONFIG-001
+    name: force_ssl disabled
+    severity: medium
+    category: config
+    cwe: [319]
+    languages: [ruby]
+    patterns:
+      - 'config\.force_ssl\s*=\s*false'
+    pattern-not:
+      - '(?m)^\s*#'
+    message: |
+      force_ssl = false disables HSTS and HTTPS enforcement. Set to true
+      in production.
+
+  - id: RB-AUTH-001
+    name: Mass assignment via permit!
+    severity: high
+    category: auth
+    cwe: [915]
+    languages: [ruby]
+    patterns:
+      - '\.permit!'
+    pattern-not:
+      - '(?m)^\s*#'
+    message: |
+      permit! allows all parameters through: mass assignment vulnerability.
+      Use explicit permit(:attr1, :attr2) to whitelist allowed attributes.
+
+  - id: RB-CONFIG-002
+    name: CORS wildcard origin
+    severity: medium
+    category: config
+    cwe: [942]
+    languages: [ruby]
+    patterns:
+      - 'origins\s+[''"]\*[''"]'
+    pattern-not:
+      - '(?m)^\s*#'
+    message: |
+      CORS origins '*' allows any domain to make authenticated cross-origin
+      requests. Restrict to explicit allowed origins.

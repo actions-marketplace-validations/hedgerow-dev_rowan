@@ -1,0 +1,247 @@
+# Oracle (Java) -- planted-vulnerability ground truth (JG-11, benchmark answer key).
+#
+# Schema follows Langfail's benchmarks/ground_truth.yaml: meta, vulnerabilities with
+# id/title/cwe/tier/exploitable/source/sink/taint_path/sanitizers_present/notes,
+# and decoys with id/resembles/why_safe/location. Extended with
+# `expected_rule_ids`, the Rowan tnt-ja-ai-* rule id(s) (JG-04/05/06) that
+# should catch each vuln, or fire as a false positive on each decoy.
+#
+# This file is NOT referenced by the app source under src/ -- the app must
+# contain no vuln markers, same discipline as Langfail.
+
+meta:
+  app: oracle-java
+  source_dir: .
+  tiers:
+    1: single-file, tool layer (@Tool parameter to sink)
+    2: single-file, LLM output or request to sink
+    3: cross-file (controller -> service -> agent/tool, 3-4 files)
+
+vulnerabilities:
+  - id: JA-01
+    title: "@Tool parameter to ProcessBuilder"
+    cwe: CWE-78
+    tier: 1
+    exploitable: true
+    source: {file: src/main/java/dev/hedgerow/oracle/tool/ShellTool.java, symbol: run}
+    sink: {file: src/main/java/dev/hedgerow/oracle/tool/ShellTool.java, symbol: run, line_hint: 19}
+    taint_path:
+      - src/main/java/dev/hedgerow/oracle/tool/ShellTool.java:run (command, @Tool/@ToolParam)
+    sanitizers_present: []
+    expected_rule_ids: [tnt-ja-ai-toolexec-001]
+    notes: "Also the sink JA-14 reaches via the agent loop -- see JA-14 notes."
+
+  - id: JA-02
+    title: "@Tool parameter to Files.readString(Paths.get(...))"
+    cwe: CWE-22
+    tier: 1
+    exploitable: true
+    source: {file: src/main/java/dev/hedgerow/oracle/tool/FileTool.java, symbol: readNote}
+    sink: {file: src/main/java/dev/hedgerow/oracle/tool/FileTool.java, symbol: readNote, line_hint: 22}
+    taint_path:
+      - src/main/java/dev/hedgerow/oracle/tool/FileTool.java:readNote (fileName, @Tool/@ToolParam)
+    sanitizers_present: []
+    expected_rule_ids: [tnt-ja-ai-toolpath-001]
+
+  - id: JA-03
+    title: "@Tool parameter concatenated into JdbcTemplate SELECT"
+    cwe: CWE-89
+    tier: 1
+    exploitable: true
+    source: {file: src/main/java/dev/hedgerow/oracle/tool/SqlTool.java, symbol: lookupTickets}
+    sink: {file: src/main/java/dev/hedgerow/oracle/tool/SqlTool.java, symbol: lookupTickets, line_hint: 26}
+    taint_path:
+      - src/main/java/dev/hedgerow/oracle/tool/SqlTool.java:lookupTickets (filter, @Tool/@ToolParam)
+    sanitizers_present: []
+    expected_rule_ids: [tnt-ja-ai-toolsql-001]
+
+  - id: JA-04
+    title: "@Tool parameter to Jsoup.connect (SSRF)"
+    cwe: CWE-918
+    tier: 1
+    exploitable: true
+    source: {file: src/main/java/dev/hedgerow/oracle/tool/WebTool.java, symbol: fetchPage}
+    sink: {file: src/main/java/dev/hedgerow/oracle/tool/WebTool.java, symbol: fetchPage, line_hint: 20}
+    taint_path:
+      - src/main/java/dev/hedgerow/oracle/tool/WebTool.java:fetchPage (url, @Tool/@ToolParam)
+    sanitizers_present: []
+    expected_rule_ids: [tnt-ja-ai-toolssrf-001]
+
+  - id: JA-05
+    title: "LLM chat output concatenated into JdbcTemplate SELECT"
+    cwe: CWE-89
+    tier: 2
+    exploitable: true
+    source: {file: src/main/java/dev/hedgerow/oracle/llm/LlmSqlService.java, symbol: askAndQuery, note: "chatClient.prompt()...call().content()"}
+    sink: {file: src/main/java/dev/hedgerow/oracle/llm/LlmSqlService.java, symbol: askAndQuery, line_hint: 30}
+    taint_path:
+      - "src/main/java/dev/hedgerow/oracle/llm/LlmSqlService.java:askAndQuery (generatedFilter <- chatClient.prompt().user(...).call().content())"
+      - "src/main/java/dev/hedgerow/oracle/llm/LlmSqlService.java:askAndQuery (jdbcTemplate.queryForList(\"... \" + generatedFilter))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-ja-ai-llmout-sql-001]
+
+  - id: JA-06
+    title: "LLM chat output executed as a shell command"
+    cwe: CWE-78
+    tier: 2
+    exploitable: true
+    source: {file: src/main/java/dev/hedgerow/oracle/llm/LlmExecService.java, symbol: askAndRun, note: "chatClient.prompt()...call().content()"}
+    sink: {file: src/main/java/dev/hedgerow/oracle/llm/LlmExecService.java, symbol: askAndRun, line_hint: 26}
+    taint_path:
+      - "src/main/java/dev/hedgerow/oracle/llm/LlmExecService.java:askAndRun (shellOneLiner <- chatClient content())"
+      - "src/main/java/dev/hedgerow/oracle/llm/LlmExecService.java:askAndRun (new ProcessBuilder(\"sh\", \"-c\", shellOneLiner))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-ja-ai-llmout-exec-001]
+
+  - id: JA-07
+    title: "LLM chat output fetched server-side (SSRF)"
+    cwe: CWE-918
+    tier: 2
+    exploitable: true
+    source: {file: src/main/java/dev/hedgerow/oracle/llm/LlmSsrfService.java, symbol: askAndFetchCitation, note: "chatClient.prompt()...call().content()"}
+    sink: {file: src/main/java/dev/hedgerow/oracle/llm/LlmSsrfService.java, symbol: askAndFetchCitation, line_hint: 27}
+    taint_path:
+      - "src/main/java/dev/hedgerow/oracle/llm/LlmSsrfService.java:askAndFetchCitation (citationUrl <- chatClient content())"
+      - "src/main/java/dev/hedgerow/oracle/llm/LlmSsrfService.java:askAndFetchCitation (restTemplate.getForObject(citationUrl, ...))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-ja-ai-llmout-ssrf-001]
+
+  - id: JA-08
+    title: "LLM chat output read as a file path"
+    cwe: CWE-22
+    tier: 2
+    exploitable: true
+    source: {file: src/main/java/dev/hedgerow/oracle/llm/LlmPathService.java, symbol: askAndReadLog, note: "chatClient.prompt()...call().content()"}
+    sink: {file: src/main/java/dev/hedgerow/oracle/llm/LlmPathService.java, symbol: askAndReadLog, line_hint: 28}
+    taint_path:
+      - "src/main/java/dev/hedgerow/oracle/llm/LlmPathService.java:askAndReadLog (logPath <- chatClient content())"
+      - "src/main/java/dev/hedgerow/oracle/llm/LlmPathService.java:askAndReadLog (Files.readString(Paths.get(logPath)))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-ja-ai-llmout-path-001]
+
+  - id: JA-09
+    title: "LLM chat output parsed and evaluated as a SpEL expression"
+    cwe: CWE-94
+    tier: 2
+    exploitable: true
+    source: {file: src/main/java/dev/hedgerow/oracle/llm/LlmSpelService.java, symbol: askAndEvaluate, note: "chatClient.prompt()...call().content()"}
+    sink: {file: src/main/java/dev/hedgerow/oracle/llm/LlmSpelService.java, symbol: askAndEvaluate, line_hint: 27}
+    taint_path:
+      - "src/main/java/dev/hedgerow/oracle/llm/LlmSpelService.java:askAndEvaluate (spelAnswer <- chatClient content())"
+      - "src/main/java/dev/hedgerow/oracle/llm/LlmSpelService.java:askAndEvaluate (parser.parseExpression(spelAnswer).getValue())"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-ja-ai-llmout-spel-001]
+
+  - id: JA-10
+    title: "Request body loaded with unsafe SnakeYAML constructor"
+    cwe: CWE-502
+    tier: 2
+    exploitable: true
+    source: {file: src/main/java/dev/hedgerow/oracle/controller/YamlConfigController.java, symbol: loadConfig, note: "@RequestBody String body"}
+    sink: {file: src/main/java/dev/hedgerow/oracle/controller/YamlConfigController.java, symbol: loadConfig, line_hint: 21}
+    taint_path:
+      - "src/main/java/dev/hedgerow/oracle/controller/YamlConfigController.java:loadConfig (body, @RequestBody)"
+      - "src/main/java/dev/hedgerow/oracle/controller/YamlConfigController.java:loadConfig (new Yaml().load(body), default Constructor)"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-ja-ai-yaml-001]
+
+  - id: JA-11
+    title: "Request parameter placed directly into the LLM system prompt"
+    cwe: LLM01
+    tier: 2
+    exploitable: true
+    source: {file: src/main/java/dev/hedgerow/oracle/controller/PromptController.java, symbol: assist, note: "@RequestParam String persona"}
+    sink: {file: src/main/java/dev/hedgerow/oracle/controller/PromptController.java, symbol: assist, line_hint: 25}
+    taint_path:
+      - "src/main/java/dev/hedgerow/oracle/controller/PromptController.java:assist (persona, @RequestParam)"
+      - "src/main/java/dev/hedgerow/oracle/controller/PromptController.java:assist (chatClient.prompt().system(persona)...)"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-ja-ai-sysprompt-001]
+
+  - id: JA-12
+    title: "DB-configured value reaches StdioMcpTransport.command"
+    cwe: CWE-78
+    tier: 2
+    exploitable: true
+    source: {file: src/main/java/dev/hedgerow/oracle/mcp/McpLauncherService.java, symbol: launch, note: "McpServerEntity.command, JPA row"}
+    sink: {file: src/main/java/dev/hedgerow/oracle/mcp/McpLauncherService.java, symbol: launch, line_hint: 26}
+    taint_path:
+      - "src/main/java/dev/hedgerow/oracle/mcp/McpServerEntity.java:getCommand (persisted column, set via an out-of-scope admin endpoint)"
+      - "src/main/java/dev/hedgerow/oracle/mcp/McpLauncherService.java:launch (row = repository.findById(serverId))"
+      - "src/main/java/dev/hedgerow/oracle/mcp/McpLauncherService.java:launch (StdioMcpTransport.builder().command(row.getCommand()))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-ja-ai-mcpcmd-002]
+    notes: >
+      Config/DB-sourced variant of the JG-06 mcpcmd shape (the direct
+      request-parameter variant would be mcpcmd-001); the taint hop is a JPA
+      round-trip rather than the current request.
+
+  - id: JA-13
+    title: "Cross-file: controller -> service -> agent -> QueryRunner (LLM SQL)"
+    cwe: CWE-89
+    tier: 3
+    exploitable: true
+    source: {file: src/main/java/dev/hedgerow/oracle/controller/ChatController.java, symbol: ask, note: "@RequestParam String q"}
+    sink: {file: src/main/java/dev/hedgerow/oracle/agent/QueryRunner.java, symbol: execute, line_hint: 24}
+    taint_path:
+      - "src/main/java/dev/hedgerow/oracle/controller/ChatController.java:ask (q, @RequestParam)"
+      - "src/main/java/dev/hedgerow/oracle/service/AssistantService.java:ask (question -> sqlAgent.run(question))"
+      - "src/main/java/dev/hedgerow/oracle/agent/SqlAgent.java:run (sql <- chatClient.prompt().user(...).call().content())"
+      - "src/main/java/dev/hedgerow/oracle/agent/QueryRunner.java:execute (jdbcTemplate.queryForList(sql))"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-ja-ai-llmout-sql-001]
+    notes: >
+      DataAgent-style SqlExecuteNode -> SqlExecutor shape (BACKLOG.md JG-09
+      survey). The LLM call and the sink are in different files from each
+      other AND from the controller; expected MISS until JG-13 cross-file
+      lands. JG-13 acceptance target.
+
+  - id: JA-14
+    title: "Cross-file: controller -> service -> agent loop -> @Tool dispatch (shell)"
+    cwe: CWE-78
+    tier: 3
+    exploitable: true
+    source: {file: src/main/java/dev/hedgerow/oracle/controller/ChatController.java, symbol: act, note: "@RequestParam String task"}
+    sink: {file: src/main/java/dev/hedgerow/oracle/tool/ShellTool.java, symbol: run, line_hint: 19}
+    taint_path:
+      - "src/main/java/dev/hedgerow/oracle/controller/ChatController.java:act (task, @RequestParam)"
+      - "src/main/java/dev/hedgerow/oracle/service/AssistantService.java:dispatch (task -> agentLoop.run(task))"
+      - "src/main/java/dev/hedgerow/oracle/agent/AgentLoop.java:run (command <- chatClient.prompt().user(...).call().content())"
+      - "src/main/java/dev/hedgerow/oracle/tool/ShellTool.java:run (shellTool.run(command), same sink as JA-01)"
+    sanitizers_present: []
+    expected_rule_ids: [tnt-ja-ai-toolexec-001]
+    notes: >
+      Shares its sink location with JA-01: ShellTool.run is itself a @Tool
+      method, so once tnt-ja-ai-toolexec-001 exists it will likely flag this
+      line on the Tier-1 (intraprocedural, @Tool-parameter) shape alone,
+      independent of whether the agent-loop call path is tracked. That is a
+      real and useful measurement in its own right -- it shows the
+      cross-file agent-dispatch path adds no incremental recall here because
+      the single-file rule already dominates this sink. JG-13's acceptance
+      target is really JA-13, where the sink is NOT itself a @Tool method
+      and no single-file rule can reach it.
+
+decoys:
+  - id: JD-01
+    resembles: "JA-01 (@Tool -> exec)"
+    why_safe: "runAction() checks the model-chosen action against a fixed allowlist before ProcessBuilder ever runs"
+    location: {file: src/main/java/dev/hedgerow/oracle/tool/SafeShellTool.java, symbol: runAction}
+    expected_rule_ids: [tnt-ja-ai-toolexec-001]
+
+  - id: JD-02
+    resembles: "JA-02 (@Tool -> path traversal)"
+    why_safe: "readNote() resolves under NOTES_DIR and rejects any path whose normalized form escapes it via startsWith"
+    location: {file: src/main/java/dev/hedgerow/oracle/tool/SafeFileTool.java, symbol: readNote}
+    expected_rule_ids: [tnt-ja-ai-toolpath-001]
+
+  - id: JD-03
+    resembles: "JA-05 (LLM output -> SQLi)"
+    why_safe: "askAndQuery() only ever binds the LLM's guess as a PreparedStatement parameter (?), never concatenates it into SQL text"
+    location: {file: src/main/java/dev/hedgerow/oracle/llm/LlmSqlSafeService.java, symbol: askAndQuery}
+    expected_rule_ids: [tnt-ja-ai-llmout-sql-001]
+
+  - id: JD-04
+    resembles: "JA-10 (unsafe YAML)"
+    why_safe: "loadConfig() constructs Yaml with SafeConstructor, which cannot instantiate arbitrary Java types"
+    location: {file: src/main/java/dev/hedgerow/oracle/controller/YamlSafeController.java, symbol: loadConfig}
+    expected_rule_ids: [tnt-ja-ai-yaml-001]

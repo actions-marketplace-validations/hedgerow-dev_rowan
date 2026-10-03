@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hedgerow-dev/rowan/blob/main/docs/schema/rule.schema.json",
+  "title": "Rowan Rule Definition",
+  "description": "Schema for Rowan rule YAML files. Supports both NeuroScan (regex) and Taint (Opengrep) rule formats.",
+  "type": "object",
+  "required": ["rules"],
+  "properties": {
+    "rules": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/TaintRule" },
+          { "$ref": "#/$defs/NeuroScanRule" }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "TaintRule": {
+      "type": "object",
+      "description": "Opengrep-compatible taint mode rule with source-sink-sanitizer patterns.",
+      "required": ["id", "mode", "message", "severity", "languages", "pattern-sources", "pattern-sinks"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^TNT-",
+          "description": "Unique rule ID. Convention: TNT-<CATEGORY>-<NUMBER>.",
+          "examples": ["TNT-SSRF-001", "TNT-ML-001"]
+        },
+        "mode": {
+          "type": "string",
+          "const": "taint",
+          "description": "Must be 'taint' for Opengrep taint rules."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable description of the vulnerability."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["ERROR", "WARNING", "INFO"],
+          "description": "Opengrep severity. ERROR=high, WARNING=medium, INFO=low."
+        },
+        "languages": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["python", "javascript", "typescript", "java", "go", "csharp", "ruby", "php", "rust"]
+          },
+          "minItems": 1,
+          "description": "Languages this rule applies to."
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "cwe": {
+              "type": "array",
+              "items": { "type": "integer" },
+              "description": "CWE identifiers."
+            },
+            "category": {
+              "type": "string",
+              "description": "Vulnerability category string."
+            },
+            "confidence": {
+              "type": "string",
+              "enum": ["HIGH", "MEDIUM", "LOW"],
+              "description": "Rule confidence level."
+            }
+          }
+        },
+        "pattern-sources": {
+          "type": "array",
+          "description": "Patterns matching where user input enters the application.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "patterns": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pattern": { "type": "string" },
+                    "pattern-either": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "pattern": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "pattern-sinks": {
+          "type": "array",
+          "description": "Patterns matching dangerous functions where tainted data should not flow.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "patterns": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pattern": { "type": "string" },
+                    "pattern-either": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "pattern": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "pattern-sanitizers": {
+          "type": "array",
+          "description": "Patterns matching safe transformations that neutralize the taint.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "patterns": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pattern": { "type": "string" },
+                    "pattern-either": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "pattern": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "pattern-propagators": {
+          "type": "array",
+          "description": "Patterns matching functions that carry taint from input to output.",
+          "items": {
+            "type": "object",
+            "required": ["pattern", "from", "to"],
+            "properties": {
+              "pattern": { "type": "string" },
+              "from": { "type": "string" },
+              "to": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "NeuroScanRule": {
+      "type": "object",
+      "description": "Regex-based surface scanning rule.",
+      "required": ["id", "pattern", "message", "severity", "category"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique rule ID. Convention: NS-<CATEGORY>-<NUMBER> or ns-<scope>-<number>.",
+          "examples": ["NS-DESER-001", "ns-aiml-030", "ns-sec-001"]
+        },
+        "pattern": {
+          "type": "string",
+          "description": "Python regex pattern to match against source code."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable description."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low", "info"],
+          "description": "Finding severity."
+        },
+        "category": {
+          "type": "string",
+          "description": "Vulnerability category."
+        },
+        "cwe": {
+          "oneOf": [
+            { "type": "integer" },
+            { "type": "array", "items": { "type": "integer" } }
+          ],
+          "description": "CWE identifier(s)."
+        },
+        "languages": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Languages this rule applies to."
+        },
+        "fix": {
+          "type": "string",
+          "description": "Recommended fix or remediation."
+        },
+        "negative_pattern": {
+          "type": "string",
+          "description": "Regex that suppresses the match (safe pattern)."
+        },
+        "multiline": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the pattern matches across multiple lines."
+        }
+      }
+    }
+  }
+}

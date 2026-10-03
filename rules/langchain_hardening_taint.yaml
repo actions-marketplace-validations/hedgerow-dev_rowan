@@ -1,0 +1,296 @@
+# Rowan LangChain hardening taint rules (Opengrep taint mode).
+# Flow-based detection for the LangChain rulepack:
+#   LC-HARDEN-TAINT-PROMPTLOAD-001  V4  load_prompt path traversal    (CWE-22)
+#   LC-HARDEN-TAINT-CYPHER-001      V7  GraphCypherQAChain injection   (CWE-943)
+#   LC-HARDEN-TAINT-JINJA-001       V2  jinja2 PromptTemplate SSTI     (CWE-1336/94)
+#   LC-HARDEN-TAINT-SSRF-001            crawling loader SSRF           (CWE-918)
+#
+# Sources are concrete web, CLI, websocket, and UI input APIs. Function
+# parameters are not inherently hostile: treating every parameter as a source
+# caused library APIs such as LangChain's own config loaders to self-report
+# without an application trust boundary.
+
+rules:
+
+  # -- V4: load_prompt() path traversal -----------------------------------
+  - id: LC-HARDEN-TAINT-PROMPTLOAD-001
+    mode: taint
+    message: |
+      Untrusted request data reaches langchain load_prompt() as a filesystem
+      path. A request-controlled prompt name concatenated onto a prompt
+      directory lets '../' traversal escape the directory, so load_prompt
+      will open and parse arbitrary files on the host.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [22]
+      category: path_traversal
+      references:
+        - https://hedgerow.dev/blog/langchain-threat-model
+      fix: "Resolve the final path with os.path.realpath and confirm it stays under PROMPT_DIR before loading, or map the request value through an allowlist of known prompt names instead of concatenating it into a path."
+    pattern-sources:
+      # rowan-registry:begin source=web_request
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=web_request
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: load_prompt($PATH)
+              - pattern: load_prompt($PATH, ...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $V = os.path.basename(...)
+              - pattern: $V = secure_filename(...)
+              - pattern: $V = _validate_path(...)
+
+  # -- V7: GraphCypherQAChain (Cypher) injection --------------------------
+  - id: LC-HARDEN-TAINT-CYPHER-001
+    mode: taint
+    message: |
+      Untrusted request text flows into a GraphCypherQAChain that is then run.
+      The chain turns the question into Cypher with no read-only restriction,
+      so a crafted question can emit DELETE/MERGE/CREATE and mutate or destroy
+      the graph (LLM-generated query injection).
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [943]
+      category: injection
+      references:
+        - https://hedgerow.dev/blog/langchain-threat-model
+      fix: "Do not pass raw user text into a Cypher-generating chain. Constrain the chain to read-only (e.g. a read-only Neo4j role / procedures, or GraphCypherQAChain generated-Cypher validation), and never set allow_dangerous_requests=True on a user-facing endpoint."
+    pattern-sources:
+      # rowan-registry:begin source=web_request
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=web_request
+      # Untrusted function parameter carrying request data (single-file flow).
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              def $FUNC(..., $PARAM, ...):
+                ...
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $CHAIN.invoke(...)
+              - pattern: $CHAIN.run(...)
+              - pattern: $CHAIN.__call__(...)
+          - pattern-inside: |
+              def $F(...):
+                ...
+                GraphCypherQAChain.from_llm(...)
+                ...
+
+  # -- V2: jinja2 PromptTemplate SSTI -------------------------------------
+  - id: LC-HARDEN-TAINT-JINJA-001
+    mode: taint
+    message: |
+      Untrusted request text is rendered by a LangChain PromptTemplate whose
+      template_format is "jinja2". jinja2 evaluates {{...}} found in the input
+      itself, so attacker-controlled text becomes template code, enabling
+      server-side template injection and potential RCE.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [1336, 94]
+      category: ssti
+      references:
+        - https://hedgerow.dev/blog/langchain-threat-model
+      fix: "Render user content as data, not as a template: use the default (safe) template_format instead of jinja2, or pass user text only as an autoescaped variable value; if dynamic jinja2 is unavoidable, render it through jinja2.sandbox.SandboxedEnvironment."
+    pattern-sources:
+      # rowan-registry:begin source=web_request
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=web_request
+      # Untrusted function parameter carrying request data (single-file flow).
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              def $FUNC(..., $PARAM, ...):
+                ...
+    pattern-sinks:
+      - patterns:
+          - pattern: $P.format(...)
+          - pattern-inside: |
+              def $F(...):
+                ...
+                PromptTemplate(..., template_format="jinja2", ...)
+                ...
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $V = markupsafe.escape(...)
+              - pattern: $V = escape(...)
+
+  # -- SSRF: untrusted URL into a crawling document loader ----------------
+  - id: LC-HARDEN-TAINT-SSRF-001
+    mode: taint
+    message: |
+      Untrusted input reaches a LangChain URL loader that then fetches it.
+      RecursiveUrlLoader, SitemapLoader, WebBaseLoader and the async HTML
+      loaders fetch whatever host the URL names, including loopback, RFC1918,
+      and the cloud metadata address 169.254.169.254, so a request-controlled
+      URL turns the loader into a server-side request forgery primitive.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [918]
+      category: ssrf
+      references:
+        - https://hedgerow.dev/blog/langchain-threat-model
+      fix: "Validate the URL before loading: reject non-http(s) schemes and any host that resolves to a loopback, private, link-local, or reserved address. langchain-hardened ships a drop-in SSRF-guarded RecursiveUrlLoader/SitemapLoader."
+    pattern-sources:
+      # rowan-registry:begin source=web_request
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=web_request
+      # Untrusted function parameter carrying request data (single-file flow).
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              def $FUNC(..., $PARAM, ...):
+                ...
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: RecursiveUrlLoader($URL, ...)
+              - pattern: RecursiveUrlLoader(url=$URL, ...)
+              - pattern: SitemapLoader($URL, ...)
+              - pattern: SitemapLoader(web_path=$URL, ...)
+              - pattern: WebBaseLoader($URL, ...)
+              - pattern: WebBaseLoader(web_path=$URL, ...)
+              - pattern: AsyncHtmlLoader($URL, ...)
+              - pattern: AsyncChromiumLoader($URL, ...)
+              - pattern: UnstructuredURLLoader(urls=$URL, ...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $V = assert_url_allowed(...)
+              - pattern: $V = validate_url(...)

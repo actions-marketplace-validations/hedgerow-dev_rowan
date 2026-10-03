@@ -1,0 +1,807 @@
+# Rowan LLM-Output taint rules: Opengrep-compatible taint mode rules
+# (issue #133: "insecure output handling", OWASP LLM02:2025)
+#
+# These treat LLM completion text itself as an untrusted taint SOURCE. The
+# rulebase was strong on untrusted data flowing INTO the model (prompt
+# injection, deserialization, trust_remote_code) but, before this file,
+# almost silent on untrusted data flowing OUT of it: completion text is
+# attacker-influenced whenever ANY untrusted content reached the prompt
+# (user input, RAG documents, tool results, scraped web pages), so it must
+# be treated as attacker-controlled at every dangerous sink, not just the
+# agent-tool-dispatch sink TNT-ML-005 already modeled.
+#
+# Requires: `--taint-intrafile` flag when running opengrep scan (same
+# requirement as ai_ml_taint.yaml / ml_taint.yaml / agent_taint.yaml).
+#
+# ── Shared source block ──────────────────────────────────────────────────
+# The six rules below share one pattern-sources block, expanded from the
+# `llm_output` fragment in rowan/rules_registry.py between the
+# `# rowan-registry:begin/end source=llm_output` sentinels (issue #159).
+# Edit the fragment, then run scripts/sync_registry.py; do not edit the
+# expanded block by hand.
+#
+# ── Known overlap with agent_taint.yaml (not a bug, see below) ──────────
+# agent_taint.yaml already ships TNT-ML-010 (LLM output -> SQL execute),
+# TNT-ML-011 (LLM output -> pd.eval/DataFrame.query engine=python), and
+# TNT-ML-015 (LLM output -> markdown render, image-exfil framing) using a
+# narrower source vocabulary (no litellm/Gemini/HF pipeline/streaming-delta
+# accumulation coverage). TNT-LLMOUT-001/003/006 below therefore overlap in
+# scope with those three rules: the same source expression flowing into the
+# same sink call (e.g. openai response.choices[0].message.content straight
+# into cursor.execute) will be reported by both the old and the new rule.
+# This is a deliberate, documented tradeoff, not an oversight:
+#   - The new rules add real, non-overlapping recall (litellm/Gemini/HF/
+#     streaming-delta sources; LangChain SQLDatabaseChain-style db.run();
+#     Streamlit unsafe_allow_html) that the old rules do not have.
+#   - This repo's existing dedup convention (see BACKLOG.md DEF-14/15/16/17
+#     and rowan/config/thresholds.yaml) disables a rule only after a
+#     corpus scan quantifies the duplicate-finding rate. No such corpus is
+#     available in this environment (scan-targets/ is gitignored and not
+#     reproducible here). See the note left in thresholds.yaml. Adding an
+#     unverified `enabled: false` entry here would violate that evidence
+#     -based convention rather than follow it.
+# Follow-up once real-corpus numbers are available: if TNT-ML-010/011/015
+# turn out to be a strict subset of TNT-LLMOUT-001/003/006 in practice (the
+# same way NS-AIML-002 turned out to be a strict subset of NS-AIML-001),
+# retire them via thresholds.yaml the same way. Until then both stay
+# enabled and a small amount of duplicate reporting on the narrow overlap
+# is the accepted cost.
+#
+# ── Streaming deltas ───────────────────────────────────────────────────
+# The FP-considerations section of issue #133 explicitly calls out that
+# streaming accumulation (`full += chunk.choices[0].delta.content`) must
+# propagate taint or the family "will miss most modern code". Each source
+# block below includes the streaming-delta shape
+# (`$CHUNK.choices[0].delta.content`) alongside the non-streaming
+# `response.choices[0].message.content` shape for exactly this reason:
+# Opengrep's taint engine propagates taint through the `+=` accumulation
+# automatically once the delta expression itself is a recognized source.
+#
+# ── Structured-output sanitizers (SQL/shell/eval sinks only) ─────────────
+# Per issue #133's FP-considerations: a completion passed through a
+# structured-output validator (Pydantic model_validate/parse_obj, a
+# json.loads + schema-shaped check, or the `instructor` library's
+# response_model= pattern) counts as a sanitizer for the SQL/shell/eval
+# sinks (001-003) but explicitly NOT for the HTML sink (006): a
+# Pydantic-validated string is still unescaped HTML. 004/005 do not use
+# the structured-output sanitizer either (a schema-valid URL or path is
+# not thereby a safe URL/path); they get their own domain sanitizers.
+
+rules:
+
+  # ── TNT-LLMOUT-001: LLM output -> SQL execution ─────────────────────
+  # Vanna.ai CVE-2024-5565 (text-to-SQL RCE via vn.ask); LangChain
+  # SQLDatabaseChain injection. See file header for overlap note vs.
+  # TNT-ML-010 (agent_taint.yaml).
+  - id: TNT-LLMOUT-001
+    mode: taint
+    message: |
+      LLM completion text reaches a SQL execute call. Completion text is
+      attacker-influenced whenever any untrusted content reached the
+      prompt (user input, RAG documents, tool results, scraped pages);
+      executing it as SQL is the Vanna.ai CVE-2024-5565 class of
+      vulnerability. A read-only connection does not make this safe --
+      the recommendation is an allow-listed query template, not an
+      argument about read-only access.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [89]
+      category: prompt_injection
+      fix: "Never execute a SQL string authored by an LLM completion. Constrain generation to a fixed set of parameterized query templates, or validate the generated SQL against an allow-listed grammar/column list before execution."
+    pattern-sources:
+      # rowan-registry:begin source=llm_output
+      - patterns:
+          - pattern-either:
+              - pattern: $RESPONSE.choices[$N].message.content
+              - pattern: $RESPONSE.choices[$N].message.text
+              - pattern: $RESPONSE.choices[$N].text
+              - pattern: $MESSAGE.content[$N].text
+              - pattern: $CHUNK.choices[0].delta.content
+              - pattern: openai.ChatCompletion.create(...)
+              - pattern: $CLIENT.chat.completions.create(...)
+              - pattern: litellm.completion(...)
+              - pattern: litellm.acompletion(...)
+              - pattern: agents.Runner.run(...)
+              - pattern: agents.Runner.run_sync(...)
+              - pattern: agents.Runner.run_streamed(...)
+              - pattern: claude_agent_sdk.query(...)
+              - pattern: dspy.Predict(...)(...)
+              - pattern: dspy.ChainOfThought(...)(...)
+              - patterns:
+                  - pattern-either:
+                      - pattern: $LLM.invoke(...)
+                      - pattern: $LLM.predict(...)
+                      - pattern: $LLM.generate(...)
+                      - pattern: $LLM.chat(...)
+                  - metavariable-regex:
+                      metavariable: $LLM
+                      regex: (?i).*(llm|model|client|chat|agent|assistant|bot|gpt|openai|anthropic|deepseek|litellm).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $CHAIN.invoke(...)
+                      - pattern: $CHAIN.run(...)
+                      - pattern: $CHAIN.predict(...)
+                      - pattern: $CHAIN.run_sync(...)
+                      - pattern: $CHAIN.run_stream(...)
+                  - metavariable-regex:
+                      metavariable: $CHAIN
+                      regex: (?i).*(chain|agent|executor).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $RUNNER.run_async(...)
+                      - pattern: $RUNNER.run(...)
+                  - metavariable-regex:
+                      metavariable: $RUNNER
+                      regex: .*runner.*
+              - patterns:
+                  - pattern: $PIPELINE.run(...)
+                  - metavariable-regex:
+                      metavariable: $PIPELINE
+                      regex: (?i).*(pipeline|pipe).*
+              - pattern: $RESULT["llm"]["replies"]
+              - patterns:
+                  - pattern-either:
+                      - pattern: $KERNEL.get_response(...)
+                      - pattern: $KERNEL.invoke_prompt(...)
+                      - pattern: $KERNEL.invoke(...)
+                  - metavariable-regex:
+                      metavariable: $KERNEL
+                      regex: (?i).*(kernel|agent).*
+              - patterns:
+                  - pattern: $PREDICTOR(...)
+                  - metavariable-regex:
+                      metavariable: $PREDICTOR
+                      regex: (?i)^(?:self\.)?(?:\w*_)?(predict|predictor|cot|react)$
+              - patterns:
+                  - pattern: $MODEL.generate_content(...)
+                  - metavariable-regex:
+                      metavariable: $MODEL
+                      regex: (?i).*(model|gemini|genai|client).*
+              - patterns:
+                  - pattern: $PIPE(...)
+                  - metavariable-regex:
+                      metavariable: $PIPE
+                      regex: (?i).*(pipe|pipeline|generator|classifier).*
+      # rowan-registry:end source=llm_output
+    # Engine note: $DB/$CONN/$SESSION are metavariable-regex-constrained to
+    # a db/conn/session/sql/cursor/engine-shaped receiver name -- verified
+    # false positive without this: a bare `$DB.run($SQL)` matches ANY
+    # object with a `.run()` method taking one argument, not just a
+    # LangChain SQLDatabase. Found scanning scan-targets/autogen: both
+    # `asyncio.run(run_gitty(owner, repo, command, number))` and
+    # `asyncio.run(st.session_state["agent"].chat(prompt))` matched (`$DB` =
+    # `asyncio`), reported as SQL-execution findings on code with no SQL
+    # anywhere nearby. `cursor.execute`/`cursor.executemany` are literal
+    # names, not metavariables, so they don't need this guard. Same
+    # over-broad-receiver class TNT-ML-010's own engine note (this
+    # rule's closest analog, agent_taint.yaml) already documented for
+    # `.generate()`/`.run()`.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: cursor.execute($SQL)
+              - pattern: cursor.executemany($SQL)
+              - patterns:
+                  - pattern-either:
+                      - pattern: $DB.execute($SQL)
+                      - pattern: $DB.run($SQL)
+                  - metavariable-regex:
+                      metavariable: $DB
+                      regex: (?i).*(db|database|conn|session|sql|cursor|engine).*
+              - patterns:
+                  - pattern: $CONN.execute($SQL)
+                  - metavariable-regex:
+                      metavariable: $CONN
+                      regex: (?i).*(db|database|conn|session|sql|cursor|engine).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $SESSION.execute($SQL)
+                      - pattern: $SESSION.execute(text($SQL))
+                  - metavariable-regex:
+                      metavariable: $SESSION
+                      regex: (?i).*(db|database|conn|session|sql|cursor|engine).*
+          - metavariable-pattern:
+              metavariable: $SQL
+              patterns:
+                - pattern-not: $X.where(...)
+                - pattern-not: $X.select(...)
+                - pattern-not: $X.insert(...)
+                - pattern-not: $X.update(...)
+                - pattern-not: $X.delete(...)
+                - pattern-not: $X.values(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: cursor.execute($SQL, $PARAMS)
+              - pattern: $DB.execute($SQL, $PARAMS)
+              - pattern: $SESSION.execute($SQL, $PARAMS)
+              - pattern: $MODEL.model_validate(...)
+              - pattern: $MODEL.model_validate_json(...)
+              - pattern: $MODEL.parse_obj(...)
+              - pattern: $MODEL.parse_raw(...)
+              - pattern: $VAR = json.loads(...)
+              - pattern: $CLIENT.chat.completions.create(..., response_model=$SCHEMA, ...)
+
+  # ── TNT-LLMOUT-002: LLM output -> shell execution ───────────────────
+  # ShellGPT-style assistants executing model-suggested commands. Distinct
+  # from TNT-ML-005 (LLM output -> agent tool dispatch): this fires when
+  # completion text reaches a shell sink directly, with no tool-dispatch
+  # layer in between, using the broader source vocabulary below.
+  - id: TNT-LLMOUT-002
+    mode: taint
+    message: |
+      LLM completion text reaches a shell execution sink. "Suggest a
+      command" assistants that run the model's own suggested shell command
+      let the model's output -- which is attacker-influenced whenever any
+      untrusted content reached the prompt -- choose what runs on the host
+      (ShellGPT-style RCE).
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [78]
+      category: injection
+      fix: "Never pass LLM completion text to a shell with shell=True or os.system(). If the agent must run commands, constrain it to an explicit allow-listed command set with parameterized (non-shell) invocation."
+    pattern-sources:
+      # rowan-registry:begin source=llm_output
+      - patterns:
+          - pattern-either:
+              - pattern: $RESPONSE.choices[$N].message.content
+              - pattern: $RESPONSE.choices[$N].message.text
+              - pattern: $RESPONSE.choices[$N].text
+              - pattern: $MESSAGE.content[$N].text
+              - pattern: $CHUNK.choices[0].delta.content
+              - pattern: openai.ChatCompletion.create(...)
+              - pattern: $CLIENT.chat.completions.create(...)
+              - pattern: litellm.completion(...)
+              - pattern: litellm.acompletion(...)
+              - pattern: agents.Runner.run(...)
+              - pattern: agents.Runner.run_sync(...)
+              - pattern: agents.Runner.run_streamed(...)
+              - pattern: claude_agent_sdk.query(...)
+              - pattern: dspy.Predict(...)(...)
+              - pattern: dspy.ChainOfThought(...)(...)
+              - patterns:
+                  - pattern-either:
+                      - pattern: $LLM.invoke(...)
+                      - pattern: $LLM.predict(...)
+                      - pattern: $LLM.generate(...)
+                      - pattern: $LLM.chat(...)
+                  - metavariable-regex:
+                      metavariable: $LLM
+                      regex: (?i).*(llm|model|client|chat|agent|assistant|bot|gpt|openai|anthropic|deepseek|litellm).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $CHAIN.invoke(...)
+                      - pattern: $CHAIN.run(...)
+                      - pattern: $CHAIN.predict(...)
+                      - pattern: $CHAIN.run_sync(...)
+                      - pattern: $CHAIN.run_stream(...)
+                  - metavariable-regex:
+                      metavariable: $CHAIN
+                      regex: (?i).*(chain|agent|executor).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $RUNNER.run_async(...)
+                      - pattern: $RUNNER.run(...)
+                  - metavariable-regex:
+                      metavariable: $RUNNER
+                      regex: .*runner.*
+              - patterns:
+                  - pattern: $PIPELINE.run(...)
+                  - metavariable-regex:
+                      metavariable: $PIPELINE
+                      regex: (?i).*(pipeline|pipe).*
+              - pattern: $RESULT["llm"]["replies"]
+              - patterns:
+                  - pattern-either:
+                      - pattern: $KERNEL.get_response(...)
+                      - pattern: $KERNEL.invoke_prompt(...)
+                      - pattern: $KERNEL.invoke(...)
+                  - metavariable-regex:
+                      metavariable: $KERNEL
+                      regex: (?i).*(kernel|agent).*
+              - patterns:
+                  - pattern: $PREDICTOR(...)
+                  - metavariable-regex:
+                      metavariable: $PREDICTOR
+                      regex: (?i)^(?:self\.)?(?:\w*_)?(predict|predictor|cot|react)$
+              - patterns:
+                  - pattern: $MODEL.generate_content(...)
+                  - metavariable-regex:
+                      metavariable: $MODEL
+                      regex: (?i).*(model|gemini|genai|client).*
+              - patterns:
+                  - pattern: $PIPE(...)
+                  - metavariable-regex:
+                      metavariable: $PIPE
+                      regex: (?i).*(pipe|pipeline|generator|classifier).*
+      # rowan-registry:end source=llm_output
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: subprocess.run($CMD, shell=True, ...)
+              - pattern: subprocess.call($CMD, shell=True, ...)
+              - pattern: subprocess.Popen($CMD, shell=True, ...)
+              - pattern: os.system($CMD)
+              - pattern: os.popen($CMD)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: shlex.quote(...)
+              - pattern: subprocess.run([..., ...])
+              - pattern: $MODEL.model_validate(...)
+              - pattern: $MODEL.model_validate_json(...)
+              - pattern: $MODEL.parse_obj(...)
+              - pattern: $MODEL.parse_raw(...)
+              - pattern: $VAR = json.loads(...)
+              - pattern: $CLIENT.chat.completions.create(..., response_model=$SCHEMA, ...)
+
+  # ── TNT-LLMOUT-003: LLM output -> Python/pandas eval family ─────────
+  # PandasAI CVE-2024-12366 (prompt -> pd.eval RCE). eval()/exec() are
+  # already TNT-ML-005 sinks for the narrower agent-tool-call source set;
+  # pd.eval/DataFrame.query/.eval are also partially covered by
+  # TNT-ML-011 (engine="python" requirement) -- see file header overlap
+  # note. df.query()/df.eval() are kept restricted to engine="python"
+  # here too (not the issue's literal generic ask): DataFrame.query's
+  # default engine (numexpr) evaluates a restricted expression grammar,
+  # not arbitrary Python, and TNT-ML-011's own engine notes already
+  # document that the generic (no engine=) form was a verified false
+  # positive source in this codebase. Kept consistent with that existing,
+  # evidence-based precision decision rather than reopening it.
+  - id: TNT-LLMOUT-003
+    mode: taint
+    message: |
+      LLM completion text reaches a Python/pandas expression-evaluation
+      sink. "Chat with your data" assistants that eval() or exec() model
+      output, or pass it to pd.eval()/DataFrame.query()/.eval() with the
+      python engine, let attacker-influenced completion text run as
+      arbitrary Python (PandasAI CVE-2024-12366 class).
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [95]
+      category: injection
+      fix: "Never evaluate LLM completion text with eval(), exec(), pd.eval(), or DataFrame.query()/.eval(engine=\"python\"). Constrain the agent to a fixed set of whitelisted operations instead of arbitrary generated code/expressions."
+    pattern-sources:
+      # rowan-registry:begin source=llm_output
+      - patterns:
+          - pattern-either:
+              - pattern: $RESPONSE.choices[$N].message.content
+              - pattern: $RESPONSE.choices[$N].message.text
+              - pattern: $RESPONSE.choices[$N].text
+              - pattern: $MESSAGE.content[$N].text
+              - pattern: $CHUNK.choices[0].delta.content
+              - pattern: openai.ChatCompletion.create(...)
+              - pattern: $CLIENT.chat.completions.create(...)
+              - pattern: litellm.completion(...)
+              - pattern: litellm.acompletion(...)
+              - pattern: agents.Runner.run(...)
+              - pattern: agents.Runner.run_sync(...)
+              - pattern: agents.Runner.run_streamed(...)
+              - pattern: claude_agent_sdk.query(...)
+              - pattern: dspy.Predict(...)(...)
+              - pattern: dspy.ChainOfThought(...)(...)
+              - patterns:
+                  - pattern-either:
+                      - pattern: $LLM.invoke(...)
+                      - pattern: $LLM.predict(...)
+                      - pattern: $LLM.generate(...)
+                      - pattern: $LLM.chat(...)
+                  - metavariable-regex:
+                      metavariable: $LLM
+                      regex: (?i).*(llm|model|client|chat|agent|assistant|bot|gpt|openai|anthropic|deepseek|litellm).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $CHAIN.invoke(...)
+                      - pattern: $CHAIN.run(...)
+                      - pattern: $CHAIN.predict(...)
+                      - pattern: $CHAIN.run_sync(...)
+                      - pattern: $CHAIN.run_stream(...)
+                  - metavariable-regex:
+                      metavariable: $CHAIN
+                      regex: (?i).*(chain|agent|executor).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $RUNNER.run_async(...)
+                      - pattern: $RUNNER.run(...)
+                  - metavariable-regex:
+                      metavariable: $RUNNER
+                      regex: .*runner.*
+              - patterns:
+                  - pattern: $PIPELINE.run(...)
+                  - metavariable-regex:
+                      metavariable: $PIPELINE
+                      regex: (?i).*(pipeline|pipe).*
+              - pattern: $RESULT["llm"]["replies"]
+              - patterns:
+                  - pattern-either:
+                      - pattern: $KERNEL.get_response(...)
+                      - pattern: $KERNEL.invoke_prompt(...)
+                      - pattern: $KERNEL.invoke(...)
+                  - metavariable-regex:
+                      metavariable: $KERNEL
+                      regex: (?i).*(kernel|agent).*
+              - patterns:
+                  - pattern: $PREDICTOR(...)
+                  - metavariable-regex:
+                      metavariable: $PREDICTOR
+                      regex: (?i)^(?:self\.)?(?:\w*_)?(predict|predictor|cot|react)$
+              - patterns:
+                  - pattern: $MODEL.generate_content(...)
+                  - metavariable-regex:
+                      metavariable: $MODEL
+                      regex: (?i).*(model|gemini|genai|client).*
+              - patterns:
+                  - pattern: $PIPE(...)
+                  - metavariable-regex:
+                      metavariable: $PIPE
+                      regex: (?i).*(pipe|pipeline|generator|classifier).*
+      # rowan-registry:end source=llm_output
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: eval($CODE)
+              - pattern: exec($CODE)
+              - pattern: pd.eval($EXPR, ...)
+              - pattern: pandas.eval($EXPR, ...)
+              - pattern: $DF.query($EXPR, engine="python", ...)
+              - pattern: $DF.eval($EXPR, engine="python", ...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $MODEL.model_validate(...)
+              - pattern: $MODEL.model_validate_json(...)
+              - pattern: $MODEL.parse_obj(...)
+              - pattern: $MODEL.parse_raw(...)
+              - pattern: $VAR = json.loads(...)
+              - pattern: $CLIENT.chat.completions.create(..., response_model=$SCHEMA, ...)
+
+  # ── TNT-LLMOUT-004: LLM output -> outbound HTTP request URL (SSRF) ──
+  # Agent-driven SSRF: model emits an internal URL, the agent fetches it.
+  - id: TNT-LLMOUT-004
+    mode: taint
+    message: |
+      LLM completion text reaches an outbound HTTP request URL. An
+      agent that fetches a URL chosen by the model (e.g. "here is a
+      source to check: http://...") lets attacker-influenced completion
+      text target internal/metadata endpoints (agent-driven SSRF).
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [918]
+      category: ssrf
+      fix: "Validate any model-suggested URL against an allow-list of hosts/schemes before fetching it; never let completion text choose an unrestricted fetch target."
+    pattern-sources:
+      # rowan-registry:begin source=llm_output
+      - patterns:
+          - pattern-either:
+              - pattern: $RESPONSE.choices[$N].message.content
+              - pattern: $RESPONSE.choices[$N].message.text
+              - pattern: $RESPONSE.choices[$N].text
+              - pattern: $MESSAGE.content[$N].text
+              - pattern: $CHUNK.choices[0].delta.content
+              - pattern: openai.ChatCompletion.create(...)
+              - pattern: $CLIENT.chat.completions.create(...)
+              - pattern: litellm.completion(...)
+              - pattern: litellm.acompletion(...)
+              - pattern: agents.Runner.run(...)
+              - pattern: agents.Runner.run_sync(...)
+              - pattern: agents.Runner.run_streamed(...)
+              - pattern: claude_agent_sdk.query(...)
+              - pattern: dspy.Predict(...)(...)
+              - pattern: dspy.ChainOfThought(...)(...)
+              - patterns:
+                  - pattern-either:
+                      - pattern: $LLM.invoke(...)
+                      - pattern: $LLM.predict(...)
+                      - pattern: $LLM.generate(...)
+                      - pattern: $LLM.chat(...)
+                  - metavariable-regex:
+                      metavariable: $LLM
+                      regex: (?i).*(llm|model|client|chat|agent|assistant|bot|gpt|openai|anthropic|deepseek|litellm).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $CHAIN.invoke(...)
+                      - pattern: $CHAIN.run(...)
+                      - pattern: $CHAIN.predict(...)
+                      - pattern: $CHAIN.run_sync(...)
+                      - pattern: $CHAIN.run_stream(...)
+                  - metavariable-regex:
+                      metavariable: $CHAIN
+                      regex: (?i).*(chain|agent|executor).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $RUNNER.run_async(...)
+                      - pattern: $RUNNER.run(...)
+                  - metavariable-regex:
+                      metavariable: $RUNNER
+                      regex: .*runner.*
+              - patterns:
+                  - pattern: $PIPELINE.run(...)
+                  - metavariable-regex:
+                      metavariable: $PIPELINE
+                      regex: (?i).*(pipeline|pipe).*
+              - pattern: $RESULT["llm"]["replies"]
+              - patterns:
+                  - pattern-either:
+                      - pattern: $KERNEL.get_response(...)
+                      - pattern: $KERNEL.invoke_prompt(...)
+                      - pattern: $KERNEL.invoke(...)
+                  - metavariable-regex:
+                      metavariable: $KERNEL
+                      regex: (?i).*(kernel|agent).*
+              - patterns:
+                  - pattern: $PREDICTOR(...)
+                  - metavariable-regex:
+                      metavariable: $PREDICTOR
+                      regex: (?i)^(?:self\.)?(?:\w*_)?(predict|predictor|cot|react)$
+              - patterns:
+                  - pattern: $MODEL.generate_content(...)
+                  - metavariable-regex:
+                      metavariable: $MODEL
+                      regex: (?i).*(model|gemini|genai|client).*
+              - patterns:
+                  - pattern: $PIPE(...)
+                  - metavariable-regex:
+                      metavariable: $PIPE
+                      regex: (?i).*(pipe|pipeline|generator|classifier).*
+      # rowan-registry:end source=llm_output
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: requests.get($URL, ...)
+              - pattern: requests.post($URL, ...)
+              - pattern: requests.request($METHOD, $URL, ...)
+              - pattern: httpx.get($URL, ...)
+              - pattern: httpx.post($URL, ...)
+              - pattern: httpx.Client().get($URL, ...)
+              - pattern: urllib.request.urlopen($URL, ...)
+              - pattern: aiohttp.ClientSession().get($URL, ...)
+          # The URL is the payload; a model-chosen HTTP method is not (RT-14).
+          - focus-metavariable: $URL
+    # Engine note: a bare boolean guard-clause check (e.g. `if not
+    # is_allowed_url(url): raise ...`) does NOT suppress a finding in this
+    # engine version -- same documented limitation as agent_taint.yaml's
+    # TNT-ML-012 (only sanitizers that reassign/wrap the tainted value
+    # itself actually clear taint). Sanitizer patterns below are therefore
+    # written in the reassignment shape ($URL = validate_url($URL)), which
+    # is what actually works; see tests/test_llm_output_taint.py.
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $URL = validate_url($URL)
+              - pattern: $URL = sanitize_url($URL)
+              - pattern: $URL = enforce_url_allowlist($URL)
+
+  # ── TNT-LLMOUT-005: LLM output -> filesystem path (not just content) ─
+  # Agent writes to a model-chosen path (path traversal, config overwrite).
+  - id: TNT-LLMOUT-005
+    mode: taint
+    message: |
+      LLM completion text reaches a filesystem path argument (not just the
+      written content). An agent that lets the model choose WHERE to write
+      -- a filename or path derived from completion text -- is vulnerable
+      to path traversal / arbitrary file overwrite, distinct from (and
+      less obvious than) the model choosing file contents.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [22]
+      category: path_traversal
+      fix: "Never derive a filesystem path from LLM completion text. Write to a fixed, server-controlled directory using a generated or allow-listed filename, and reject any path containing '..' or an absolute-path escape."
+    pattern-sources:
+      # rowan-registry:begin source=llm_output
+      - patterns:
+          - pattern-either:
+              - pattern: $RESPONSE.choices[$N].message.content
+              - pattern: $RESPONSE.choices[$N].message.text
+              - pattern: $RESPONSE.choices[$N].text
+              - pattern: $MESSAGE.content[$N].text
+              - pattern: $CHUNK.choices[0].delta.content
+              - pattern: openai.ChatCompletion.create(...)
+              - pattern: $CLIENT.chat.completions.create(...)
+              - pattern: litellm.completion(...)
+              - pattern: litellm.acompletion(...)
+              - pattern: agents.Runner.run(...)
+              - pattern: agents.Runner.run_sync(...)
+              - pattern: agents.Runner.run_streamed(...)
+              - pattern: claude_agent_sdk.query(...)
+              - pattern: dspy.Predict(...)(...)
+              - pattern: dspy.ChainOfThought(...)(...)
+              - patterns:
+                  - pattern-either:
+                      - pattern: $LLM.invoke(...)
+                      - pattern: $LLM.predict(...)
+                      - pattern: $LLM.generate(...)
+                      - pattern: $LLM.chat(...)
+                  - metavariable-regex:
+                      metavariable: $LLM
+                      regex: (?i).*(llm|model|client|chat|agent|assistant|bot|gpt|openai|anthropic|deepseek|litellm).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $CHAIN.invoke(...)
+                      - pattern: $CHAIN.run(...)
+                      - pattern: $CHAIN.predict(...)
+                      - pattern: $CHAIN.run_sync(...)
+                      - pattern: $CHAIN.run_stream(...)
+                  - metavariable-regex:
+                      metavariable: $CHAIN
+                      regex: (?i).*(chain|agent|executor).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $RUNNER.run_async(...)
+                      - pattern: $RUNNER.run(...)
+                  - metavariable-regex:
+                      metavariable: $RUNNER
+                      regex: .*runner.*
+              - patterns:
+                  - pattern: $PIPELINE.run(...)
+                  - metavariable-regex:
+                      metavariable: $PIPELINE
+                      regex: (?i).*(pipeline|pipe).*
+              - pattern: $RESULT["llm"]["replies"]
+              - patterns:
+                  - pattern-either:
+                      - pattern: $KERNEL.get_response(...)
+                      - pattern: $KERNEL.invoke_prompt(...)
+                      - pattern: $KERNEL.invoke(...)
+                  - metavariable-regex:
+                      metavariable: $KERNEL
+                      regex: (?i).*(kernel|agent).*
+              - patterns:
+                  - pattern: $PREDICTOR(...)
+                  - metavariable-regex:
+                      metavariable: $PREDICTOR
+                      regex: (?i)^(?:self\.)?(?:\w*_)?(predict|predictor|cot|react)$
+              - patterns:
+                  - pattern: $MODEL.generate_content(...)
+                  - metavariable-regex:
+                      metavariable: $MODEL
+                      regex: (?i).*(model|gemini|genai|client).*
+              - patterns:
+                  - pattern: $PIPE(...)
+                  - metavariable-regex:
+                      metavariable: $PIPE
+                      regex: (?i).*(pipe|pipeline|generator|classifier).*
+      # rowan-registry:end source=llm_output
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: open($PATH, "w", ...)
+              - pattern: open($PATH, "wb", ...)
+              - pattern: open($PATH, "a", ...)
+              - pattern: Path($PATH).write_text(...)
+              - pattern: Path($PATH).write_bytes(...)
+              - pattern: shutil.copy(..., $PATH)
+              - pattern: shutil.copy2(..., $PATH)
+              - pattern: shutil.move(..., $PATH)
+              - pattern: shutil.copytree(..., $PATH)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: os.path.basename($PATH)
+              - pattern: secure_filename($PATH)
+              - pattern: werkzeug.utils.secure_filename($PATH)
+
+  # ── TNT-LLMOUT-006: LLM output -> HTML rendering (XSS / markdown exfil) ──
+  # Distinct from a generic innerHTML/XSS rule because the source is the
+  # completion text itself, which makes it high-signal: prompt injection
+  # -> markdown/HTML render is exploitable purely through content the
+  # model was shown, no separate injection vector needed. Structured-
+  # output sanitizers (Pydantic/instructor/json.loads) deliberately do
+  # NOT apply here (see file header): a schema-validated string is still
+  # unescaped HTML. Scoped to Python (Streamlit/Flask/markdown-renderer)
+  # sinks; the issue's JS-side sinks (innerHTML, dangerouslySetInnerHTML,
+  # v-html) are an explicit, documented follow-up -- see final report --
+  # since a same-file Python->JS taint flow does not exist in this
+  # engine's model and a proper JS/TS variant needs its own JS SDK source
+  # vocabulary (fetch/axios response shapes), not a copy of this one.
+  - id: TNT-LLMOUT-006
+    mode: taint
+    message: |
+      LLM completion text reaches an HTML-rendering sink. Chat UIs that
+      render assistant output as Markdown/HTML, or set unsafe_allow_html,
+      let attacker-influenced completion text (via indirect prompt
+      injection) inject script or an auto-loading image tag that
+      exfiltrates conversation data on render (XSS; the ChatGPT/Bard/
+      Writer.com markdown-image-exfil class). A structured-output
+      validator does NOT make this safe -- a schema-valid string is still
+      unescaped HTML.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [79]
+      category: ai_ml
+      fix: "HTML-escape or sandbox-render LLM completion text before it reaches a markdown/HTML sink; restrict rendered <img>/<a> targets to an allow-list of same-origin or known-safe hosts. Never set unsafe_allow_html=True on model output."
+    pattern-sources:
+      # rowan-registry:begin source=llm_output
+      - patterns:
+          - pattern-either:
+              - pattern: $RESPONSE.choices[$N].message.content
+              - pattern: $RESPONSE.choices[$N].message.text
+              - pattern: $RESPONSE.choices[$N].text
+              - pattern: $MESSAGE.content[$N].text
+              - pattern: $CHUNK.choices[0].delta.content
+              - pattern: openai.ChatCompletion.create(...)
+              - pattern: $CLIENT.chat.completions.create(...)
+              - pattern: litellm.completion(...)
+              - pattern: litellm.acompletion(...)
+              - pattern: agents.Runner.run(...)
+              - pattern: agents.Runner.run_sync(...)
+              - pattern: agents.Runner.run_streamed(...)
+              - pattern: claude_agent_sdk.query(...)
+              - pattern: dspy.Predict(...)(...)
+              - pattern: dspy.ChainOfThought(...)(...)
+              - patterns:
+                  - pattern-either:
+                      - pattern: $LLM.invoke(...)
+                      - pattern: $LLM.predict(...)
+                      - pattern: $LLM.generate(...)
+                      - pattern: $LLM.chat(...)
+                  - metavariable-regex:
+                      metavariable: $LLM
+                      regex: (?i).*(llm|model|client|chat|agent|assistant|bot|gpt|openai|anthropic|deepseek|litellm).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $CHAIN.invoke(...)
+                      - pattern: $CHAIN.run(...)
+                      - pattern: $CHAIN.predict(...)
+                      - pattern: $CHAIN.run_sync(...)
+                      - pattern: $CHAIN.run_stream(...)
+                  - metavariable-regex:
+                      metavariable: $CHAIN
+                      regex: (?i).*(chain|agent|executor).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $RUNNER.run_async(...)
+                      - pattern: $RUNNER.run(...)
+                  - metavariable-regex:
+                      metavariable: $RUNNER
+                      regex: .*runner.*
+              - patterns:
+                  - pattern: $PIPELINE.run(...)
+                  - metavariable-regex:
+                      metavariable: $PIPELINE
+                      regex: (?i).*(pipeline|pipe).*
+              - pattern: $RESULT["llm"]["replies"]
+              - patterns:
+                  - pattern-either:
+                      - pattern: $KERNEL.get_response(...)
+                      - pattern: $KERNEL.invoke_prompt(...)
+                      - pattern: $KERNEL.invoke(...)
+                  - metavariable-regex:
+                      metavariable: $KERNEL
+                      regex: (?i).*(kernel|agent).*
+              - patterns:
+                  - pattern: $PREDICTOR(...)
+                  - metavariable-regex:
+                      metavariable: $PREDICTOR
+                      regex: (?i)^(?:self\.)?(?:\w*_)?(predict|predictor|cot|react)$
+              - patterns:
+                  - pattern: $MODEL.generate_content(...)
+                  - metavariable-regex:
+                      metavariable: $MODEL
+                      regex: (?i).*(model|gemini|genai|client).*
+              - patterns:
+                  - pattern: $PIPE(...)
+                  - metavariable-regex:
+                      metavariable: $PIPE
+                      regex: (?i).*(pipe|pipeline|generator|classifier).*
+      # rowan-registry:end source=llm_output
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: markdown.markdown($TEXT, ...)
+              - pattern: mistune.markdown($TEXT, ...)
+              - pattern: mistune.html($TEXT, ...)
+              - pattern: commonmark.commonmark($TEXT, ...)
+              - pattern: st.markdown($TEXT, unsafe_allow_html=True, ...)
+              - pattern: st.write($TEXT, unsafe_allow_html=True, ...)
+              - pattern: render_template_string($TEXT, ...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: bleach.clean(...)
+              - pattern: markupsafe.escape(...)
+              - pattern: html.escape(...)

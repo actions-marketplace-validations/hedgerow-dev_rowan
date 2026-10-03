@@ -1,0 +1,194 @@
+# Terraform / HCL Infrastructure-as-Code Security Rules
+rules:
+
+  - id: TF-CONFIG-001
+    name: Security group open to internet
+    severity: high
+    category: config
+    cwe: [284]
+    languages: [terraform]
+    patterns:
+      - 'cidr_blocks\s*=\s*\[[^\]]*"0\.0\.0\.0\/0"'
+    pattern-not:
+      - 'description\s*=.*(load.?balancer|cdn|public)'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Security group allows inbound from 0.0.0.0/0 (entire internet).
+      Restrict CIDR blocks to specific trusted IP ranges.
+
+  - id: TF-CONFIG-002
+    name: S3 bucket with public ACL
+    severity: critical
+    category: config
+    cwe: [284]
+    fix: "Set acl = \"private\" and grant access via an explicit bucket policy or IAM role instead of a public ACL."
+    languages: [terraform]
+    patterns:
+      - 'acl\s*=\s*"(public-read|public-read-write|authenticated-read)"'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      S3 bucket with public ACL. Use acl = "private" and explicit
+      bucket policies for least-privilege access.
+
+  - id: TF-CONFIG-003
+    name: IAM policy with wildcard
+    severity: high
+    category: config
+    cwe: [285]
+    languages: [terraform]
+    patterns:
+      - '(Action|Resource)\s*=\s*\[[^\]]*"\*"'
+    pattern-not:
+      - 'Condition\s*=\s*\{'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      IAM policy action/resource is '*'. Grants unrestricted access.
+      Scope to specific actions and resources with conditions.
+
+  - id: TF-CONFIG-004
+    name: RDS publicly accessible
+    severity: high
+    category: config
+    cwe: [668]
+    languages: [terraform]
+    patterns:
+      - 'publicly_accessible\s*=\s*true'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      RDS instance is publicly accessible. Set publicly_accessible = false
+      and use security groups for controlled access.
+
+  - id: TF-CONFIG-005
+    name: CloudFront weak TLS
+    severity: medium
+    category: config
+    cwe: [327]
+    languages: [terraform]
+    patterns:
+      - 'viewer_protocol_policy\s*=\s*"(allow-all|tcp)"'
+      - 'minimum_protocol_version\s*=\s*"(SSLv3|TLSv1|TLSv1_2016)"'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      CloudFront allows weak TLS or no encryption. Set
+      minimum_protocol_version = "TLSv1.2_2021" and redirect HTTP to HTTPS.
+
+  - id: TF-CONFIG-006
+    name: EKS public endpoint
+    severity: high
+    category: config
+    cwe: [668]
+    languages: [terraform]
+    patterns:
+      - 'endpoint_public_access\s*=\s*true'
+    pattern-not:
+      - 'endpoint_private_access\s*=\s*true'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      EKS cluster API is publicly accessible. Disable or restrict to
+      specific CIDR blocks via public_access_cidrs.
+
+  - id: TF-CONFIG-007
+    name: S3 Block Public Access disabled
+    severity: high
+    category: config
+    cwe: [284]
+    languages: [terraform]
+    patterns:
+      - 'block_public_acls\s*=\s*false'
+      - 'block_public_policy\s*=\s*false'
+      - 'restrict_public_buckets\s*=\s*false'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      S3 Block Public Access setting disabled. Enable all four:
+      block_public_acls, block_public_policy, ignore_public_acls,
+      restrict_public_buckets.
+
+  - id: TF-CONFIG-008
+    name: KMS key rotation disabled
+    severity: medium
+    category: config
+    cwe: [324]
+    languages: [terraform]
+    patterns:
+      - 'enable_key_rotation\s*=\s*false'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      KMS key rotation disabled. Set enable_key_rotation = true for
+      automated annual key rotation.
+
+  - id: TF-CONFIG-009
+    name: CloudTrail without encryption
+    severity: medium
+    category: config
+    cwe: [311]
+    languages: [terraform]
+    patterns:
+      - 'resource\s+"aws_cloudtrail"'
+    pattern-not:
+      - 'kms_key_id\s*='
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      CloudTrail without KMS encryption. Trail logs stored unencrypted.
+      Add kms_key_id for encryption at rest.
+
+  - id: TF-CONFIG-010
+    name: ALB listener HTTP without redirect
+    severity: medium
+    category: config
+    cwe: [319]
+    languages: [terraform]
+    patterns:
+      - 'protocol\s*=\s*"HTTP"'
+    pattern-not:
+      - 'type\s*=\s*"redirect"'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      ALB listener uses HTTP without HTTPS redirect. Sensitive data
+      transmitted in cleartext. Add HTTPS redirect action.
+
+  - id: TF-CONFIG-011
+    name: SQS queue unencrypted
+    severity: medium
+    category: config
+    cwe: [311]
+    languages: [terraform]
+    patterns:
+      - 'resource\s+"aws_sqs_queue"'
+    pattern-not:
+      - 'kms_master_key_id\s*='
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      SQS queue without encryption. Add kms_master_key_id for
+      server-side encryption.
+
+  - id: TF-CONFIG-012
+    name: Lambda without VPC config
+    severity: low
+    category: config
+    cwe: [668]
+    languages: [terraform]
+    patterns:
+      - 'resource\s+"aws_lambda_function"'
+    pattern-not:
+      - 'vpc_config\s*\{'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Lambda not in VPC has unrestricted outbound internet. Consider
+      VPC placement for access to internal resources.

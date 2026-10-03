@@ -1,0 +1,224 @@
+rules:
+- id: JS-INJECT-001
+  languages:
+  - javascript
+  - typescript
+  severity: WARNING
+  message: 'eval() executes arbitrary JavaScript code. Use JSON.parse() for data,
+
+    or restructure code to avoid dynamic evaluation entirely.'
+  patterns:
+  - pattern-regex: \beval\s*\(
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: injection
+    cwe:
+    - 95
+    original_engine: neuroscan
+    rule_name: eval() code injection
+    residual:
+    - sanitizer
+- id: JS-INJECT-002
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: 'new Function() is equivalent to eval(). Dynamic code execution sink.
+
+    Avoid constructing functions from runtime strings.'
+  patterns:
+  - pattern-regex: new\s+Function\s*\(
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: injection
+    cwe:
+    - 95
+    original_engine: neuroscan
+    original_severity: critical
+    rule_name: new Function() code injection
+    fix: Never call new Function()/eval() on untrusted input; use a proper parser for the expected format.
+    residual:
+    - sanitizer
+- id: JS-INJECT-003
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: 'Shell command injection via exec()/spawn(). User input in command string
+
+    enables RCE. Use execFile() with separate arguments.'
+  patterns:
+  - pattern-regex: (child_process|require\(['"]child_process['"]\))\.(exec|execSync|spawn)\s*\(
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: command_injection
+    cwe:
+    - 78
+    original_engine: neuroscan
+    rule_name: child_process command injection
+    residual:
+    - sanitizer
+- id: JS-XSS-001
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: 'Assignment to innerHTML is a DOM-based XSS sink. Use textContent
+
+    or DOMPurify to sanitize HTML.'
+  patterns:
+  - pattern-regex: \.innerHTML\s*=
+  - pattern-not-regex: \.innerHTML\s*=\s*['"]\s*['"]
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: xss
+    cwe:
+    - 79
+    original_engine: neuroscan
+    rule_name: innerHTML DOM XSS
+    residual:
+    - sanitizer
+- id: JS-XSS-002
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: 'dangerouslySetInnerHTML bypasses React XSS protection. Use sanitization
+
+    (DOMPurify) or restructure to avoid raw HTML injection.'
+  patterns:
+  - pattern-regex: dangerouslySetInnerHTML
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: xss
+    cwe:
+    - 79
+    original_engine: neuroscan
+    rule_name: dangerouslySetInnerHTML XSS
+    residual:
+    - sanitizer
+- id: JS-XSS-003
+  languages:
+  - javascript
+  - typescript
+  severity: WARNING
+  message: 'document.write() during page load injects attacker-controlled HTML.
+
+    Use DOM manipulation methods (createElement, appendChild) instead.'
+  patterns:
+  - pattern-regex: document\.write(ln)?\s*\(
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: xss
+    cwe:
+    - 79
+    original_engine: neuroscan
+    rule_name: document.write XSS
+    residual:
+    - sanitizer
+- id: JS-DESER-001
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: Unsafe deserialization via yaml.load() leads to RCE. Use yaml.safeLoad().
+  patterns:
+  - pattern-either:
+    - pattern-regex: yaml\.load\s*\(
+    - pattern-regex: js-yaml.*\.load\s*\(
+    - pattern-regex: serialize\.unserialize\s*\(
+  - pattern-not-regex: \.safeLoad\s*\(
+  - pattern-not-regex: \.safeLoadAll\s*\(
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: deserialization
+    cwe:
+    - 502
+    original_engine: neuroscan
+    rule_name: Unsafe YAML/js-yaml deserialization
+    residual:
+    - sanitizer
+- id: JS-CRYPTO-001
+  languages:
+  - javascript
+  - typescript
+  severity: WARNING
+  message: MD5 and SHA-1 are cryptographically broken. Use SHA-256 or better.
+  patterns:
+  - pattern-regex: \.createHash\(['"](md5|sha1)['"]\)
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: crypto
+    cwe:
+    - 328
+    original_engine: neuroscan
+    rule_name: Weak hash algorithm
+- id: JS-CRYPTO-002
+  languages:
+  - javascript
+  - typescript
+  severity: WARNING
+  message: 'Math.random() is not cryptographically secure. Use
+
+    crypto.randomBytes() or crypto.getRandomValues().'
+  patterns:
+  - pattern-regex: Math\.random\s*\(\s*\)
+  - pattern-not-regex: crypto\.randomBytes\s*\(
+  - pattern-not-regex: crypto\.getRandomValues\s*\(
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: crypto
+    cwe:
+    - 330
+    original_engine: neuroscan
+    rule_name: Math.random() for security
+- id: JS-SSRF-001
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: 'HTTP request detected. If URL comes from user input, SSRF is possible.
+
+    Validate URLs against an allowlist and block private IP ranges.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: fetch\s*\(
+    - pattern-regex: axios\.(get|post|put|delete|patch)\s*\(
+    - pattern-regex: axios\s*\(
+    - pattern-regex: got\.(get|post)\s*\(
+    - pattern-regex: needle\.(get|post)\s*\(
+    - pattern-regex: superagent\.(get|post)\s*\(
+    - pattern-regex: request\.(get|post)\s*\(
+    - pattern-regex: http\.(get|request)\s*\(
+    - pattern-regex: https\.(get|request)\s*\(
+  - pattern-not-regex: fetch\s*\(\s*['"]\/
+  - pattern-not-regex: axios\.(get|post)\s*\(\s*['"]\/
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: ssrf
+    cwe:
+    - 918
+    original_engine: neuroscan
+    rule_name: User-controlled HTTP request
+    residual:
+    - sanitizer
+- id: JS-PATH-001
+  languages:
+  - javascript
+  - typescript
+  severity: ERROR
+  message: 'User input in filesystem path. Use path.normalize() and validate
+
+    the resolved path is within intended directory.'
+  patterns:
+  - pattern-regex: fs\.(readFile|readFileSync|writeFile|createReadStream)\s*\([^)]*\$
+  - pattern-not-regex: path\.(normalize|resolve)\s*\(
+  - pattern-not-regex: (?m)^\s*//.*
+  metadata:
+    category: path_traversal
+    cwe:
+    - 22
+    original_engine: neuroscan
+    rule_name: User-controlled file path
+    residual:
+    - sanitizer

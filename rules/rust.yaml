@@ -1,0 +1,186 @@
+# Rust Security Rules
+rules:
+
+  - id: RS-INJECT-001
+    name: Command injection via Command::new
+    severity: high
+    category: command_injection
+    cwe: [78]
+    languages: [rust]
+    patterns:
+      - 'Command::new\s*\('
+    pattern-not:
+      - '(?m)^\s*//.*'
+      - '#\[test\]|#\[cfg\(test\)\]'
+    message: |
+      std::process::Command with string input may allow command injection.
+      .arg() does not prevent injection: it passes arguments including
+      dangerous ones. Sanitize inputs or use fixed command paths.
+
+  - id: RS-UNSAFE-001
+    name: Unsafe block without documentation
+    severity: medium
+    category: general
+    cwe: [242]
+    languages: [rust]
+    patterns:
+      - 'unsafe\s*\{'
+    pattern-not:
+      - 'unsafe\s*\{\s*\/\/\s*SAFETY:'
+      - '(?m)^\s*//.*'
+    message: |
+      Unsafe block bypasses Rust memory safety guarantees. Must be
+      justified with a SAFETY comment explaining the invariants upheld.
+
+  - id: RS-UNSAFE-002
+    name: std::mem::transmute usage
+    severity: medium
+    category: general
+    cwe: [704]
+    languages: [rust]
+    patterns:
+      - 'std::mem::transmute\b'
+    pattern-not:
+      - '(?m)^\s*//.*'
+    message: |
+      transmute reinterprets bits arbitrarily. Can create undefined behavior
+      or invalid enums. Prefer safe conversions or From/Into traits.
+
+  - id: RS-PATH-001
+    name: User-controlled filesystem operation
+    severity: high
+    category: path_traversal
+    cwe: [22]
+    languages: [rust]
+    patterns:
+      - 'std::fs::(read|write|read_to_string|create_dir_all)\s*\('
+    pattern-not:
+      - '\.canonicalize\s*\(\s*\)'
+      - '\.starts_with\s*\('
+      - '\.strip_prefix\s*\('
+      - '(?m)^\s*//.*'
+    message: |
+      Filesystem operations with user-controlled path. Use
+      Path::canonicalize() and validate prefix against allowed directory.
+
+  - id: RS-CRYPTO-001
+    name: Weak hash import
+    severity: medium
+    category: crypto
+    cwe: [328]
+    languages: [rust]
+    patterns:
+      - '\b(md5|Sha1|Md4|Md5)\b'
+    pattern-not:
+      - 'sha2::Sha256'
+      - 'sha2::Sha512'
+      - 'blake3'
+      - 'ring::digest'
+      - '(?m)^\s*//.*'
+    message: |
+      Weak hash function detected. Use SHA-256/SHA-512 from sha2 crate
+      or BLAKE3.
+
+  - id: RS-INJECT-002
+    name: SQL injection via format! in query
+    severity: high
+    category: injection
+    cwe: [89]
+    languages: [rust]
+    patterns:
+      - 'sqlx::query\(.*format!\('
+      - '\.(execute|fetch_one)\(.*format!\('
+    pattern-not:
+      - 'sqlx::query_as!\('
+      - '\$\d+'
+      - '(?m)^\s*//.*'
+    message: |
+      SQL query built with format!() is SQL-injectable. Use sqlx::query_as!()
+      with compile-time checking or $1 bind parameters.
+
+  - id: RS-CRYPTO-002
+    name: rand::random for cryptographic use
+    severity: medium
+    category: crypto
+    cwe: [330]
+    languages: [rust]
+    patterns:
+      - 'rand::random'
+      - 'rand::weak_rng'
+      - 'rand::rngs::mock::StepRng'
+    pattern-not:
+      - '(?m)^\s*//.*'
+      - '#\[test\]|#\[cfg\(test\)\]'
+    message: |
+      Non-cryptographic or weak RNG detected. rand::thread_rng is safe
+      (ChaCha12 CSPRNG). This rule flags only weak_rng, mock::StepRng,
+      and rand::random which is not guaranteed CSPRNG.
+
+  - id: RS-SSRF-001
+    name: Unrestricted HTTP client
+    severity: high
+    category: ssrf
+    cwe: [918]
+    languages: [rust]
+    patterns:
+      - 'reqwest::(get|Client::new\s*\(\s*\)\.(get|post))\s*\('
+    pattern-not:
+      - '\.redirect\s*\(reqwest::redirect::Policy::none\s*\(\s*\)\s*\)'
+      - '(?m)^\s*//.*'
+    message: |
+      Unrestricted outbound HTTP enables SSRF. Disable redirects or
+      whitelist destination hosts.
+
+  - id: RS-SUPPLY-001
+    name: Dynamic include in build
+    severity: medium
+    category: supply_chain
+    cwe: [829]
+    languages: [rust]
+    patterns:
+      - 'include!\(concat!\(env!\("OUT_DIR"\)'
+      - 'include_str!\(\s*[^''"]'
+      - 'include_bytes!\(\s*[^''"]'
+    pattern-not:
+      - '(?m)^\s*//.*'
+    message: |
+      Dynamic path in include! macro may read arbitrary files at compile
+      time. Use static paths.
+
+  - id: RS-CONFIG-001
+    name: unwrap() in production code
+    severity: low
+    category: config
+    cwe: [248]
+    languages: [rust]
+    # 'tests/' used to sit in pattern-not, which checks the MATCHED LINE's
+    # content, not the file path -- a .unwrap() call inside a real test file
+    # essentially never has the literal substring "tests/" written on that
+    # same line, so the exclusion was a no-op. Confirmed on a real repo scan
+    # (vllm): 128 of 607 findings were in files genuinely under a tests/
+    # directory. exclude_paths is the correct, already-established mechanism
+    # for this (see ns-infra-001 in misc_rules.yaml).
+    exclude_paths:
+      - "/tests/"
+      - "/test/"
+    patterns:
+      - '\.unwrap\s*\(\s*\)'
+    pattern-not:
+      - '(?m)^\s*//.*'
+    message: |
+      unwrap() panics on None/Err in production. Use ? operator,
+      .context()?, or .unwrap_or_else() with proper error handling.
+
+  - id: RS-UNSAFE-003
+    name: FFI raw pointer without ownership doc
+    severity: medium
+    category: general
+    cwe: [416]
+    languages: [rust]
+    patterns:
+      - 'extern\s+"C"\s*fn.*->\s*\*'
+    pattern-not:
+      - '(?m)^\s*//.*'
+    message: |
+      FFI function returning raw pointer without documented lifetime.
+      Use-after-free risk. Document ownership semantics or return a safe wrapper.

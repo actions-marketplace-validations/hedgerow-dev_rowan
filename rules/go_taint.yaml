@@ -1,0 +1,460 @@
+rules:
+  - id: tnt-go-sqli-001
+    mode: taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      User input flows into a SQL query without parameterization, enabling SQL injection.
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      confidence: HIGH
+      category: security
+      fix: "Use parameterized queries (database/sql's placeholder args) instead of concatenating input into SQL text."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_go
+      - patterns:
+          - pattern-either:
+              - pattern: $R.URL.Query()
+              - pattern: $R.FormValue(...)
+              - pattern: $R.Body
+              - pattern: $C.Param(...)
+              - pattern: "($C : *gin.Context).Query(...)"
+              - pattern: $C.ShouldBindJSON(...)
+      # rowan-registry:end source=web_request_go
+    # A bare `$DB.Query(...)` sink bound `$DB` to `req.URL` (net/http
+    # query string) and to gin's context receiver, so `r.URL.Query()` and
+    # `c.Query("k")` were source and sink at once (gin-gonic/gin
+    # binding/query.go:16, context.go:581). Exclude the URL/query-getter
+    # shapes and gin's context by type, not by receiver name.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.Query($SQL, ...)
+              - pattern: $DB.QueryRow($SQL, ...)
+              - pattern: $DB.QueryContext($CTX, $SQL, ...)
+              - pattern: $DB.QueryRowContext($CTX, $SQL, ...)
+              - pattern: $DB.Exec($SQL, ...)
+              - pattern: $DB.ExecContext($CTX, $SQL, ...)
+              # sqlx shape: Get/Select(dest, query, args...). A bare
+              # `$DB.Get(...)` also matched HTTP clients (`httplib.Get(url)`).
+              - pattern: $DB.Select(&$DEST, $SQL, ...)
+              - pattern: $DB.Get(&$DEST, $SQL, ...)
+          - pattern-not: $X.URL.Query(...)
+          - pattern-not: "($X : *gin.Context).Query(...)"
+          # Only the SQL text argument is the sink; a tainted placeholder
+          # value (`db.Query("... $1", id)`) is parameterized (RT-01).
+          - focus-metavariable: $SQL
+    pattern-sanitizers:
+      - pattern: $DB.Prepare(...)
+      - pattern: strconv.Atoi(...)
+      - pattern: strconv.ParseInt(...)
+
+  # Split from tnt-go-sqli-001: env vars, flags and argv are
+  # operator-controlled, not attacker-controlled, so a SQL string built from
+  # them is a MEDIUM configuration-sourced signal, not HIGH SQL injection.
+  # Seen on gogs internal/dbtest/dbtest.go (os.Getenv("MYSQL_USER") into
+  # sqlDB.Exec). Sinks and sanitizers are copied from 001 on purpose.
+  - id: tnt-go-sqli-002
+    mode: taint
+    languages: [go]
+    severity: WARNING
+    message: >-
+      Configuration or command-line input (env var, flag, argv) flows into a SQL query
+      without parameterization. Operator-controlled, so lower risk than request input,
+      but still a query built from untrusted text.
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      confidence: MEDIUM
+      category: security
+      source_kind: operator_input
+      fix: "Use parameterized queries (database/sql's placeholder args) instead of concatenating input into SQL text."
+    pattern-sources:
+      # rowan-registry:begin source=operator_input_go
+      - patterns:
+          - pattern-either:
+              - pattern: os.Getenv(...)
+              - pattern: os.LookupEnv(...)
+              - pattern: flag.String(...)
+              - pattern: flag.Arg(...)
+              - pattern: os.Args
+              - pattern: viper.GetString(...)
+              - pattern: viper.Get(...)
+      # rowan-registry:end source=operator_input_go
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.Query($SQL, ...)
+              - pattern: $DB.QueryRow($SQL, ...)
+              - pattern: $DB.QueryContext($CTX, $SQL, ...)
+              - pattern: $DB.QueryRowContext($CTX, $SQL, ...)
+              - pattern: $DB.Exec($SQL, ...)
+              - pattern: $DB.ExecContext($CTX, $SQL, ...)
+              - pattern: $DB.Select(&$DEST, $SQL, ...)
+              - pattern: $DB.Get(&$DEST, $SQL, ...)
+          - pattern-not: $X.URL.Query(...)
+          - pattern-not: "($X : *gin.Context).Query(...)"
+          # Only the SQL text argument is the sink; a tainted placeholder
+          # value (`db.Query("... $1", id)`) is parameterized (RT-01).
+          - focus-metavariable: $SQL
+    pattern-sanitizers:
+      - pattern: $DB.Prepare(...)
+      - pattern: strconv.Atoi(...)
+      - pattern: strconv.ParseInt(...)
+
+  - id: tnt-go-cmdi-001
+    mode: taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      User input flows into a command execution call, enabling OS command injection.
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      confidence: HIGH
+      category: security
+      fix: "Pass arguments to exec.Command() as separate slice elements, never via a shell-interpolated string."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_go
+      - patterns:
+          - pattern-either:
+              - pattern: $R.URL.Query()
+              - pattern: $R.FormValue(...)
+              - pattern: $R.Body
+              - pattern: $C.Param(...)
+              - pattern: "($C : *gin.Context).Query(...)"
+              - pattern: $C.ShouldBindJSON(...)
+      # rowan-registry:end source=web_request_go
+      # Bare `$C.Query(...)` on purpose here, unlike the SQL rules: the
+      # fragment types it to *gin.Context because the bare form collides with
+      # the `$DB.Query(...)` SQL sink. These sinks do not collide, and the bare
+      # form is what reaches macaron-style contexts (gogs internal/route).
+      - pattern: $C.Query(...)
+    pattern-sinks:
+      - pattern: exec.Command(...)
+      - pattern: syscall.Exec(...)
+      - pattern: os.StartProcess(...)
+    pattern-sanitizers:
+      - pattern: filepath.Base(...)
+
+  # EXT-19: operator-controlled sources (env, flags, argv, viper) split out
+  # of the -001 rule the EXT-08 way (tnt-go-sqli-002). gogs' 134 env-sourced
+  # path hits (GOGS_CUSTOM) and kubernetes-mcp-server's startup flags were
+  # the FP set in ADR-0005. Same sinks and sanitizers as the -001.
+  - id: tnt-go-cmdi-002
+    mode: taint
+    languages: [go]
+    severity: WARNING
+    message: >-
+      Configuration or command-line input (env var, flag, argv, viper config) flows into a
+      command execution call unchanged. Operator-controlled, so lower risk than request
+      input, but the same OS command injection sink built from untrusted text.
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      confidence: MEDIUM
+      category: security
+      source_kind: operator_input
+      fix: "Pass arguments to exec.Command() as separate slice elements, never via a shell-interpolated string."
+    pattern-sources:
+      # rowan-registry:begin source=operator_input_go
+      - patterns:
+          - pattern-either:
+              - pattern: os.Getenv(...)
+              - pattern: os.LookupEnv(...)
+              - pattern: flag.String(...)
+              - pattern: flag.Arg(...)
+              - pattern: os.Args
+              - pattern: viper.GetString(...)
+              - pattern: viper.Get(...)
+      # rowan-registry:end source=operator_input_go
+    pattern-sinks:
+      - pattern: exec.Command(...)
+      - pattern: syscall.Exec(...)
+      - pattern: os.StartProcess(...)
+    pattern-sanitizers:
+      - pattern: filepath.Base(...)
+
+  - id: tnt-go-path-001
+    mode: taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      User input flows into a filesystem path, enabling path traversal attacks.
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+      confidence: HIGH
+      category: security
+      fix: "Resolve with filepath.Clean() and verify the result is still under the intended base directory (strings.HasPrefix on the cleaned absolute path) before use, or use filepath.Base() to discard directory components entirely."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_go
+      - patterns:
+          - pattern-either:
+              - pattern: $R.URL.Query()
+              - pattern: $R.FormValue(...)
+              - pattern: $R.Body
+              - pattern: $C.Param(...)
+              - pattern: "($C : *gin.Context).Query(...)"
+              - pattern: $C.ShouldBindJSON(...)
+      # rowan-registry:end source=web_request_go
+      # Bare `$C.Query(...)` on purpose here, unlike the SQL rules: the
+      # fragment types it to *gin.Context because the bare form collides with
+      # the `$DB.Query(...)` SQL sink. These sinks do not collide, and the bare
+      # form is what reaches macaron-style contexts (gogs internal/route).
+      - pattern: $C.Query(...)
+    pattern-sinks:
+      - pattern: os.Open(...)
+      - pattern: os.ReadFile(...)
+      - pattern: filepath.Join(...)
+      - pattern: http.ServeFile(...)
+    pattern-sanitizers:
+      - pattern: filepath.Base(...)
+      - pattern: strings.Contains($PATH, "..")
+
+  # EXT-19 operator-input sibling; see tnt-go-cmdi-002.
+  - id: tnt-go-path-002
+    mode: taint
+    languages: [go]
+    severity: WARNING
+    message: >-
+      Configuration or command-line input (env var, flag, argv, viper config) flows into a
+      filesystem path unchanged. Operator-controlled, so lower risk than request
+      input, but the same path traversal sink built from untrusted text.
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+      confidence: MEDIUM
+      category: security
+      source_kind: operator_input
+      fix: "Resolve with filepath.Clean() and verify the result is still under the intended base directory (strings.HasPrefix on the cleaned absolute path) before use, or use filepath.Base() to discard directory components entirely."
+    pattern-sources:
+      # rowan-registry:begin source=operator_input_go
+      - patterns:
+          - pattern-either:
+              - pattern: os.Getenv(...)
+              - pattern: os.LookupEnv(...)
+              - pattern: flag.String(...)
+              - pattern: flag.Arg(...)
+              - pattern: os.Args
+              - pattern: viper.GetString(...)
+              - pattern: viper.Get(...)
+      # rowan-registry:end source=operator_input_go
+    pattern-sinks:
+      - pattern: os.Open(...)
+      - pattern: os.ReadFile(...)
+      - pattern: filepath.Join(...)
+      - pattern: http.ServeFile(...)
+    pattern-sanitizers:
+      - pattern: filepath.Base(...)
+      - pattern: strings.Contains($PATH, "..")
+
+  - id: tnt-go-ssrf-001
+    mode: taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      User input flows into an outbound HTTP request URL, enabling server-side request forgery.
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery (SSRF)"
+      confidence: HIGH
+      category: security
+      fix: "Validate the destination host against an explicit allowlist of permitted domains/IPs before making the request."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_go
+      - patterns:
+          - pattern-either:
+              - pattern: $R.URL.Query()
+              - pattern: $R.FormValue(...)
+              - pattern: $R.Body
+              - pattern: $C.Param(...)
+              - pattern: "($C : *gin.Context).Query(...)"
+              - pattern: $C.ShouldBindJSON(...)
+      # rowan-registry:end source=web_request_go
+      # Bare `$C.Query(...)` on purpose here, unlike the SQL rules: the
+      # fragment types it to *gin.Context because the bare form collides with
+      # the `$DB.Query(...)` SQL sink. These sinks do not collide, and the bare
+      # form is what reaches macaron-style contexts (gogs internal/route).
+      - pattern: $C.Query(...)
+    pattern-sinks:
+      - pattern: http.Get(...)
+      - pattern: http.Post(...)
+      - pattern: $CLIENT.Do(...)
+      - pattern: url.Parse(...)
+
+  # EXT-19 operator-input sibling; see tnt-go-cmdi-002.
+  - id: tnt-go-ssrf-002
+    mode: taint
+    languages: [go]
+    severity: WARNING
+    message: >-
+      Configuration or command-line input (env var, flag, argv, viper config) flows into a
+      outbound HTTP request URL unchanged. Operator-controlled, so lower risk than request
+      input, but the same server-side request forgery sink built from untrusted text.
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery (SSRF)"
+      confidence: MEDIUM
+      category: security
+      source_kind: operator_input
+      fix: "Validate the destination host against an explicit allowlist of permitted domains/IPs before making the request."
+    pattern-sources:
+      # rowan-registry:begin source=operator_input_go
+      - patterns:
+          - pattern-either:
+              - pattern: os.Getenv(...)
+              - pattern: os.LookupEnv(...)
+              - pattern: flag.String(...)
+              - pattern: flag.Arg(...)
+              - pattern: os.Args
+              - pattern: viper.GetString(...)
+              - pattern: viper.Get(...)
+      # rowan-registry:end source=operator_input_go
+    pattern-sinks:
+      - pattern: http.Get(...)
+      - pattern: http.Post(...)
+      - pattern: $CLIENT.Do(...)
+      - pattern: url.Parse(...)
+
+  - id: tnt-go-deser-001
+    mode: taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      User input flows into a deserialization call, potentially enabling code execution or data corruption.
+    metadata:
+      cwe:
+        - "CWE-502: Deserialization of Untrusted Data"
+      confidence: MEDIUM
+      category: security
+      fix: "Avoid gob/unsafe decoders on untrusted data; validate the source and prefer encoding/json with a known target struct."
+    # EXT-19: request-only. gob/yaml decoding of an env var is not a
+    # deserialization class worth an operator-input sibling.
+    pattern-sources:
+      # rowan-registry:begin source=web_request_go
+      - patterns:
+          - pattern-either:
+              - pattern: $R.URL.Query()
+              - pattern: $R.FormValue(...)
+              - pattern: $R.Body
+              - pattern: $C.Param(...)
+              - pattern: "($C : *gin.Context).Query(...)"
+              - pattern: $C.ShouldBindJSON(...)
+      # rowan-registry:end source=web_request_go
+      # Bare `$C.Query(...)` on purpose here, unlike the SQL rules: the
+      # fragment types it to *gin.Context because the bare form collides with
+      # the `$DB.Query(...)` SQL sink. These sinks do not collide, and the bare
+      # form is what reaches macaron-style contexts (gogs internal/route).
+      - pattern: $C.Query(...)
+    pattern-sinks:
+      - pattern: gob.NewDecoder(...)
+      - pattern: yaml.Unmarshal(...)
+
+  - id: tnt-go-log-001
+    mode: taint
+    languages: [go]
+    severity: WARNING
+    message: >-
+      User input flows into a log statement without sanitization, enabling log injection.
+    metadata:
+      cwe:
+        - "CWE-117: Improper Output Neutralization for Logs"
+      confidence: MEDIUM
+      category: security
+      fix: "Strip or encode newline/CR characters before writing user input to a log entry, so a single log line can't be forged."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_go
+      - patterns:
+          - pattern-either:
+              - pattern: $R.URL.Query()
+              - pattern: $R.FormValue(...)
+              - pattern: $R.Body
+              - pattern: $C.Param(...)
+              - pattern: "($C : *gin.Context).Query(...)"
+              - pattern: $C.ShouldBindJSON(...)
+      # rowan-registry:end source=web_request_go
+      # Bare `$C.Query(...)` on purpose here, unlike the SQL rules: the
+      # fragment types it to *gin.Context because the bare form collides with
+      # the `$DB.Query(...)` SQL sink. These sinks do not collide, and the bare
+      # form is what reaches macaron-style contexts (gogs internal/route).
+      - pattern: $C.Query(...)
+      # rowan-registry:begin source=operator_input_go
+      - patterns:
+          - pattern-either:
+              - pattern: os.Getenv(...)
+              - pattern: os.LookupEnv(...)
+              - pattern: flag.String(...)
+              - pattern: flag.Arg(...)
+              - pattern: os.Args
+              - pattern: viper.GetString(...)
+              - pattern: viper.Get(...)
+      # rowan-registry:end source=operator_input_go
+    pattern-sinks:
+      - pattern: log.Printf(...)
+      - pattern: log.Println(...)
+      - pattern: slog.Info(...)
+      - pattern: slog.Warn(...)
+      - pattern: logrus.Warn(...)
+      - pattern: logrus.Info(...)
+      - pattern: logrus.Error(...)
+    pattern-sanitizers:
+      - pattern: url.QueryEscape(...)
+      # NOT strings.ReplaceAll(...): its neutralizing effect depends
+      # entirely on caller-supplied old/new args, which this pattern doesn't
+      # pin down -- strings.ReplaceAll($S, "unrelated", "x") clears taint
+      # here even though it does nothing to remove \n/\r. See
+      # docs/taint-sanitizer-audit.md.
+
+  - id: tnt-go-header-001
+    mode: taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      User input flows into an HTTP response header, enabling header injection or response splitting.
+    metadata:
+      cwe:
+        - "CWE-113: Improper Neutralization of CRLF Sequences in HTTP Headers ('HTTP Response Splitting')"
+      confidence: HIGH
+      category: security
+      fix: "Reject or strip CR/LF characters from values written into HTTP response headers before calling Header().Set/Add."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_go
+      - patterns:
+          - pattern-either:
+              - pattern: $R.URL.Query()
+              - pattern: $R.FormValue(...)
+              - pattern: $R.Body
+              - pattern: $C.Param(...)
+              - pattern: "($C : *gin.Context).Query(...)"
+              - pattern: $C.ShouldBindJSON(...)
+      # rowan-registry:end source=web_request_go
+      # Bare `$C.Query(...)` on purpose here, unlike the SQL rules: the
+      # fragment types it to *gin.Context because the bare form collides with
+      # the `$DB.Query(...)` SQL sink. These sinks do not collide, and the bare
+      # form is what reaches macaron-style contexts (gogs internal/route).
+      - pattern: $C.Query(...)
+      # rowan-registry:begin source=operator_input_go
+      - patterns:
+          - pattern-either:
+              - pattern: os.Getenv(...)
+              - pattern: os.LookupEnv(...)
+              - pattern: flag.String(...)
+              - pattern: flag.Arg(...)
+              - pattern: os.Args
+              - pattern: viper.GetString(...)
+              - pattern: viper.Get(...)
+      # rowan-registry:end source=operator_input_go
+    pattern-sinks:
+      - pattern: $W.Header().Set(...)
+      - pattern: $W.Header().Add(...)
+      - pattern: http.Redirect(...)
+      - pattern: $C.Redirect(...)
+    pattern-sanitizers:
+      - pattern: url.QueryEscape(...)
+      # NOT strings.ReplaceAll(...): its neutralizing effect depends
+      # entirely on caller-supplied old/new args, which this pattern doesn't
+      # pin down -- strings.ReplaceAll($S, "unrelated", "x") clears taint
+      # here even though it does nothing to remove \n/\r. See
+      # docs/taint-sanitizer-audit.md.

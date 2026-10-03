@@ -1,0 +1,1650 @@
+# ML/AI-Specific Taint Rules: full dataflow from user input through ML pipelines to code execution.
+# These use Opengrep's interprocedural taint engine (--taint-intrafile).
+# Separated from generic web taint rules: these model ML framework internals.
+
+rules:
+
+  # ── Chat Template SSTI (CVE-2026-5760) ──────────────────────────
+  - id: TNT-ML-001
+    mode: taint
+    message: |
+      User-controlled data flows into Jinja2 chat template rendering.
+      CVE-2026-5760: Malicious model metadata injected via chat_template
+      can achieve SSTI -> RCE through Jinja2 without sandboxing.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [94, 1336]
+      category: ssti
+      fix: "Render chat templates in a sandboxed Jinja2 environment (jinja2.sandbox.SandboxedEnvironment); never render a template string sourced from model metadata directly."
+    pattern-sources:
+      # rowan-registry:begin source=web_request
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=web_request
+
+    # SSTI is a tainted TEMPLATE STRING, not tainted render arguments, so the
+    # sink focuses on the template position. A bare `$T.render(...)` sink also
+    # matched Django's `render(request, ...)` (Opengrep resolves the import to
+    # `django.shortcuts.render`) and fired on every view in a Django app.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $ENV.from_string($TEMPLATE)
+              - pattern: Template($TEMPLATE)
+              - pattern: jinja2.Template($TEMPLATE)
+          - focus-metavariable: $TEMPLATE
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: SandboxedEnvironment(...)
+              - pattern: jinja2.sandbox.SandboxedEnvironment(...)
+
+  # ── HuggingFace pipeline taint ──────────────────────────────────
+  - id: TNT-ML-002
+    mode: taint
+    message: |
+      User input flows through HuggingFace pipeline to model output.
+      Prompt injection through the pipeline: attacker controls system
+      prompt or generation parameters via API input.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [94]
+      category: prompt_injection
+      fix: "Treat pipeline/model output as untrusted before using it in any downstream decision or rendering; do not feed it back into another prompt without validation."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: pipeline($TASK, ...)
+              - pattern: transformers.pipeline($TASK, ...)
+              - pattern: $MODEL.generate($INPUT, ...)
+
+  # ── OmegaConf config injection taint ────────────────────────────
+  - id: TNT-ML-003
+    mode: taint
+    message: |
+      User input reaches OmegaConf.merge(): config injection.
+      Attacker-controlled YAML can override application config,
+      including model paths, trust_remote_code, and execution settings.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [94]
+      category: ai_ml
+      fix: "Validate merged config values before use, or restrict OmegaConf.merge() to trusted sources; use OmegaConf.structured() for a typed schema instead of accepting arbitrary keys."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: OmegaConf.merge($BASE, $CONFIG)
+              - pattern: OmegaConf.unsafe_merge($BASE, $CONFIG)
+              - pattern: OmegaConf.load($CONFIG)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: OmegaConf.structured(...)
+
+  # ── Vector store / RAG taint ────────────────────────────────────
+  - id: TNT-ML-004
+    mode: taint
+    message: |
+      User input reaches vector store query. RAG poisoning:
+      attacker-controlled query can manipulate similarity search
+      results, leading to prompt injection in the LLM context.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [94]
+      category: prompt_injection
+      fix: "Treat retrieved vector-store documents as untrusted content in the prompt, not as instructions; keep them in a clearly delimited context section."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $STORE.similarity_search($QUERY, ...)
+              - pattern: $STORE.search($QUERY, ...)
+              - pattern: $INDEX.query($QUERY, ...)
+              - pattern: pinecone.Index(...).query($QUERY, ...)
+              - pattern: chromadb.Collection(...).query($QUERY, ...)
+              - pattern: |
+                  weaviate.Client(...).query.get(...).with_near_text({"concepts": [$QUERY]})
+
+  # ── Vector-store metadata filter injection (issue #138) ─────────
+  # Distinct from TNT-ML-004 above: TNT-ML-004 models the query TEXT
+  # (first positional arg) reaching a search call -- RAG poisoning via
+  # what gets searched FOR. This rule models the FILTER/WHERE STRUCTURE
+  # itself being attacker-influenced -- the NoSQL-injection of RAG
+  # stacks: an attacker who controls the filter dict/string can widen it
+  # to retrieve another tenant's chunks or bypass a document-level ACL,
+  # regardless of what the query text is. The two rules can both fire on
+  # the same call site (e.g. both $QUERY and $FILT tainted) without being
+  # duplicates of each other.
+  - id: TNT-ML-020
+    mode: taint
+    message: |
+      A request-supplied value builds a vector-store filter/where
+      expression (Pinecone `filter=`, Chroma `where=`, Qdrant
+      `query_filter=`, Milvus `expr=`) with no visible validation in
+      between. This is the NoSQL-injection of RAG stacks: unlike
+      TNT-ML-004 (query TEXT taint), this is the FILTER STRUCTURE being
+      attacker-controlled -- most sharply when the filter arrives via
+      `json.loads()` of raw request data, which hands the attacker the
+      whole key/operator structure, not just a value. An attacker can
+      widen the filter to retrieve another tenant's chunks or bypass a
+      document-level ACL (OWASP LLM08:2025 Vector and Embedding
+      Weaknesses).
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [74, 285]
+      category: nosql_injection
+      fix: "Never build a vector-store filter from raw request data, especially via json.loads() of user input (that hands over key/operator control, not just a value). Validate the filter through a Pydantic model with an explicit allowed-field/operator schema, or construct it server-side from trusted session state, e.g. filter={\"tenant\": {\"$eq\": g.tenant_id}}, namespace=g.tenant_id."
+    # Engine note: a filter built as a dict LITERAL directly in the call,
+    # with a request-derived value only in the *value* position (e.g.
+    # filter={"tenant": {"$eq": request.args.get("q")}}) is, per the
+    # issue's own FP-considerations section, meant to be a lower-risk
+    # shape than json.loads(request...) handing over the whole structure.
+    # That distinction isn't implemented as a pattern-sanitizer here: any
+    # sanitizer pattern permissive enough to match "$KEY: {$OP: $VAL}"
+    # would also match an attacker-controlled key/operator (e.g.
+    # filter={request.json["key"]: {request.json["op"]: val}}), which
+    # would be unsound -- a sanitizer must not itself only be checkable by
+    # the same taint analysis it's trying to short-circuit. Accepted
+    # false-positive gap (this rule will flag the value-only-tainted
+    # dict-literal shape too), same class of documented engine-limitation
+    # gap as TNT-ML-018's Letta note and ns-aiml-111's mem0 hint-word
+    # note elsewhere in this corpus.
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $INDEX.query(..., filter=$FILT, ...)
+              - patterns:
+                  - pattern-either:
+                      - pattern: $COLLECTION.query(..., where=$FILT, ...)
+                      - pattern: $COLLECTION.get(..., where=$FILT, ...)
+                  - metavariable-regex:
+                      metavariable: $COLLECTION
+                      regex: (?i).*(collection|chroma|coll).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $CLIENT.search(..., query_filter=$FILT, ...)
+                      - pattern: $CLIENT.query_points(..., query_filter=$FILT, ...)
+                  - metavariable-regex:
+                      metavariable: $CLIENT
+                      regex: (?i).*(client|qdrant).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $COLLECTION.search(..., expr=$FILT, ...)
+                      - pattern: $COLLECTION.query(..., expr=$FILT, ...)
+                  - metavariable-regex:
+                      metavariable: $COLLECTION
+                      regex: (?i).*(collection|milvus|coll).*
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $MODEL.model_validate(...)
+              - pattern: $MODEL.model_validate_json(...)
+              - pattern: $MODEL.parse_obj(...)
+              - pattern: $MODEL.parse_raw(...)
+
+  # ── Weaviate GraphQL / where-filter injection (issue #138) ──────
+  # Extends ns-aiml-017 (bare weaviate.Client() with no auth config,
+  # rules/ai_ml_neuroscan.yaml) into injection territory: ns-aiml-017 is
+  # auth-CONFIG-presence only, and says nothing about whether an
+  # (authenticated) client's own query/filter is built from untrusted
+  # data. This rule is the genuine extension the issue asks for, not a
+  # duplicate.
+  - id: TNT-ML-021
+    mode: taint
+    message: |
+      A request-supplied value reaches a raw Weaviate GraphQL query
+      (client.query.raw(...)) or a .with_where(...) filter built from
+      untrusted data. Extends ns-aiml-017 (bare weaviate.Client() with no
+      auth config) into injection territory: even an authenticated client
+      is vulnerable if the GraphQL query string or where-filter is built
+      from attacker-controlled data -- the attacker can rewrite the query
+      to cross tenant/class boundaries or bypass a document-level ACL
+      (OWASP LLM08:2025 Vector and Embedding Weaknesses).
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [74, 285]
+      category: injection
+      fix: "Never interpolate request data directly into a raw GraphQL query string or a with_where() filter. Use Weaviate's parameterized query builder (.with_near_text()/.with_where() with a server-constructed, schema-validated filter dict) and scope every query to the caller's tenant via multi-tenancy (.with_tenant()), not string concatenation."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $CLIENT.query.raw($QUERY)
+              - pattern: $QUERY_BUILDER.with_where($FILT)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $MODEL.model_validate(...)
+              - pattern: $MODEL.model_validate_json(...)
+              - pattern: $MODEL.parse_obj(...)
+              - pattern: $MODEL.parse_raw(...)
+
+  # ── RediSearch / redisvl query-DSL injection (issue #292) ───────
+  # CVE-2026-27022 class: a request-derived value is interpolated into a
+  # RediSearch query STRING (the FT.SEARCH query language) rather than
+  # passed as a bound/escaped filter, letting an attacker rewrite the
+  # query to cross an index/tenant boundary or bypass a document-level
+  # ACL. The CVE shipped in @langchain/langgraph-checkpoint-redis (JS), so
+  # this rule is multi-language: redis-py / redisvl (Python) and
+  # node-redis / ioredis (JS/TS) all expose the same DSL surface.
+  #
+  # Disjoint from TNT-ML-020/021 by construction (BACKLOG.md DEF-15/19
+  # (file,line)-overlap method): those rules own the Pinecone `filter=`,
+  # Chroma `where=`, Qdrant `query_filter=`, Milvus `expr=`, and Weaviate
+  # `query.raw`/`with_where` sinks. This rule owns the RediSearch surface
+  # only -- `.ft(...).search(...)`, node-redis `.ft.search`/`.ft.aggregate`,
+  # the `FT.SEARCH`/`FT.AGGREGATE` raw command via
+  # execute_command/call, and redisvl `FilterQuery(...)` construction --
+  # none of which appears in TNT-ML-020/021, so a given (file,line) can be
+  # claimed by at most one of the two families.
+  #
+  # No structured-vs-string discriminator is needed here (unlike
+  # TNT-ML-027): the RediSearch query is *always* a DSL string, so any
+  # tainted value reaching it is suspect. The safe path is a bound
+  # parameter -- numeric coercion, or redisvl's escaping filter builder
+  # (`Tag(field) == value` / `Num(field) == value` / `Text(field) % value`,
+  # which escape the value) -- so those are the sanitizers.
+  - id: TNT-ML-026
+    mode: taint
+    message: |
+      A request-supplied value is interpolated into a RediSearch query
+      string (the FT.SEARCH query DSL) and reaches a search/aggregate call
+      -- redis-py `.ft(index).search(...)`, node-redis `.ft.search(...)`,
+      a raw `FT.SEARCH`/`FT.AGGREGATE` command, or a redisvl
+      `FilterQuery(...)` -- with no escaping or parameterization in
+      between. CVE-2026-27022 class: unlike a bound filter value, an
+      interpolated query string hands the attacker the query grammar
+      itself, so they can rewrite the filter to cross an index/tenant
+      boundary or bypass a document-level ACL (OWASP LLM08:2025 Vector and
+      Embedding Weaknesses). Distinct from TNT-ML-004 (query TEXT taint /
+      RAG poisoning): this is the filter STRUCTURE being attacker-built.
+    severity: ERROR
+    languages: [python, javascript, typescript]
+    metadata:
+      cwe: [74, 285]
+      category: injection
+      fix: "Never interpolate request data into a RediSearch query string. Pass the value as a bound, escaped filter -- redisvl's filter builder (Tag(field) == value, Num(field) == value) escapes it for you -- or numerically coerce it. Scope every search to the caller's tenant server-side, not via string concatenation."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              # Python (Flask/FastAPI/Django) request inputs.
+              # rowan-registry:begin source=http_request
+              - patterns:
+                  - pattern-either:
+                      - pattern: request.args.get(...)
+                      - pattern: request.args[...]
+                      - pattern: request.form.get(...)
+                      - pattern: request.form[...]
+                      - pattern: request.json.get(...)
+                      - pattern: request.json[...]
+                      - pattern: request.data
+                      - pattern: request.values.get(...)
+                      - pattern: request.files.get(...)
+                      - pattern: request.cookies.get(...)
+                      - pattern: request.headers.get(...)
+                      - pattern: request.GET.get(...)
+                      - pattern: request.GET[...]
+                      - pattern: request.POST.get(...)
+                      - pattern: request.POST[...]
+                      - pattern: request.body
+                      - pattern: request.query_params
+                      - pattern: await request.json(...)
+                      - pattern: await request.form(...)
+                      - pattern: await request.body(...)
+                      - pattern: await websocket.recv(...)
+                      - pattern: await websocket.receive_text(...)
+              # rowan-registry:end source=http_request
+              # JS/TS (Express/Koa) request inputs -- same set
+              # rules/javascript_taint.yaml uses.
+              - pattern: req.query
+              - pattern: req.body
+              - pattern: req.params
+              - pattern: req.headers
+              - pattern: request.query
+              - pattern: request.params
+              - pattern: ctx.query
+              - pattern: ctx.request.body
+              - pattern: ctx.params
+              - pattern: ctx.headers
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $C.ft($IDX).search($Q)
+              - pattern: $C.ft.search(...)
+              - pattern: $C.ft.aggregate(...)
+              - pattern: $C.execute_command("FT.SEARCH", ...)
+              - pattern: $C.execute_command("FT.AGGREGATE", ...)
+              - patterns:
+                  - pattern: $C.call($CMD, ...)
+                  - metavariable-regex:
+                      metavariable: $CMD
+                      regex: (?i)^["']FT\.(SEARCH|AGGREGATE)["']$
+              - pattern: FilterQuery(...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: int(...)
+              - pattern: float(...)
+              - pattern: Number(...)
+              - pattern: parseInt(...)
+              - pattern: Tag(...) == $V
+              - pattern: Tag(...) != $V
+              - pattern: Num(...) == $V
+              - pattern: Text(...) % $V
+              - pattern: $MODEL.model_validate(...)
+              - pattern: $MODEL.model_validate_json(...)
+
+  # ── Pinecone / Qdrant metadata-filter STRING injection (issue #292) ──
+  # Sibling of TNT-ML-020 (structured filter dict) and of TNT-ML-026
+  # (RediSearch). TNT-ML-020 owns the Pinecone `.query(filter=)` /
+  # Qdrant `.search(query_filter=)` sinks and, per its own engine note,
+  # deliberately fires even on a value-only-tainted dict LITERAL. This
+  # rule is the complementary, higher-precision case the issue asks for:
+  # a request value CONCATENATED / f-STRINGED into a metadata-filter
+  # *string* (the string-DSL form of a Pinecone/Qdrant filter), as opposed
+  # to a structured dict with request values in its VALUES, which is the
+  # safe path Pinecone/Qdrant intend and MUST NOT fire.
+  #
+  # Disjoint from TNT-ML-020/021 (BACKLOG.md DEF-15/19 (file,line) method):
+  # this rule's sinks are the framework retrieval surface
+  # (`.similarity_search(filter=)`, `.similarity_search_with_score(...)`,
+  # `.max_marginal_relevance_search(...)`) plus Qdrant's
+  # `scroll(scroll_filter=)` / `count(count_filter=)` -- none of which is a
+  # TNT-ML-020 sink (020 owns `.query(filter=)`, `.query/get(where=)`,
+  # `.search/query_points(query_filter=)`, `.search/query(expr=)`). So no
+  # single (file,line) is reported by both families.
+  #
+  # The structured-vs-string discriminator is a positive string-shape gate
+  # on the filter metavariable ($F must be an f-string / concatenation /
+  # .format / % expression). A dict literal -- inline OR held in a variable
+  # -- never matches that gate, so the "structured filter dict carrying
+  # request values in its values" safe path never fires, which is the
+  # precision guarantee this rule adds over TNT-ML-020.
+  #
+  # Engine-limitation note (empirically confirmed against opengrep
+  # 1.22.0): this rule is python-only, NOT multi-language like TNT-ML-026.
+  # A Python f-string pattern (`f"..."`) is not a valid JavaScript pattern
+  # and makes the whole rule fail to parse under JS/TS; and a `{...}`
+  # dict-exclusion silently over-subtracts under Python once JS/TS are
+  # added to the same rule's `languages`. There is therefore no single
+  # opengrep rule that is python+js+ts, catches Python f-strings, AND
+  # excludes structured dicts. Soundness on Python (where Pinecone/Qdrant
+  # metadata filters overwhelmingly live) is chosen over a broader language
+  # list that would silently miss the dominant Python f-string idiom. The
+  # JS/TS RediSearch DSL-injection case IS covered, by TNT-ML-026;
+  # JS/TS Pinecone/Qdrant filter-string interpolation is an accepted
+  # coverage gap, same class as the documented engine-limitation gaps on
+  # TNT-ML-020 (value-tainted dict literal) and TNT-ML-018 elsewhere.
+  - id: TNT-ML-027
+    mode: taint
+    message: |
+      A request-supplied value is concatenated or f-stringed into a
+      vector-store metadata-filter STRING (Pinecone / Qdrant / LangChain
+      retriever `filter=`, or Qdrant `scroll_filter=` / `count_filter=`)
+      rather than passed as a structured dict with bound values. Unlike a
+      structured filter dict (the safe path Pinecone/Qdrant intend, which
+      this rule deliberately does not flag), a filter string built from
+      untrusted data hands the attacker the filter grammar, so they can
+      widen it to retrieve another tenant's chunks or bypass a
+      document-level ACL (OWASP LLM08:2025 Vector and Embedding
+      Weaknesses). Complements TNT-ML-020 (structured filter-dict sinks):
+      the sinks here are disjoint and the shape flagged is the string-DSL
+      form specifically.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [74, 285]
+      category: nosql_injection
+      fix: "Never build a vector-store metadata filter by string concatenation/f-string from request data. Pass a structured filter dict with bound values (filter={\"tenant\": {\"$eq\": g.tenant_id}}), validated through a Pydantic model with an allowed-field schema, and scope it to the caller's tenant server-side."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    # The filter arg must be a string-DSL expression, either written inline at
+    # the call OR held in a variable assigned such an expression above. A
+    # structured dict (`filter={...}` or a dict-valued variable) matches none of
+    # these forms, so the safe path still never fires.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              # Inline string-DSL filter at the call site.
+              - patterns:
+                  - pattern-either:
+                      - pattern: $VS.similarity_search(..., filter=$F, ...)
+                      - pattern: $VS.similarity_search_with_score(..., filter=$F, ...)
+                      - pattern: $VS.max_marginal_relevance_search(..., filter=$F, ...)
+                      - pattern: $C.scroll(..., scroll_filter=$F, ...)
+                      - pattern: $C.count(..., count_filter=$F, ...)
+                  - metavariable-pattern:
+                      metavariable: $F
+                      patterns:
+                        - pattern-either:
+                            - pattern: f"..."
+                            - pattern: f'...'
+                            - pattern: $A + $B
+                            - pattern: $S.format(...)
+                            - pattern: $S % $ARGS
+              # Filter held in a variable assigned a string-DSL expression above.
+              - patterns:
+                  - pattern-either:
+                      - pattern: $VS.similarity_search(..., filter=$F, ...)
+                      - pattern: $VS.similarity_search_with_score(..., filter=$F, ...)
+                      - pattern: $VS.max_marginal_relevance_search(..., filter=$F, ...)
+                      - pattern: $C.scroll(..., scroll_filter=$F, ...)
+                      - pattern: $C.count(..., count_filter=$F, ...)
+                  - pattern-either:
+                      - pattern-inside: |
+                          $F = f"..."
+                          ...
+                      - pattern-inside: |
+                          $F = $A + $B
+                          ...
+                      - pattern-inside: |
+                          $F = $S.format(...)
+                          ...
+                      - pattern-inside: |
+                          $F = $S % $ARGS
+                          ...
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $MODEL.model_validate(...)
+              - pattern: $MODEL.model_validate_json(...)
+              - pattern: $MODEL.parse_obj(...)
+              - pattern: $MODEL.parse_raw(...)
+
+  # ── Agent tool call taint ───────────────────────────────────────
+  - id: TNT-ML-005
+    mode: taint
+    message: |
+      LLM-generated content flows into agent tool execution.
+      Prompt injection -> agent tool abuse: if the LLM output
+      reaches a dangerous tool (shell, file write, HTTP), the
+      attacker controls the agent's actions.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [94]
+      category: ai_ml
+      fix: "Never let LLM-generated text directly select or parameterize a tool call; validate the tool name/arguments against an explicit allowlist before execution."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: $LLM.generate($PROMPT)
+              - pattern: $LLM.invoke($PROMPT)
+              - pattern: $AGENT.run($INPUT)
+              - pattern: $AGENT.invoke($INPUT)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: subprocess.run($CMD, shell=True, ...)
+              - pattern: os.system($CMD)
+              - pattern: eval($CODE)
+              - pattern: exec($CODE)
+              - pattern: pickle.load($DATA)
+              - pattern: requests.get($URL)
+              - pattern: open($PATH, "w", ...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: shlex.quote(...)
+              - pattern: subprocess.run([..., ...])
+
+  # ── LangChain serialization taint ───────────────────────────────
+  - id: TNT-ML-006
+    mode: taint
+    message: |
+      User data reaches LangChain structured-object deserialization.
+      In affected versions, reserved serialization-marker keys in an attacker
+      dictionary can survive a dumps/load round trip and revive a trusted
+      framework object (CVE-2025-68664). This is not pickle; impact depends on
+      the revived type, its constructor behavior, and loader-accessible secrets.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [502]
+      category: deserialization
+      fix: "Upgrade affected langchain-core versions, keep untrusted dictionaries out of object serializers, and load only an explicit minimal set of object types."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              # rowan-registry:begin source=user_input
+              - patterns:
+                  - pattern-either:
+                      - pattern: request.args.get(...)
+                      - pattern: request.args[...]
+                      - pattern: request.form.get(...)
+                      - pattern: request.form[...]
+                      - pattern: request.json.get(...)
+                      - pattern: request.json[...]
+                      - pattern: request.data
+                      - pattern: request.values.get(...)
+                      - pattern: request.files.get(...)
+                      - pattern: request.cookies.get(...)
+                      - pattern: request.headers.get(...)
+                      - pattern: request.GET.get(...)
+                      - pattern: request.GET[...]
+                      - pattern: request.POST.get(...)
+                      - pattern: request.POST[...]
+                      - pattern: request.body
+                      - pattern: request.query_params
+                      - pattern: input(...)
+                      - pattern: await request.json(...)
+                      - pattern: await request.form(...)
+                      - pattern: await request.body(...)
+                      - pattern: await websocket.recv(...)
+                      - pattern: await websocket.receive_text(...)
+                      - pattern: st.chat_input(...)
+                      - pattern: st.text_input(...)
+                      - pattern: st.file_uploader(...)
+                      - pattern: gr.File(...)
+                      - pattern: gr.UploadButton(...)
+              # rowan-registry:end source=user_input
+              - pattern: request.files[...]
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: langchain.loads($DATA)
+              - pattern: langchain.load($DATA)
+              - pattern: langchain_core.load.loads($DATA)
+              - pattern: langchain_core.load.load($DATA)
+
+  # ── torch.hub.load taint ────────────────────────────────────────
+  - id: TNT-ML-007
+    mode: taint
+    message: |
+      User-controlled repository path reaches torch.hub.load().
+      torch.hub.load() clones and executes arbitrary Python from
+      GitHub repositories. Supply chain RCE.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [829]
+      category: supply_chain
+      fix: "Pin torch.hub.load() to a vetted, explicit allowlist of repositories rather than a user-influenced path."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: torch.hub.load($REPO, $MODEL, ...)
+              - pattern: torch.hub.load($REPO, ...)
+          # The repository decides what code runs; the entrypoint name only
+          # picks from that repository's own hubconf (RT-14).
+          - focus-metavariable: $REPO
+
+  # ── Unsandboxed Jinja2 chat_template rendering ──────────────────
+  - id: TNT-ML-008
+    mode: taint
+    message: |
+      Chat template loaded from model metadata is rendered with unsandboxed
+      Jinja2 Template(). CVE-2026-5760: model-provided chat_template strings
+      injected via GGUF/tokenizer_config.json achieve SSTI -> RCE.
+      Chain: model metadata -> chat_template -> Template() -> render().
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [94, 1336]
+      category: ssti
+      fix: "Render chat templates in a sandboxed Jinja2 environment (jinja2.sandbox.SandboxedEnvironment); never render model-metadata-sourced templates unsandboxed."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: tokenizer_config.get(...)
+              - pattern: tokenizer_config_json.get(...)
+              - pattern: $CONFIG.tokenizer.chat_template
+              - pattern: tokenizer.chat_template
+              - pattern: self.chat_template
+    # Template-string position only; see TNT-ML-001 for why `.render(...)`
+    # is not a sink.
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: Template($TEMPLATE)
+              - pattern: jinja2.Template($TEMPLATE)
+              - pattern: $ENV.from_string($TEMPLATE)
+          - focus-metavariable: $TEMPLATE
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: SandboxedEnvironment
+              - pattern: ImmutableSandboxedEnvironment
+              - pattern: jinja2.sandbox.SandboxedEnvironment
+
+  # ── LangChain prompt template injection ─────────────────────────
+  - id: TNT-ML-009
+    mode: taint
+    message: |
+      User-controlled input flows into a LangChain prompt template
+      (PromptTemplate / ChatPromptTemplate). Untrusted data interpolated
+      into a prompt template enables prompt injection: the attacker can
+      override system instructions or exfiltrate surrounding context.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [94]
+      category: prompt_injection
+      fix: "Keep user input in a clearly delimited variable slot of the prompt template, not concatenated into the template string itself."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: PromptTemplate.from_template($T)
+              - pattern: PromptTemplate(template=$T, ...)
+              - pattern: PromptTemplate(..., template=$T)
+              - pattern: PromptTemplate($T, ...)
+              - pattern: ChatPromptTemplate.from_template($T)
+              - pattern: ChatPromptTemplate.from_messages($T)
+              - pattern: ChatPromptTemplate($T)
+
+  # ── Unbounded generation parameters (OWASP LLM10:2025, "denial of
+  # wallet") ──────────────────────────────────────────────────────
+  # GitHub issue #139. Request-derived data flowing straight into
+  # max_tokens/n/best_of/max_completion_tokens lets an attacker multiply
+  # the victim's per-request bill (n=128 fans out 128 completions;
+  # max_tokens=<model max> maximizes each one's cost) or exhaust a shared
+  # rate/token budget other tenants depend on. Unlike TNT-ML-002's
+  # "generation parameters" note (prompt injection via parameter choice),
+  # this is specifically the resource-consumption angle: the attacker
+  # doesn't need to influence prompt content at all, only the numeric
+  # knobs.
+  #
+  # Sanitizer note (DEF-5 sanitizer-specificity review, see
+  # docs/taint-sanitizer-audit.md): int()/float() casting is deliberately
+  # NOT listed as a sanitizer here, unlike Category.INJECTION's default
+  # sanitizer set. int(request.json["n"]) still lets the attacker choose
+  # any integer value -- the type coercion narrows the syntax (no SQLi/
+  # command-injection metacharacters survive) but does nothing to bound
+  # the *magnitude*, which is the actual threat for a spend/fan-out
+  # control. This inverts the usual numeric-cast sanitizer logic, so this
+  # rule intentionally does not rely on Category.INJECTION's shared
+  # sanitizer set and instead declares its own: only a genuine upper-bound
+  # clamp neutralizes the risk -- `$X = min($X, ...)` (verified empirically
+  # against the opengrep binary: the sanitizer must match the *reassignment*
+  # shape, `$X = min(...)`, not `$X = min($X, ...)` literally, since a
+  # value is usually wrapped first, e.g. `n = min(int(n), 128)` -- a bare
+  # `$X = min($X, ...)` pattern does NOT match through that int() wrapper)
+  # or a Pydantic `Field(le=...)`/`conint(le=...)` upper-bound constraint.
+  - id: TNT-ML-022
+    mode: taint
+    message: |
+      User-controlled value flows into a generation-parameter kwarg
+      (max_tokens / n / best_of / max_completion_tokens) of a completion
+      API call. OWASP LLM10:2025 Unbounded Consumption ("denial of
+      wallet"): an attacker who controls n and/or max_tokens can multiply
+      the cost of a single request (e.g. n=128 fans out 128 completions;
+      a maximal max_tokens maximizes each one's token cost), running up
+      the victim's API bill or exhausting a shared rate/token budget.
+      int()/float() casting the value is NOT sufficient here -- it narrows
+      syntax, not magnitude. Clamp to a fixed upper bound (min(n,
+      MAX_N)) or enforce one with a Pydantic Field(le=...)/conint(le=...)
+      constraint before it reaches the API call.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [400, 770]
+      category: ai_ml
+      fix: "Clamp user-supplied max_tokens/n/best_of/max_completion_tokens to a fixed upper bound (e.g. n = min(int(n), 4), max_tokens = min(int(max_tokens), 2048)) or declare them with a Pydantic Field(le=...)/conint(le=...) upper bound before passing them to the completion API. Never pass a request-derived value into these kwargs unclamped."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: kwargs.get(...)
+              - pattern: $VAR = json.loads(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: openai.ChatCompletion.create(..., max_tokens=$INPUT, ...)
+              - pattern: openai.ChatCompletion.create(..., n=$INPUT, ...)
+              - pattern: openai.ChatCompletion.create(..., best_of=$INPUT, ...)
+              - pattern: openai.Completion.create(..., max_tokens=$INPUT, ...)
+              - pattern: openai.Completion.create(..., n=$INPUT, ...)
+              - pattern: openai.Completion.create(..., best_of=$INPUT, ...)
+              - pattern: $CLIENT.chat.completions.create(..., max_tokens=$INPUT, ...)
+              - pattern: $CLIENT.chat.completions.create(..., n=$INPUT, ...)
+              - pattern: $CLIENT.chat.completions.create(..., best_of=$INPUT, ...)
+              - pattern: $CLIENT.chat.completions.create(..., max_completion_tokens=$INPUT, ...)
+              - pattern: $CLIENT.completions.create(..., max_tokens=$INPUT, ...)
+              - pattern: $CLIENT.completions.create(..., n=$INPUT, ...)
+              - pattern: $CLIENT.completions.create(..., best_of=$INPUT, ...)
+              - pattern: $CLIENT.messages.create(..., max_tokens=$INPUT, ...)
+              - pattern: litellm.completion(..., max_tokens=$INPUT, ...)
+              - pattern: litellm.completion(..., n=$INPUT, ...)
+              - pattern: litellm.acompletion(..., max_tokens=$INPUT, ...)
+              - pattern: litellm.acompletion(..., n=$INPUT, ...)
+              - pattern: $CLIENT.text_generation(..., max_new_tokens=$INPUT, ...)
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $X = min(...)
+              - pattern: Field(..., le=$LIMIT, ...)
+              - pattern: Field(..., lt=$LIMIT, ...)
+              - pattern: conint(le=$LIMIT, ...)
+              - pattern: conint(lt=$LIMIT, ...)
+
+  # ── LangGraph checkpoint metadata-KEY SQL injection (CVE-2025-67644) ─
+  # GitHub issue #290. A checkpoint/store saver builds a query from the
+  # KEYS of an attacker-controlled metadata `filter` dict, not just the
+  # values: `for k in filter: query += k` interpolates a request-supplied
+  # column/operator name straight into the SQL string. This is the actual
+  # CVE (CVSS 7.3) and chains with the msgpack object-hook bug
+  # (TNT-DESER-007 / CVE-2026-28277) to RCE on self-hosted LangGraph.
+  # Rowan's ns-aiml-024 (LangGraph saver without validation) is a
+  # presence signal that does not model this key-based dataflow.
+  #
+  # Generality: the shape is not LangGraph-specific. Any store/saver that
+  # iterates an untrusted filter's keys into a query has the bug, so the
+  # rule fires on a plain DB cursor doing `for col in request-filter:
+  # cur.execute(... + col + ...)` just as it does on a named
+  # SqliteSaver/PostgresSaver. LangGraph savers are one instance, matched
+  # by the checkpointer-API sink below; the raw key-loop sink covers the
+  # rest.
+  #
+  # Disjointness vs. TNT-SQLI-001/002 (BACKLOG DEF-15/19 method, audited
+  # by (file,line) overlap): the novelty here is a tainted filter KEY, not
+  # a tainted value. The value-only shape `cur.execute("... '" + val +
+  # "'")` is already owned by TNT-SQLI-* and MUST NOT be double-reported
+  # here -- so the raw-execute sink is gated by `pattern-inside: for $K in
+  # $FILTER:`, which a value-only execute (no key loop) never satisfies.
+  # Verified empirically against the opengrep binary: the value-only
+  # fixture fires TNT-SQLI-001/002 and NOT this rule. On the genuine
+  # key-loop shape both this rule and TNT-SQLI may fire on the same line
+  # (it is a real SQLi as well as a key-injection); that co-fire is the
+  # intended value-add lens, not the value-only duplication DEF-19
+  # eliminated, and is deduplicated at the pass layer, not here. The
+  # checkpointer-API sink (`$SAVER.list(filter=...)`) has no execute at
+  # all, so it never overlaps TNT-SQLI.
+  #
+  # Sanitizer: a per-key allow-list lookup that REASSIGNS the key
+  # (`k = ALLOWED[k]`, which raises on an unlisted column) clears taint;
+  # this is the reassignment-style shape this engine honors (a bare
+  # `if k in ALLOWED:` guard clause would not -- see agent_taint.yaml's
+  # header engine note). A parameterized query (`cur.execute(sql,
+  # params)`, two-arg) is naturally not matched by the single-arg
+  # `$CUR.execute($Q)` sink.
+  - id: TNT-LG-001
+    mode: taint
+    message: |
+      An attacker-controlled metadata/filter KEY is interpolated into a
+      checkpoint-store query. CVE-2025-67644: LangGraph SQLite/Postgres
+      checkpoint savers build queries from the KEYS of a request-supplied
+      `filter` dict (`for k in filter: query += k`), not just the values,
+      so an attacker who controls the filter keys achieves SQL injection.
+      Distinct from value-based SQLi (TNT-SQLI-*): the injected token is a
+      column/operator name, not a bound value. Chains with the msgpack
+      object-hook deserialization bug (TNT-DESER-007) to RCE.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [89]
+      category: nosql_injection
+      fix: "Validate every filter/metadata key against an explicit allow-list of real column names before it reaches the query (e.g. k = ALLOWED_COLUMNS[k], which raises on an unlisted key), and pass values as bound parameters (cursor.execute(sql, params)). Never concatenate a caller-supplied dict key into a SQL string."
+    pattern-sources:
+      # rowan-registry:begin source=web_request
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=web_request
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              # Raw key-injection shape: an execute whose query was built by
+              # iterating the tainted filter's keys. `pattern-inside` on the
+              # key loop is what keeps this off the value-only shape that
+              # TNT-SQLI-* already owns.
+              - patterns:
+                  - pattern: $CUR.execute($Q)
+                  - pattern-inside: |
+                      for $K in $FILTER:
+                          ...
+              # Checkpointer/store API consuming an untrusted filter. No
+              # execute, so no overlap with TNT-SQLI-*; receiver constrained
+              # to a saver/checkpoint/store-shaped name to avoid matching an
+              # unrelated `.list(filter=...)` on some other object.
+              - patterns:
+                  - pattern-either:
+                      - pattern: $SAVER.list(..., filter=$F, ...)
+                      - pattern: $SAVER.alist(..., filter=$F, ...)
+                      - pattern: $SAVER.search(..., filter=$F, ...)
+                      - pattern: $SAVER.asearch(..., filter=$F, ...)
+                  - metavariable-regex:
+                      metavariable: $SAVER
+                      regex: (?i).*(saver|checkpoint|store|memory).*
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $K = $ALLOWLIST[$K]
+              - pattern: $K = $ALLOWLIST.get($K)
+
+  # ── Unsandboxed Jinja env SSTI, generalized beyond chat_template ──
+  # SGLang CVE-2026-5760 class (also CVE-2025-61620 vLLM, CVE-2024-34359
+  # "Llama Drama"): inference/serving code builds a plain jinja2.Environment
+  # (not a SandboxedEnvironment) and renders ANY attacker-publishable model-
+  # metadata field, not only chat_template. TNT-ML-008 already owns the
+  # chat_template attribute reads (tokenizer.chat_template / self.chat_template /
+  # tokenizer_config.get(...)); this rule broadens the *source* surface to the
+  # other metadata fields (generation_config, adapter/LoRA config, AutoConfig/
+  # AutoProcessor fields, hf_hub_download contents) via the registry's
+  # `model_metadata` fragment, which deliberately omits the chat_template
+  # patterns so the canonical chat_template flow keeps its TNT-ML-008
+  # attribution. Sink adds `$ENV.from_string($T)`, which TNT-ML-008 (Template()/
+  # .render() only) does not cover.
+  #
+  # Sanitizer note: the tainted value is the template STRING, so sandboxing the
+  # env is orthogonal to that value's dataflow -- a bare `SandboxedEnvironment`
+  # pattern-sanitizer (the shape TNT-ML-001/008 use) does NOT actually suppress
+  # the safe case (verified empirically against opengrep 1.22.0). The working
+  # form is to sanitize the from_string CALL when its receiver is a sandboxed
+  # env: inline construction (`SandboxedEnvironment().from_string($T)`) and the
+  # function-local assigned form (`env = ImmutableSandboxedEnvironment(); ...;
+  # env.from_string($T)`) are both handled below. Known residual gap: an env
+  # assigned to `self.env` in __init__ and used in a *different* method is not
+  # correlated by opengrep's intrafile taint, so that cross-method sandboxed
+  # shape is a documented false positive (same class of accepted engine-limit
+  # gap as TNT-ML-020's filter-value note above).
+  - id: TNT-ML-028
+    mode: taint
+    message: |
+      Attacker-publishable model metadata (generation/tokenizer/adapter config,
+      AutoConfig fields, Hub-downloaded file contents) flows into an unsandboxed
+      Jinja2 render. CVE-2026-5760 (SGLang) class, generalized beyond
+      chat_template: any model-metadata string rendered through
+      jinja2.Environment().from_string(...).render() / Template(...).render()
+      without a SandboxedEnvironment is SSTI -> RCE, since a malicious model can
+      set the field to a template payload.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [94, 1336]
+      category: ssti
+      fix: "Render any model-metadata-sourced template in a sandboxed Jinja2 environment (jinja2.sandbox.ImmutableSandboxedEnvironment); never build a plain jinja2.Environment() and render a string taken from tokenizer/generation/adapter config or a downloaded model file."
+    pattern-sources:
+      # rowan-registry:begin source=model_metadata
+      - patterns:
+          - pattern-either:
+              - pattern: AutoConfig.from_pretrained(...)
+              - pattern: AutoProcessor.from_pretrained(...)
+              - pattern: PretrainedConfig.from_pretrained(...)
+              - pattern: hf_hub_download(...)
+              - pattern: snapshot_download(...)
+              - pattern: generation_config.get(...)
+              - pattern: generation_config[...]
+              - pattern: gen_config.get(...)
+              - pattern: gen_config[...]
+              - pattern: model_config.get(...)
+              - pattern: model_config[...]
+              - pattern: adapter_config.get(...)
+              - pattern: adapter_config[...]
+              - pattern: lora_config.get(...)
+              - pattern: lora_config[...]
+      # rowan-registry:end source=model_metadata
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $ENV.from_string($T)
+              - pattern: jinja2.Template($T)
+              - pattern: Template($T)
+    pattern-sanitizers:
+      # Function-local assigned sandboxed env: env = ImmutableSandboxedEnvironment(); env.from_string(t)
+      - patterns:
+          - pattern: $ENV.from_string($T)
+          - pattern-inside: |
+              $ENV = $SB(...)
+              ...
+          - metavariable-regex:
+              metavariable: $SB
+              regex: .*SandboxedEnvironment.*
+      # Inline sandboxed construction: SandboxedEnvironment().from_string(t)
+      - patterns:
+          - pattern: $SB2(...).from_string($T)
+          - metavariable-regex:
+              metavariable: $SB2
+              regex: .*SandboxedEnvironment.*
+
+  # ── ML-specific sanitizers ───────────────────────────────────────
+  # (Defined as pattern-sanitizers in other rules but documented here)
+  # - safetensors.torch.load_file(...): safe alternative to torch.load
+  # - jinja2.sandbox.SandboxedEnvironment: SSTI protection
+  # - OmegaConf.structured(...): config schema validation
+  # - shlex.quote(...): shell argument sanitization
+  # - werkzeug.utils.secure_filename(...): file upload sanitization
+  # - html.escape(...) / markupsafe.escape(...): XSS sanitization
+  # - torch.load(..., weights_only=True): safe pickle alternative
+  - id: TNT-ML-030
+    mode: taint
+    message: |
+      User-controlled data flows into a training/fine-tuning dataset with
+      no schema validation in between. Training-time compromise (label
+      flipping, backdoor triggers, DPO/RLHF preference-data poisoning)
+      survives every runtime control -- including the model's own
+      guardrails -- because it is baked into the weights before the model
+      is ever served.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      cwe: [20, 829]
+      category: supply_chain
+      fix: "Validate every record against an explicit schema (a pydantic model's model_validate() or equivalent) before it reaches Dataset.from_*, a Trainer's train_dataset, or a fine-tune file upload -- never assume request/upload data is already well-formed training data."
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: Dataset.from_dict(...)
+              - pattern: Dataset.from_list(...)
+              - pattern: Dataset.from_pandas(...)
+              - pattern: Dataset.from_generator(...)
+              - pattern: datasets.concatenate_datasets(...)
+              - pattern: Trainer(..., train_dataset=$DATA, ...)
+              - pattern: DPOTrainer(..., train_dataset=$DATA, ...)
+              - pattern: $CLIENT.fine_tuning.jobs.create(..., training_file=$DATA, ...)
+              - pattern: openai.files.create(file=$DATA, purpose="fine-tune")
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $DATA = $SCHEMA.model_validate($DATA)
+              - pattern: $DATA = $SCHEMA.model_validate_json($DATA)
+              - pattern: $DATA = $SCHEMA.parse_obj($DATA)
+              - pattern: $DATA = $SCHEMA.parse_raw($DATA)
+
+  # ── ML-specific sanitizers ───────────────────────────────────────
+  # (Defined as pattern-sanitizers in other rules but documented here)
+  # - safetensors.torch.load_file(...): safe alternative to torch.load
+  # - jinja2.sandbox.SandboxedEnvironment: SSTI protection
+  # - OmegaConf.structured(...): config schema validation
+  # - shlex.quote(...): shell argument sanitization
+  # - werkzeug.utils.secure_filename(...): file upload sanitization
+  # - html.escape(...) / markupsafe.escape(...): XSS sanitization
+  # - torch.load(..., weights_only=True): safe pickle alternative
+  - id: TNT-ML-031
+    mode: taint
+    message: |
+      Untrusted input is used as a semantic/response cache key that a
+      later cache read serves back. Same threat model as ns-aiml-112's
+      memory-insert case: an attacker who shapes one prompt seeds a cache
+      entry a later lookup can hit, turning a one-shot injection into a
+      persistent one. Modeled as the same same-function write-then-read
+      shape TNT-PATH-003 uses -- the real exploit is cross-REQUEST (one
+      caller's write, a different caller's later read), which a
+      single-function taint engine cannot trace; this is a same-function
+      proxy for that shape, the same honest limitation as every other
+      cache/memory presence signal in this corpus.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [94, 349]
+      category: prompt_injection
+      fix: "Scope every cache key to the requesting user/session/tenant (see ns-aiml-152) -- an attacker's own poisoned entry then only ever serves back within that same scope, never cross-tenant."
+    # Engine note: no pattern-propagators here. $CACHE.get($KEY) must be
+    # metavariable-regex-constrained to receiver names containing "cache"
+    # -- unconstrained, it collides with any other .get() method
+    # (request.json.get(), a dict, an unrelated object), including the
+    # SOURCE call itself (request.json.get('prompt') matches its own sink
+    # pattern with $CACHE=request.json, $KEY='prompt' -- a reflexive false
+    # positive with no cache read anywhere in the file, caught by this
+    # rule's own negative test fixture). Verified empirically that
+    # Opengrep's propagator `to:` binding does not compose with a
+    # metavariable-regex-constrained sink: a cache.set($KEY, $VALUE) ->
+    # from:$VALUE,to:$KEY propagator correctly taints $KEY against an
+    # UNCONSTRAINED $CACHE.get($KEY) sink, but produces zero findings
+    # against the identical sink once metavariable-regex is added --
+    # reproduced in isolation, not a fixture bug. Accepted false-negative
+    # gap: this rule only catches the KEY itself being tainted (the
+    # dominant real shape -- the prompt IS the key), not "attacker
+    # controls only the cached VALUE under an otherwise-benign key",
+    # which plain intraprocedural taint (no propagator needed) already
+    # covers when $KEY is directly source-derived.
+    pattern-sources:
+      # rowan-registry:begin source=user_input
+      - patterns:
+          - pattern-either:
+              - pattern: request.args.get(...)
+              - pattern: request.args[...]
+              - pattern: request.form.get(...)
+              - pattern: request.form[...]
+              - pattern: request.json.get(...)
+              - pattern: request.json[...]
+              - pattern: request.data
+              - pattern: request.values.get(...)
+              - pattern: request.files.get(...)
+              - pattern: request.cookies.get(...)
+              - pattern: request.headers.get(...)
+              - pattern: request.GET.get(...)
+              - pattern: request.GET[...]
+              - pattern: request.POST.get(...)
+              - pattern: request.POST[...]
+              - pattern: request.body
+              - pattern: request.query_params
+              - pattern: input(...)
+              - pattern: await request.json(...)
+              - pattern: await request.form(...)
+              - pattern: await request.body(...)
+              - pattern: await websocket.recv(...)
+              - pattern: await websocket.receive_text(...)
+              - pattern: st.chat_input(...)
+              - pattern: st.text_input(...)
+              - pattern: st.file_uploader(...)
+              - pattern: gr.File(...)
+              - pattern: gr.UploadButton(...)
+      # rowan-registry:end source=user_input
+    pattern-sinks:
+      - patterns:
+          - pattern: $CACHE.get($KEY)
+          - metavariable-regex:
+              metavariable: $CACHE
+              regex: (?i).*cache.*
+
+  # ── ML-specific sanitizers ───────────────────────────────────────
+  # (Defined as pattern-sanitizers in other rules but documented here)
+  # - safetensors.torch.load_file(...): safe alternative to torch.load
+  # - jinja2.sandbox.SandboxedEnvironment: SSTI protection
+  # - OmegaConf.structured(...): config schema validation
+  # - shlex.quote(...): shell argument sanitization
+  # - werkzeug.utils.secure_filename(...): file upload sanitization
+  # - html.escape(...) / markupsafe.escape(...): XSS sanitization
+  # - torch.load(..., weights_only=True): safe pickle alternative
+  - id: TNT-ML-033
+    mode: taint
+    message: |
+      Content extracted from an ingested document (OCR, PDF text layer,
+      audio transcript, EXIF/XMP metadata, an Office/HTML loader) flows
+      into a completion or agent call with no delimiter-fencing,
+      moderation gate, structured-extraction schema, or
+      prompt-injection classifier in between. Indirect prompt injection
+      through documents is the dominant real-world delivery vector: the
+      untrusted party is whoever authored the file being ingested, not
+      necessarily the caller of this endpoint.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [94]
+      category: prompt_injection
+      fix: "Wrap ingested document content in an explicit delimiter the system prompt tells the model to treat as data, not instructions (e.g. an XML tag); run it through a moderation/prompt-injection classifier; or extract it into a strict structured schema before use."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              # rowan-registry:begin source=document_ingest
+              - patterns:
+                  - pattern-either:
+                      - pattern: pytesseract.image_to_string(...)
+                      - pattern: $READER.readtext(...)
+                      - pattern: $CLIENT.detect_document_text(...)
+                      - pattern: $CLIENT.analyze_document(...)
+                      - pattern: $VISION_CLIENT.text_detection(...)
+                      - pattern: $VISION_CLIENT.document_text_detection(...)
+                      - pattern: $PAGE.extract_text(...)
+                      - pattern: $PDF.pages[...].extract_text(...)
+                      - pattern: $PDF.extract_text(...)
+                      - pattern: partition(...)
+                      - pattern: partition_pdf(...)
+                      - pattern: $IMG._getexif(...)
+                      - pattern: $IMG.getexif(...)
+                      - pattern: exifread.process_file(...)
+                      - pattern: piexif.load(...)
+                      - pattern: $MODEL.transcribe(...)
+                      - pattern: $CLIENT.audio.transcriptions.create(...)
+                      - pattern: $CLIENT.audio.translations.create(...)
+                      - pattern: UnstructuredWordDocumentLoader(...).load(...)
+                      - pattern: UnstructuredHTMLLoader(...).load(...)
+                      - pattern: BSHTMLLoader(...).load(...)
+                      - pattern: Docx2txtLoader(...).load(...)
+                      - pattern: PyPDFLoader(...).load(...)
+                      - pattern: UnstructuredExcelLoader(...).load(...)
+              # rowan-registry:end source=document_ingest
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $CLIENT.chat.completions.create(...)
+              - pattern: $CLIENT.completions.create(...)
+              - pattern: $CLIENT.messages.create(...)
+              - pattern: openai.ChatCompletion.create(...)
+              - pattern: litellm.completion(...)
+              - pattern: litellm.acompletion(...)
+              - patterns:
+                  - pattern-either:
+                      - pattern: $AGENT.run(...)
+                      - pattern: $AGENT.invoke(...)
+                  - metavariable-regex:
+                      metavariable: $AGENT
+                      regex: (?i).*(agent|chain|crew).*
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $TEXT = $MODERATOR.moderate($TEXT)
+              - pattern: $TEXT = moderation(...)
+              - pattern: $TEXT = classify_prompt_injection($TEXT)
+              - pattern: $TEXT = $CLASSIFIER.classify($TEXT)
+              - pattern: $TEXT = $SCHEMA.model_validate($TEXT)
+              - pattern: $TEXT = $SCHEMA.model_validate_json($TEXT)
+              - pattern: $TEXT = f"<document>{$TEXT}</document>"
+              - pattern: $TEXT = f"<untrusted_content>{$TEXT}</untrusted_content>"
+              - pattern: $TEXT = f"<untrusted_document>{$TEXT}</untrusted_document>"
+
+  - id: TNT-ML-034
+    mode: taint
+    message: |
+      Content extracted from an ingested document (OCR, PDF text layer,
+      audio transcript, an Office/HTML loader) flows into a vector-store
+      write with no visible content-moderation or prompt-injection
+      classification in between. NS-AIML-015 flags raw insertion without
+      embedding, but a PROPERLY embedded poisoned document is the actual
+      attack -- it reads back as an ordinary RAG chunk and reaches every
+      future query that retrieves it (see TNT-ML-016's memory read-back,
+      the other half of this loop).
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [94]
+      category: prompt_injection
+      fix: "Run ingested document text through a moderation/prompt-injection classifier before it is embedded and written to the vector store -- poisoning at write time reaches every future query that retrieves the chunk, not just the ingesting request."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              # rowan-registry:begin source=document_ingest
+              - patterns:
+                  - pattern-either:
+                      - pattern: pytesseract.image_to_string(...)
+                      - pattern: $READER.readtext(...)
+                      - pattern: $CLIENT.detect_document_text(...)
+                      - pattern: $CLIENT.analyze_document(...)
+                      - pattern: $VISION_CLIENT.text_detection(...)
+                      - pattern: $VISION_CLIENT.document_text_detection(...)
+                      - pattern: $PAGE.extract_text(...)
+                      - pattern: $PDF.pages[...].extract_text(...)
+                      - pattern: $PDF.extract_text(...)
+                      - pattern: partition(...)
+                      - pattern: partition_pdf(...)
+                      - pattern: $IMG._getexif(...)
+                      - pattern: $IMG.getexif(...)
+                      - pattern: exifread.process_file(...)
+                      - pattern: piexif.load(...)
+                      - pattern: $MODEL.transcribe(...)
+                      - pattern: $CLIENT.audio.transcriptions.create(...)
+                      - pattern: $CLIENT.audio.translations.create(...)
+                      - pattern: UnstructuredWordDocumentLoader(...).load(...)
+                      - pattern: UnstructuredHTMLLoader(...).load(...)
+                      - pattern: BSHTMLLoader(...).load(...)
+                      - pattern: Docx2txtLoader(...).load(...)
+                      - pattern: PyPDFLoader(...).load(...)
+                      - pattern: UnstructuredExcelLoader(...).load(...)
+              # rowan-registry:end source=document_ingest
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $STORE.add_texts(...)
+              - pattern: $STORE.add_documents(...)
+              - patterns:
+                  - pattern-either:
+                      - pattern: $INDEX.upsert(...)
+                  - metavariable-regex:
+                      metavariable: $INDEX
+                      regex: (?i).*(index|pinecone).*
+              - patterns:
+                  - pattern-either:
+                      - pattern: $COLLECTION.add(...)
+                  - metavariable-regex:
+                      metavariable: $COLLECTION
+                      regex: (?i).*(collection|chroma|coll).*
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $TEXT = $MODERATOR.moderate($TEXT)
+              - pattern: $TEXT = moderation(...)
+              - pattern: $TEXT = classify_prompt_injection($TEXT)
+              - pattern: $TEXT = $CLASSIFIER.classify($TEXT)
+
+  - id: TNT-ML-035
+    mode: taint
+    message: |
+      A request-supplied URL is assembled into a multimodal message part
+      (an image_url/input_audio content block) with no visible
+      allowlist/domain-validation check in between. The model
+      provider's own infrastructure becomes the fetching agent for that
+      URL -- SSRF (the provider's servers probe wherever the URL points)
+      and indirect prompt injection (the provider retrieves and
+      interprets whatever content is actually at that URL) in one
+      shape.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [918, 94]
+      category: ssrf
+      fix: "Validate the URL against an explicit allowlist of trusted image/audio hosts before it reaches a multimodal message part; never pass a request-supplied URL through to image_url/input_audio verbatim."
+    pattern-sources:
+      - patterns:
+          - pattern-either:
+              # rowan-registry:begin source=web_request
+              - patterns:
+                  - pattern-either:
+                      - pattern: request.args.get(...)
+                      - pattern: request.args[...]
+                      - pattern: request.form.get(...)
+                      - pattern: request.form[...]
+                      - pattern: request.json.get(...)
+                      - pattern: request.json[...]
+                      - pattern: request.data
+                      - pattern: request.values.get(...)
+                      - pattern: request.files.get(...)
+                      - pattern: request.cookies.get(...)
+                      - pattern: request.headers.get(...)
+                      - pattern: request.GET.get(...)
+                      - pattern: request.GET[...]
+                      - pattern: request.POST.get(...)
+                      - pattern: request.POST[...]
+                      - pattern: request.body
+                      - pattern: request.query_params
+                      - pattern: input(...)
+                      - pattern: sys.argv
+                      - pattern: os.environ[...]
+                      - pattern: os.getenv(...)
+                      - pattern: await request.json(...)
+                      - pattern: await request.form(...)
+                      - pattern: await request.body(...)
+                      - pattern: await websocket.recv(...)
+                      - pattern: await websocket.receive_text(...)
+                      - pattern: st.chat_input(...)
+                      - pattern: st.text_input(...)
+                      - pattern: st.file_uploader(...)
+                      - pattern: gr.File(...)
+                      - pattern: gr.UploadButton(...)
+              # rowan-registry:end source=web_request
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: |
+                  {"type": "image_url", "image_url": {"url": $URL, ...}, ...}
+              - pattern: |
+                  {"type": "image_url", "image_url": $URL, ...}
+              - pattern: |
+                  {"type": "input_audio", "input_audio": {"url": $URL, ...}, ...}
+    pattern-sanitizers:
+      - patterns:
+          - pattern-either:
+              - pattern: $URL = is_allowed_domain($URL)
+              - pattern: $URL = validate_url($URL)
+
+  # ── ML-specific sanitizers ───────────────────────────────────────
+  # (Defined as pattern-sanitizers in other rules but documented here)
+  # - safetensors.torch.load_file(...): safe alternative to torch.load
+  # - jinja2.sandbox.SandboxedEnvironment: SSTI protection
+  # - OmegaConf.structured(...): config schema validation
+  # - shlex.quote(...): shell argument sanitization
+  # - werkzeug.utils.secure_filename(...): file upload sanitization
+  # - html.escape(...) / markupsafe.escape(...): XSS sanitization
+  # - torch.load(..., weights_only=True): safe pickle alternative

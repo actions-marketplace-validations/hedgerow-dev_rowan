@@ -1,0 +1,374 @@
+rules:
+  - id: tnt-cs-sqli-001
+    mode: taint
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      User input flows into a SQL query without parameterization, enabling SQL injection.
+    metadata:
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      confidence: HIGH
+      category: security
+      fix: "Use parameterized queries (SqlCommand.Parameters.AddWithValue / EF Core FromSqlInterpolated) instead of concatenating input into SQL text."
+    pattern-sources:
+      - pattern: Request.Query[$KEY]
+      - pattern: Request.Form[$KEY]
+      - pattern: Request.Body
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromQuery] $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromBody] $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromRoute] $TYPE $PARAM, ...) {
+                ...
+              }
+      - pattern: Environment.GetEnvironmentVariable(...)
+      - pattern: args[$IDX]
+    pattern-sinks:
+      - pattern: new SqlCommand(...)
+      - pattern: (SqlCommand $CMD).ExecuteReader()
+      - pattern: (SqlCommand $CMD).ExecuteNonQuery()
+      - pattern: $DB.FromSqlRaw(...)
+      - pattern: $CONN.Query(...)
+      - pattern: $CONN.Execute(...)
+    pattern-sanitizers:
+      - pattern: (SqlCommand $CMD).Parameters.AddWithValue(...)
+      - pattern: (SqlCommand $CMD).Parameters.Add(...)
+      - pattern: int.TryParse(...)
+      - pattern: $DB.FromSqlInterpolated(...)
+
+  - id: tnt-cs-cmdi-001
+    mode: taint
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      User input flows into a process execution call, enabling OS command injection.
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      confidence: HIGH
+      category: security
+      fix: "Avoid building shell commands from user input; if a process must be started, pass arguments via ProcessStartInfo.ArgumentList rather than a single interpolated string."
+    pattern-sources:
+      - pattern: Request.Query[$KEY]
+      - pattern: Request.Form[$KEY]
+      - pattern: Request.Body
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromQuery] $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromBody] $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromRoute] $TYPE $PARAM, ...) {
+                ...
+              }
+      - pattern: Environment.GetEnvironmentVariable(...)
+      - pattern: args[$IDX]
+    pattern-sinks:
+      - pattern: Process.Start(...)
+      - pattern: PowerShell.Create()
+      - patterns:
+          - pattern: $PSI.Arguments = $ARG
+          - pattern-inside: |
+              $PSI = new ProcessStartInfo(...);
+              ...
+    pattern-sanitizers:
+      - pattern: Path.GetFileName(...)
+
+  - id: tnt-cs-path-001
+    mode: taint
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      User input flows into a filesystem path, enabling path traversal attacks.
+    metadata:
+      cwe:
+        - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
+      confidence: HIGH
+      category: security
+      fix: "Resolve the path with Path.GetFullPath() and verify it is still under the intended base directory (commonpath/StartsWith check) before use, or use Path.GetFileName() to discard directory components entirely."
+    pattern-sources:
+      - pattern: Request.Query[$KEY]
+      - pattern: Request.Form[$KEY]
+      - pattern: Request.Body
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromQuery] $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromBody] $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromRoute] $TYPE $PARAM, ...) {
+                ...
+              }
+      - pattern: Environment.GetEnvironmentVariable(...)
+      - pattern: args[$IDX]
+    pattern-sinks:
+      - pattern: File.ReadAllText(...)
+      - pattern: File.ReadAllBytes(...)
+      - pattern: File.Open(...)
+      - pattern: Path.Combine(...)
+    pattern-sanitizers:
+      - pattern: Path.GetFileName(...)
+      - pattern: $S.Contains("..")
+
+  - id: tnt-cs-ssrf-001
+    mode: taint
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      User input flows into an outbound HTTP request URL, enabling server-side request forgery.
+    metadata:
+      cwe:
+        - "CWE-918: Server-Side Request Forgery (SSRF)"
+      confidence: HIGH
+      category: security
+      fix: "Validate the destination host against an explicit allowlist of permitted domains/IPs before making the request."
+    pattern-sources:
+      - pattern: Request.Query[$KEY]
+      - pattern: Request.Form[$KEY]
+      - pattern: Request.Body
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromQuery] $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromBody] $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromRoute] $TYPE $PARAM, ...) {
+                ...
+              }
+      - pattern: Environment.GetEnvironmentVariable(...)
+      - pattern: args[$IDX]
+    pattern-sinks:
+      - pattern: $CLIENT.GetStringAsync(...)
+      # Typed: bare `$X.GetAsync(...)` also matched CQRS query objects
+      # (`_orgQuery.GetAsync(orgId)` in bitwarden/server), which are not
+      # outbound requests. Opengrep resolves the type from parameters,
+      # fields, and `new HttpClient()` locals.
+      - pattern: (HttpClient $CLIENT).GetAsync(...)
+      - pattern: (HttpClient $CLIENT).PostAsync(...)
+      - pattern: (HttpClient $CLIENT).SendAsync(...)
+      - pattern: new HttpClient().GetStringAsync(...)
+      - pattern: (WebClient $WC).DownloadString(...)
+      - pattern: WebRequest.Create(...)
+
+  - id: tnt-cs-xss-001
+    mode: taint
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      User input flows into an HTML response without encoding, enabling cross-site scripting.
+    metadata:
+      cwe:
+        - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
+      confidence: HIGH
+      category: security
+      fix: "HTML-encode output with HttpUtility.HtmlEncode()/WebUtility.HtmlEncode() (or the framework's auto-escaping view engine) instead of writing user input directly into the response."
+    pattern-sources:
+      - pattern: Request.Query[$KEY]
+      - pattern: Request.Form[$KEY]
+      - pattern: Request.Body
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromQuery] $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromBody] $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromRoute] $TYPE $PARAM, ...) {
+                ...
+              }
+      - pattern: Environment.GetEnvironmentVariable(...)
+      - pattern: args[$IDX]
+    pattern-sinks:
+      - pattern: Response.Write(...)
+      - pattern: Html.Raw(...)
+      - pattern: $HUB.Clients.All.SendAsync(...)
+    pattern-sanitizers:
+      - pattern: HtmlEncoder.Default.Encode(...)
+      - pattern: WebUtility.HtmlEncode(...)
+      - pattern: HttpUtility.HtmlEncode(...)
+
+  - id: tnt-cs-deser-001
+    mode: taint
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      User input flows into a deserialization call, enabling remote code execution via insecure deserialization.
+    metadata:
+      cwe:
+        - "CWE-502: Deserialization of Untrusted Data"
+      confidence: HIGH
+      category: security
+      fix: "Avoid BinaryFormatter/insecure deserializers on untrusted data; use JsonConvert.DeserializeObject<T>() (or System.Text.Json) with a known target type."
+    pattern-sources:
+      - pattern: Request.Query[$KEY]
+      - pattern: Request.Form[$KEY]
+      - pattern: Request.Body
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromQuery] $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromBody] $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromRoute] $TYPE $PARAM, ...) {
+                ...
+              }
+      - pattern: Environment.GetEnvironmentVariable(...)
+      - pattern: args[$IDX]
+    pattern-sinks:
+      - pattern: (BinaryFormatter $BF).Deserialize(...)
+      - pattern: JsonConvert.DeserializeObject(...)
+      - pattern: (XmlSerializer $XS).Deserialize(...)
+    pattern-sanitizers:
+      - pattern: JsonConvert.DeserializeObject<$TYPE>(...)
+      - pattern: "JsonSerializer.Deserialize<$TYPE>(...)"
+
+  - id: tnt-cs-ldap-001
+    mode: taint
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      User input flows into an LDAP query without sanitization, enabling LDAP injection.
+    metadata:
+      cwe:
+        - "CWE-90: Improper Neutralization of Special Elements used in an LDAP Query ('LDAP Injection')"
+      confidence: HIGH
+      category: security
+      fix: "Escape LDAP special characters in filters/DNs (System.DirectoryServices' escaping helpers), or use a parameterized query API."
+    pattern-sources:
+      - pattern: Request.Query[$KEY]
+      - pattern: Request.Form[$KEY]
+      - pattern: Request.Body
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromQuery] $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromBody] $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromRoute] $TYPE $PARAM, ...) {
+                ...
+              }
+      - pattern: Environment.GetEnvironmentVariable(...)
+      - pattern: args[$IDX]
+    pattern-sinks:
+      - pattern: new DirectorySearcher(...)
+      - pattern: new DirectoryEntry(...)
+      - pattern: (DirectorySearcher $DS).FindAll()
+      - pattern: (DirectorySearcher $DS).Filter = $FILTER
+    pattern-sanitizers:
+      - pattern: $S.Replace("*", "")
+      # NOT Regex.Replace(...): its neutralizing effect depends entirely on
+      # caller-supplied pattern/replacement args, which this pattern doesn't
+      # pin down -- Regex.Replace($S, "unrelated", "x") clears taint here
+      # even though it does nothing to remove LDAP metacharacters. See
+      # docs/taint-sanitizer-audit.md.
+
+  - id: tnt-cs-log-001
+    mode: taint
+    languages: [csharp]
+    severity: WARNING
+    message: >-
+      User input flows into a log statement without sanitization, enabling log injection.
+    metadata:
+      cwe:
+        - "CWE-117: Improper Output Neutralization for Logs"
+      confidence: MEDIUM
+      category: security
+      fix: "Strip or encode newline/CR characters before writing user input to a log entry, so a single log line can't be forged."
+    pattern-sources:
+      - pattern: Request.Query[$KEY]
+      - pattern: Request.Form[$KEY]
+      - pattern: Request.Body
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromQuery] $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromBody] $TYPE $PARAM, ...) {
+                ...
+              }
+      - patterns:
+          - pattern: $PARAM
+          - pattern-inside: |
+              $RET $METHOD(..., [FromRoute] $TYPE $PARAM, ...) {
+                ...
+              }
+      - pattern: Environment.GetEnvironmentVariable(...)
+      - pattern: args[$IDX]
+    pattern-sinks:
+      - pattern: $LOG.LogInformation(...)
+      - pattern: $LOG.LogWarning(...)
+      - pattern: $LOG.LogError(...)
+      - pattern: $LOG.LogDebug(...)
+      - pattern: Console.WriteLine(...)
+    pattern-sanitizers:
+      - pattern: $S.Replace("\n", "")
+      - pattern: $S.Replace("\r", "")

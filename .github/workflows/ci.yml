@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# Supersede in-flight runs for the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: lint + test (py${{ matrix.python-version }})
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install (with dev + js-crossfile extras)
+        run: pip install -e ".[dev,js-crossfile]"
+      - name: Install cosign
+        uses: sigstore/cosign-installer@f713795cb21599bc4e5c4b58cbad1da852d7eeb9 # v3
+      - name: Install Opengrep
+        run: |
+          rowan install-engine --prefix "$HOME/.local"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Lint
+        run: ruff check .
+      - name: Doc counts
+        if: matrix.python-version == '3.12'
+        run: python scripts/check_doc_counts.py
+      - name: Test
+        run: pytest -q
+      - name: JS BOLA benchmark corpus
+        run: python scripts/benchmark.py --corpus js_authz
+      - name: Wheel ships its rules (packaging smoke test)
+        if: matrix.python-version == '3.12'
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/rowan-wheel-venv
+          python -m pip wheel --no-deps -w /tmp/rowan-wheel .
+          python scripts/check_distribution.py /tmp/rowan-wheel/*.whl
+          /tmp/rowan-wheel-venv/bin/pip install --quiet /tmp/rowan-wheel/*.whl
+          mkdir -p /tmp/rowan-smoke
+          printf 'import os\ndef f(p):\n    os.system("cat " + p)\n' > /tmp/rowan-smoke/bad.py
+          /tmp/rowan-wheel-venv/bin/rowan scan /tmp/rowan-smoke \
+            --format json --output /tmp/rowan-smoke/out.json
+          python -c "
+          import json, sys
+          d = json.load(open('/tmp/rowan-smoke/out.json'))
+          n = len(d.get('findings', d if isinstance(d, list) else []))
+          print(f'{n} finding(s) from the installed wheel')
+          sys.exit(0 if n > 0 else 1)
+          "

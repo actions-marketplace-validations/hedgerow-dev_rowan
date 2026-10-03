@@ -1,0 +1,590 @@
+# NeuroScan Rules: Fast regex-based surface scanning
+# Severity: critical, high, medium, low, info
+# Category: deserialization, injection, ssrf, ssti, xss, command_injection,
+#           path_traversal, secrets, supply_chain, ai_ml, prompt_injection,
+#           auth, crypto, config, general
+
+rules:
+
+  # ── Deserialization ──────────────────────────────────────────────
+  - id: NS-DESER-001
+    name: Unsafe pickle loads
+    severity: WARNING
+    category: deserialization
+    cwe: [502]
+    languages: [python]
+    # cPickle/_pickle (Python 2 / internal pickle module aliases, equally
+    # dangerous) merged in from ns-aiml-034 (DEF-17), a near-duplicate rule
+    # now disabled -- see thresholds.yaml.
+    patterns:
+      - 'pickle\.loads?\s*\('
+      - 'dill\.loads?\s*\('
+      - '\bcPickle\.loads?\s*\('
+      - '\b_pickle\.loads?\s*\('
+    pattern-not:
+      - 'safetensors\.torch\.load'
+      - '\.pickle\.load'
+      - 'torch\.load'
+      - 'model\.load'
+      - 'from_pretrained'
+      - 'joblib\.load'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      pickle.load() allows arbitrary code execution via deserialization.
+      Use safetensors, JSON, or pickle with a restricted Unpickler.
+      Presence signal; confirm the pickle source is user-controlled.
+
+  - id: NS-DESER-002
+    name: torch.load without weights_only
+    severity: WARNING
+    category: deserialization
+    cwe: [502]
+    languages: [python]
+    patterns:
+      - 'torch\.load\s*\('
+    pattern-not:
+      - 'weights_only\s*=\s*True'
+      - 'safetensors\.torch\.load_file'
+      - 'torch\.load\([^)]*map_location\s*='
+      - 'torch\.load\([^)]*mmap\s*=\s*True'
+      - 'from_pretrained'
+      - 'model\.load'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      torch.load() without weights_only=True executes arbitrary pickle code.
+      Use weights_only=True or safetensors.
+      Presence signal; confirm the model source is user-controlled.
+
+  - id: NS-DESER-003
+    name: yaml.load without SafeLoader
+    severity: high
+    category: deserialization
+    cwe: [502]
+    languages: [python]
+    patterns:
+      - 'yaml\.load\s*\('
+      - 'yaml\.(full_load|unsafe_load)\s*\('
+    pattern-not:
+      - 'yaml\.safe_load'
+      - 'yaml\.(CSafeLoader|SafeLoader|BaseLoader)'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      yaml.load() without SafeLoader can execute arbitrary code.
+      Use yaml.safe_load() instead.
+
+  - id: NS-DESER-004
+    name: joblib.load unsafe
+    severity: high
+    category: deserialization
+    cwe: [502]
+    languages: [python]
+    patterns:
+      - 'joblib\.load\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      joblib.load() uses pickle internally and can execute arbitrary code.
+      Consider alternative serialization formats.
+
+  - id: NS-DESER-005
+    name: marshal.loads unsafe
+    severity: high
+    category: deserialization
+    cwe: [502]
+    languages: [python]
+    patterns:
+      - 'marshal\.loads?\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      marshal.loads() can execute arbitrary code. Avoid deserializing untrusted data.
+
+  # ── Code / Command Injection ────────────────────────────────────
+  - id: NS-INJECT-001
+    name: eval() usage
+    severity: WARNING
+    category: injection
+    cwe: [95]
+    languages: [python]
+    patterns:
+      - '\beval\s*\('
+    pattern-not:
+      - 'def eval\b'
+      - 'ast\.literal_eval'
+      - 'eval\([''"](?:True|False|None|0|1|\d+\.?\d*)[''"]\)'
+      - 'np\.eval\('
+      - 'pd\.eval\('
+      - '\.eval\('
+      - 'eval_metrics'
+      - 'eval_loss'
+      - 'evaluation'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      eval() executes arbitrary Python code. Use ast.literal_eval() or avoid entirely.
+      Presence signal; confirm user input reaches eval().
+
+  - id: NS-INJECT-002
+    name: exec() usage
+    severity: critical
+    category: injection
+    cwe: [94]
+    fix: "Never call exec() on untrusted input; use a proper parser for the expected format, or ast.literal_eval() for literal data."
+    languages: [python]
+    patterns:
+      - '(?<![.\w])exec\s*\('
+    pattern-not:
+      - 'def exec\b'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      exec() executes arbitrary Python code. Avoid using exec() on untrusted input.
+
+  - id: NS-INJECT-003
+    name: subprocess with shell=True
+    severity: high
+    category: command_injection
+    cwe: [78]
+    languages: [python]
+    patterns:
+      - 'subprocess\.\w+\s*\([^)]*shell\s*=\s*True'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      subprocess with shell=True enables command injection. Use shell=False with a list of args.
+
+  - id: NS-INJECT-004
+    name: os.system usage
+    severity: high
+    category: command_injection
+    cwe: [78]
+    languages: [python]
+    patterns:
+      - 'os\.system\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      os.system() passes commands to the shell. Use subprocess.run() with shell=False instead.
+
+  # ── SSRF ─────────────────────────────────────────────────────────
+  - id: NS-SSRF-001
+    name: User-controlled HTTP request
+    severity: low
+    category: ssrf
+    cwe: [918]
+    languages: [python]
+    patterns:
+      - 'requests\.(get|post|put|delete|patch|head)\s*\('
+      - 'httpx\.(get|post|put|delete|patch)\s*\('
+      - 'urllib\.request\.urlopen\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Outbound HTTP request. SSRF only if the URL is user-controlled.
+      Confirmed flows are reported by the taint engine (TNT-SSRF-*).
+      Validate URLs against an allowlist and block private IP ranges.
+
+  - id: NS-SSRF-002
+    name: User-controlled HTTP in Node.js
+    severity: high
+    category: ssrf
+    cwe: [918]
+    languages: [javascript, typescript]
+    patterns:
+      - 'fetch\s*\([^)]*request[^)]*\)'
+      - 'axios\.(get|post|put|delete)\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?m)^\s*//.*'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      HTTP request detected. If URL comes from user input, SSRF is possible.
+
+  - id: NS-SSRF-003
+    name: Subprocess URL fetch
+    severity: medium
+    category: ssrf
+    cwe: [918]
+    languages: [python]
+    patterns:
+      - 'subprocess\.(run|Popen|call).*[''"]wget'
+      - 'subprocess\.(run|Popen|call).*[''"]curl'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Shelling out to wget/curl with user input. Use requests/httpx with URL validation.
+
+  # ── SSTI ─────────────────────────────────────────────────────────
+  - id: NS-SSTI-001
+    name: Jinja2 template rendering from string
+    severity: critical
+    category: ssti
+    cwe: [94, 1336]
+    fix: "Never render templates built from user-controlled strings; use jinja2.sandbox.SandboxedEnvironment if dynamic templates are required."
+    languages: [python]
+    patterns:
+      - '\.from_string\s*\('
+      - 'Template\s*\([^)]*\)\.render\s*\('
+    pattern-not:
+      - 'SandboxedEnvironment'
+      - 'ImmutableSandboxedEnvironment'
+      - 'Chain\.from_string'
+      - 'PromptTemplate.*from_string'
+      # ByteStream.from_string (haystack) is a byte-buffer factory, not a
+      # Jinja2 Environment/Template method -- confirmed on a real repo scan:
+      # 33 of 87 NS-SSTI-001 findings in haystack were exactly this,
+      # unrelated to template rendering. Same false-positive class as the
+      # Chain/PromptTemplate exclusions above (any class with its own
+      # `.from_string()` factory method, not just Jinja2's).
+      - 'ByteStream\.from_string'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    sanitizers:
+      - 'SandboxedEnvironment'
+      - 'ImmutableSandboxedEnvironment'
+      - 'render_template\s*\('
+    message: |
+      Rendering templates from user-controlled strings enables SSTI → RCE.
+      Use jinja2.sandbox.SandboxedEnvironment.
+
+  - id: NS-SSTI-002
+    name: Model chat template SSTI
+    severity: high
+    category: ssti
+    cwe: [94, 1336]
+    languages: [python]
+    patterns:
+      - 'jinja2?\.Template\s*\([^)]*chat_template'
+      - 'Template\s*\([^)]*chat_template'
+      - 'Environment\s*\([^)]*\)\s*\.from_string\s*\([^)]*template'
+      - 'compile_jinja_template\s*\('
+    pattern-not:
+      - 'SandboxedEnvironment'
+      - 'ImmutableSandboxedEnvironment'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Model chat_template rendered through an unsandboxed Jinja2 Template: SSTI → RCE
+      (CVE-2026-5760). Use jinja2.sandbox.ImmutableSandboxedEnvironment.
+
+  # ── XSS ──────────────────────────────────────────────────────────
+  - id: NS-XSS-001
+    name: Reflected XSS in web framework
+    severity: high
+    category: xss
+    cwe: [79]
+    languages: [python]
+    patterns:
+      - 'return\s+request\.(args|form|json)\['
+      - '\.markup\s*\('
+      - '\|safe'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      User input reflected without encoding. Use proper output encoding/escaping.
+
+  - id: NS-XSS-005
+    name: Jinja2 autoescape disabled
+    severity: high
+    category: xss
+    cwe: [79]
+    languages: [python]
+    # A jinja2 Environment created with autoescape=False emits template
+    # variables verbatim into the rendered output -- any user/assistant
+    # authored content rendered through it is a stored-XSS sink. Scoped to
+    # the explicit Environment(...autoescape=False...) construction (the
+    # unambiguous signal); default/True environments and Markup-safe render
+    # paths are unaffected.
+    patterns:
+      - 'Environment\s*\([^)]*autoescape\s*=\s*False'
+      - '\.jinja_env\.autoescape\s*=\s*False'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Jinja2 Environment(autoescape=False) renders template variables without
+      HTML escaping -- user-controlled content becomes a stored-XSS sink.
+      Enable autoescape=True or escape untrusted values explicitly.
+
+  # ── AI/ML ───────────────────────────────────────────────────────
+  - id: NS-AIML-001
+    name: trust_remote_code=True
+    severity: critical
+    category: ai_ml
+    cwe: [94]
+    fix: "Never set trust_remote_code=True on a user-influenced model path; pin to an explicit, vetted allowlist of model repos instead."
+    languages: [python]
+    patterns:
+      - 'trust_remote_code\s*=\s*True'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      trust_remote_code=True in HuggingFace models allows arbitrary code execution.
+      Only use with models from trusted sources.
+
+  - id: NS-AIML-002
+    name: AutoModel with trust_remote_code
+    severity: critical
+    category: ai_ml
+    cwe: [94]
+    fix: "Never set trust_remote_code=True on a user-influenced model path; pin to an explicit, vetted allowlist of model repos instead."
+    languages: [python]
+    patterns:
+      - 'from_pretrained\s*\([^)]*trust_remote_code\s*=\s*True'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Loading a model with trust_remote_code=True allows execution of untrusted code.
+      Verify model provenance before enabling.
+
+  - id: NS-AIML-004
+    name: LangChain loads deserialization
+    severity: critical
+    category: ai_ml
+    cwe: [502]
+    fix: "Do not deserialize LangChain objects (`loads`) from untrusted sources; use a safe data format (JSON) with a known schema."
+    languages: [python]
+    patterns:
+      - 'langchain\.(loads?|deserialize)\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      LangChain deserialization functions can load serialized code.
+      CVE-2025-68664: langchain.loads() allows RCE.
+
+  # ── Secrets ─────────────────────────────────────────────────────
+  - id: NS-SUPPLY-002
+    name: Dynamic pip install in subprocess
+    severity: medium
+    category: supply_chain
+    cwe: [829]
+    languages: [python]
+    patterns:
+      - 'pip\s+install.*\$(?!\$)'
+      - 'pip\s+install.*\{'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Dynamic pip install with interpolated input. Could install malicious packages.
+      Pin dependencies and use lockfiles.
+
+  # ── Auth ────────────────────────────────────────────────────────
+  - id: NS-AUTH-001
+    name: CSRF protection disabled
+    severity: medium
+    category: auth
+    cwe: [352]
+    languages: [python]
+    patterns:
+      - 'csrf_exempt'
+      - '@csrf\s*\.\s*exempt'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      CSRF protection disabled. Verify this endpoint does not need CSRF protection.
+
+  - id: NS-AUTH-002
+    name: CSRF middleware commented out
+    severity: info
+    category: auth
+    cwe: [352]
+    languages: [python]
+    # Companion to NS-AUTH-001 (csrf_exempt): CSRF middleware present in source
+    # but disabled by commenting it out. The signal IS the comment, so this
+    # rule deliberately carries no ^\s*# exclusion.
+    patterns:
+      - '^\s*#.*CsrfViewMiddleware'
+      - '^\s*#\s*csrf_middleware'
+    pattern-not:
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      A CSRF-protection middleware is present but commented out (Django
+      CsrfViewMiddleware or an app csrf_middleware). Re-enable it so
+      state-changing requests are validated.
+
+  # ── Crypto ──────────────────────────────────────────────────────
+  - id: NS-CRYPTO-001
+    name: MD5 usage
+    severity: medium
+    category: crypto
+    cwe: [327, 328]
+    languages: [python]
+    patterns:
+      - 'hashlib\.md5\s*\('
+      - 'md5\s*\('
+    pattern-not:
+      - 'import md5'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      MD5 is cryptographically broken. Use SHA-256 or better.
+
+  - id: NS-CRYPTO-002
+    name: SHA1 usage
+    severity: low
+    category: crypto
+    cwe: [328]
+    languages: [python]
+    patterns:
+      - 'hashlib\.sha1\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      SHA-1 is weak. Use SHA-256 or better.
+
+  # ── Configuration ───────────────────────────────────────────────
+  - id: NS-CONFIG-001
+    name: Flask debug mode
+    severity: high
+    category: config
+    cwe: [489]
+    languages: [python]
+    patterns:
+      - 'app\.run\s*\([^)]*debug\s*=\s*True'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Flask debug mode enabled in production. Debug mode can expose source code
+      and allow arbitrary code execution via the Werkzeug debugger.
+
+  # ── Path Traversal ──────────────────────────────────────────────
+  - id: NS-PATH-001
+    name: User-controlled file path
+    severity: high
+    category: path_traversal
+    cwe: [22]
+    languages: [python]
+    patterns:
+      - 'open\s*\([^)]*request\.(args|form|json)'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      File path from user input without validation. Path traversal possible.
+
+  # ── Prompt Injection ────────────────────────────────────────────
+  - id: NS-PROMPT-001
+    name: User input in system prompt
+    severity: high
+    category: prompt_injection
+    cwe: [94]
+    languages: [python]
+    patterns:
+      - 'system_prompt.*\{.*request\.'
+      - 'system_message.*\+.*input'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      User input concatenated into system prompt. Prompt injection possible.
+
+  - id: NS-PROMPT-002
+    name: LLM completion with unsanitized input
+    severity: medium
+    category: prompt_injection
+    cwe: [94]
+    languages: [python]
+    patterns:
+      - '\.(infer|generate|complete|chat)\s*\([^)]*user_input'
+      - '\.(infer|generate|complete|chat)\s*\([^)]*request\.'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      LLM call with potentially unsanitized user input. Ensure input validation/sanitization.
+
+  - id: NS-PROMPT-003
+    name: LangChain prompt template injection
+    severity: high
+    category: prompt_injection
+    cwe: [94]
+    languages: [python]
+    patterns:
+      - 'PromptTemplate\s*\([^)]*input_variables.*request'
+      - 'ChatPromptTemplate\s*\([^)]*\brequest\b'
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      A LangChain prompt template is built directly from a request value.
+      Validate/sanitize user input before interpolating it into prompts.
+      Cross-statement flows are covered by the taint rule TNT-ML-009.
+
+  # ── SQL Injection ───────────────────────────────────────────────
+  - id: NS-SQLI-001
+    name: Raw SQL query
+    severity: high
+    category: injection
+    cwe: [89]
+    languages: [python]
+    patterns:
+      - '\.execute\s*\(\s*[''"].*\{'
+      - '\.execute\s*\(\s*f[''"]'
+      - '\.execute\s*\(\s*[''"].*[''"]\s*%'
+      - '\.execute\s*\(\s*[''"].*[''"]\s*\+'
+      - '\.raw\s*\('
+    pattern-not:
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+    message: |
+      Raw SQL query with string interpolation (f-string, %-format, or
+      concatenation). Use parameterized queries instead.
+
+  - id: NS-SQLI-005
+    name: SQL string built with interpolated f-string
+    severity: high
+    category: injection
+    cwe: [89]
+    languages: [python]
+    # Complements NS-SQLI-001: catches SQL assembled in an f-string that is
+    # bound to a variable and executed *elsewhere* (e.g. `query = f"... ORDER
+    # BY {sort}"` then `session.execute(text(query))`), which NS-SQLI-001's
+    # execute-adjacent patterns miss. Precision comes from requiring BOTH a
+    # SQL keyword AND a `{}` interpolation inside the same f-string literal --
+    # a very strong SQLi signal with few benign matches. Direct
+    # execute()/raw() f-strings are excluded here (NS-SQLI-001 owns those) so
+    # the two rules never double-fire on one line.
+    patterns:
+      # One alternative per quote style, each excluding only its OWN closing
+      # quote. The previous single pattern excluded BOTH, so it could not
+      # cross the inner quote in the commonest shape there is --
+      # f"... WHERE name = '{x}'" -- and missed it entirely. Widening to
+      # `.{0,200}?` fixes that miss but lets the match leave the f-string,
+      # pairing a SQL keyword in one string with a `{` in a later one
+      # (verified: 2 false positives on adversarial lines). These stay inside
+      # the literal.
+      - '(?i)f"[^"]{0,200}?(?:select |insert\s+into|update\s|delete\s+from|order\s+by|where |group\s+by|having )[^"]{0,200}?\{'
+      - '(?i)f''[^'']{0,200}?(?:select |insert\s+into|update\s|delete\s+from|order\s+by|where |group\s+by|having )[^'']{0,200}?\{'
+    pattern-not:
+      - '\.execute\s*\(\s*f'
+      - '\.raw\s*\(\s*f'
+      - '(?m)^\s*#'
+      - '(?:def test_|conftest|unittest)'
+      # English prose, not SQL: "Select a model (1-{n})". SQL does not put an
+      # article after SELECT, so this costs no real detection. Found by
+      # reading all 69 matches on llmware, where it was the only FP shape.
+      - '(?i)select\s+(?:a|an|the)\s'
+      - '(?i)select\s+one\s+of\s'
+      - '(?i)update\s+(?:your|the|an?)\s'
+      - '#\s*noqa:\s*S608'
+    message: |
+      SQL statement assembled with an interpolated f-string. The interpolated
+      value flows into the query verbatim -- use parameterized queries
+      (bound parameters), never string interpolation, to build SQL.

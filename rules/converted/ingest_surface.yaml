@@ -1,0 +1,190 @@
+rules:
+- id: ns-aiml-130
+  languages:
+  - python
+  severity: ERROR
+  message: 'fsspec''s ReferenceFileSystem renders six spec fields through Jinja2:
+
+    refs[k][0], every value in templates, and gen''s key, url, offset and
+
+    length. Up to and including fsspec 2026.4.0 those renders used a plain
+
+    jinja2.Template, so a spec supplied as an ordinary .json file executes
+
+    code in the loader process (confirmed by execution on fsspec 2026.4.0
+
+    with jinja2 3.1.6). The sites were switched to
+
+    jinja2.sandbox.SandboxedEnvironment in fsspec 2026.6.0, with no CVE and
+
+    no GHSA, so any pin below that is still exploitable and nobody was
+
+    told. Even on a fixed version gen[''url''] still renders, so the spec
+
+    author still chooses the URL the loader fetches (SSRF and path
+
+    selection). Presence signal: confirm whether the spec (fo=, the
+
+    reference:// target) can come from a user. If it can, require
+
+    fsspec>=2026.6.0 and treat the spec as untrusted input.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: ReferenceFileSystem\(
+    - pattern-regex: filesystem\(\s*["']reference["']
+    - pattern-regex: get_filesystem_class\(\s*["']reference["']
+    - pattern-regex: '["'']reference://'
+    - pattern-regex: from\s+fsspec\.implementations\.reference\s+import\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 94
+    - 1336
+    - 918
+    original_engine: neuroscan
+    rule_name: fsspec ReferenceFileSystem renders spec fields as Jinja templates
+    source_rule: DLS-1
+    fix: Require fsspec>=2026.6.0 and never build a ReferenceFileSystem from a spec a user can supply.
+- id: ns-aiml-131
+  languages:
+  - dockerfile
+  - python
+  - yaml
+  severity: WARNING
+  message: 'This pins fsspec below 2026.6.0, the release that moved
+
+    ReferenceFileSystem''s six Jinja2 render sites to a
+
+    SandboxedEnvironment. On any earlier version a reference spec (a plain
+
+    .json file) executes code in whatever process loads it. The fix shipped
+
+    silently, so no advisory database will flag this pin. Raise the floor to
+
+    fsspec>=2026.6.0 if any code path can reach the reference filesystem.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: \bfsspec\s*[=<~]=?\s*["']?20(?:1\d|2[0-5])\.
+    - pattern-regex: \bfsspec\s*[=<~]=?\s*["']?2026\.[1-5](?!\d)
+    - pattern-regex: \bfsspec[^"'\s]*<\s*["']?2026\.6\b
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: supply_chain
+    cwe:
+    - 1395
+    - 94
+    original_engine: neuroscan
+    rule_name: fsspec pinned below the ReferenceFileSystem sandbox fix
+    source_rule: DLS-2
+    fix: Raise the fsspec floor to >=2026.6.0.
+- id: ns-aiml-132
+  languages:
+  - json
+  severity: WARNING
+  message: 'A reference-spec field carries a Jinja expression. fsspec renders
+
+    refs[k][0], templates values and gen''s key, url, offset and length, so
+
+    this value is evaluated by whatever loads the spec, unsandboxed on
+
+    fsspec below 2026.6.0. If this file is generated from or accepted from
+
+    an untrusted source, it is a code-execution payload rather than a
+
+    dataset descriptor. Presence signal: confirm who authors this spec.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: '"(?:url|key|offset|length)"\s*:\s*"[^"]*\{\{'
+    - pattern-regex: '"templates"\s*:\s*\{[^}]*"[^"]*\{\{'
+    - pattern-regex: \[\s*"[^"]*\{\{[^"]*"\s*,\s*\d+\s*,\s*\d+\s*\]
+  metadata:
+    category: ssti
+    cwe:
+    - 94
+    - 1336
+    original_engine: neuroscan
+    rule_name: Jinja expression inside an fsspec reference spec
+    source_rule: DLS-3
+    fix: Strip Jinja delimiters from reference specs and only load specs you generated yourself.
+    residual:
+    - sanitizer
+- id: ns-aiml-133
+  languages:
+  - python
+  severity: WARNING
+  message: 'HDF5''s external storage (H5Pset_external, h5py''s external= on
+
+    create_dataset, and ExternalLink) lets a dataset declare that its raw
+
+    bytes live at a different filesystem path, offset and length. A reader
+
+    that merely opens the dataset follows it: reading /etc/hosts through an
+
+    uploaded .h5 was confirmed on h5py 3.16.0. There is no argument for the
+
+    caller to validate because the path is data inside the file. If this
+
+    code writes such files, understand that any reader of them follows the
+
+    path; if it reads third-party .h5 files, this feature is reachable
+
+    whether or not you use it. Mitigate by rejecting datasets with external
+
+    storage before reading, or by opening untrusted artifacts in a sandbox
+
+    with no filesystem to reach.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: H5Pset_external
+    - pattern-regex: (?:create_dataset|require_dataset)\(.{0,200}?\bexternal\s*=\s*\[
+    - pattern-regex: h5py\.ExternalLink\(
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 22
+    - 610
+    original_engine: neuroscan
+    rule_name: HDF5 external storage declares a filesystem path inside the artifact
+    source_rule: DLS-4
+    fix: Reject datasets whose storage layout is external before reading, or parse untrusted HDF5 in a sandbox.
+- id: ns-aiml-134
+  languages:
+  - python
+  severity: WARNING
+  message: 'An HDF5, h5netcdf, zarr or kerchunk artifact is opened from a path that
+
+    the same line shows to be request-derived or user-supplied. These
+
+    formats follow references stored inside the file: HDF5 external storage
+
+    names a filesystem path (confirmed reading /etc/hosts on h5py 3.16.0),
+
+    and a kerchunk or zarr reference spec names remote URLs and can carry
+
+    Jinja templates. Validating the path you were handed does not help,
+
+    because the dangerous path is inside the artifact. Parse untrusted
+
+    artifacts in a sandbox, or reject external and reference storage before
+
+    reading any dataset.'
+  patterns:
+  - pattern-either:
+    - pattern-regex: (?:h5py\.File|h5netcdf\.File|zarr\.open(?:_group|_array|_consolidated)?|SingleHdf5ToZarr)\(\s*[^,)]*(?:request\.|request\[|\bupload|\buser_|\buntrusted|\battacker|\bincoming_|\bremote_|\.filename)
+    - pattern-regex: (?:h5py\.File|h5netcdf\.File|zarr\.open(?:_group|_array|_consolidated)?|SingleHdf5ToZarr)\(\s*[^,)]*files\[
+  - pattern-not-regex: (?m)^\s*#
+  - pattern-not-regex: (?:def test_|conftest|unittest)
+  metadata:
+    category: ai_ml
+    cwe:
+    - 22
+    - 610
+    original_engine: neuroscan
+    rule_name: HDF5 or zarr artifact opened from an untrusted path
+    source_rule: DLS-5
+    fix: Parse untrusted HDF5/zarr artifacts in a sandbox and reject external or reference storage before reading.
