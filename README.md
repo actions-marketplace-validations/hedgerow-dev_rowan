@@ -15,15 +15,19 @@ risky agent tools, unsafe model loading and more. It never runs your code.
 
 ## Quick start
 
-You need **Python 3.10+**.
+You need **Python 3.10+** and [pipx](https://pipx.pypa.io), which installs
+command-line tools into their own environment (on macOS: `brew install pipx`,
+then `pipx ensurepath` and open a new terminal).
 
-**1. Install Rowan** into its own virtual environment:
+**1. Install Rowan:**
 
 ```bash
-python3 -m venv ~/.rowan
-source ~/.rowan/bin/activate
-python -m pip install "rowan-sast[js-crossfile]"
+pipx install "rowan-sast[js-crossfile]"
 ```
+
+Already use uv? `uv tool install "rowan-sast[js-crossfile]"` works too. A plain
+`pip install` fails on Homebrew Python by design; see
+[getting started](docs/getting-started.md) for a virtual-environment install.
 
 **2. Install the scan engine** ([Opengrep](https://github.com/opengrep/opengrep)) and check it:
 

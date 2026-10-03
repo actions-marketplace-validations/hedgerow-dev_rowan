@@ -2,11 +2,14 @@
 
 ## Installation
 
-Install the `rowan-sast` package from PyPI (it provides the `rowan` command):
+Install the `rowan-sast` package from PyPI (it provides the `rowan` command).
+It is a command-line tool, so pipx or uv keeps it in its own environment:
 
 ```bash
-pip install rowan-sast
+pipx install rowan-sast          # or: uv tool install rowan-sast
 ```
+
+Inside a virtual environment or a CI container, `pip install rowan-sast` works.
 
 Install the Opengrep taint-analysis engine (required for the `Taint` pass):
 
@@ -20,7 +23,7 @@ still gets Opengrep's own intra-file cross-function taint flows. Installing
 tree-sitter adds the additional Python-equivalent cross-file propagation layer:
 
 ```bash
-pip install "rowan-sast[js-crossfile]"
+pipx install --force "rowan-sast[js-crossfile]"
 ```
 
 Verify:
@@ -566,7 +569,7 @@ source coverage was incomplete.
 its dataflow claims in computed facts instead of inferring them.
 
 ```bash
-pip install "rowan-sast[mcp]"
+pipx install --force "rowan-sast[mcp]"
 rowan-mcp                 # stdio server; clients launch this themselves
 ```
 

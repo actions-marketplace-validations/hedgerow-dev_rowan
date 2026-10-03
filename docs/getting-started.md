@@ -5,8 +5,19 @@ You do not need an LLM account or API key for `scan`.
 
 ## 1. Install Rowan
 
-Use Python 3.10 or newer. The commands below use a macOS/Linux shell and keep
-Rowan in its own virtual environment:
+Use Python 3.10 or newer. Rowan is a command-line tool, so install it with
+[pipx](https://pipx.pypa.io), which gives it its own environment:
+
+```bash
+brew install pipx          # macOS; on Linux use your package manager
+pipx ensurepath            # once, then open a new terminal
+pipx install "rowan-sast[js-crossfile]"
+```
+
+With uv instead: `uv tool install "rowan-sast[js-crossfile]"`.
+
+Without either tool, use a virtual environment. A bare `pip install` is
+refused by Homebrew Python and other "externally managed" Pythons:
 
 ```bash
 python3 -m venv ~/.rowan
@@ -93,21 +104,20 @@ Copy the [agent prompt in the README](../README.md#let-your-coding-agent-do-it).
 The CLI works with any agent that can run terminal commands. No MCP setup is
 required for that workflow.
 
-For agents with MCP support, install the optional server into the same
-environment:
+For agents with MCP support, install Rowan with the optional server:
 
 ```bash
-python -m pip install "rowan-sast[mcp,js-crossfile]"
+pipx install --force "rowan-sast[mcp,js-crossfile]"
 ```
 
 Configure your MCP client with the **absolute path** to the installed executable
-and the project root it is allowed to scan:
+(`which rowan-mcp` prints it) and the project root it is allowed to scan:
 
 ```json
 {
   "mcpServers": {
     "rowan-evidence": {
-      "command": "/absolute/path/to/.rowan/bin/rowan-mcp",
+      "command": "/absolute/path/to/rowan-mcp",
       "env": {
         "ROWAN_MCP_ROOTS": "/absolute/path/to/your-project"
       }
