@@ -98,6 +98,44 @@ Start with the report's completeness, then inspect the findings:
 Reports can contain private source and secret-like values. Review them before
 uploading them to an issue, a coding agent, or a public CI artifact.
 
+## 5. Optional: add an LLM for `hunt`
+
+`rowan hunt` (experimental) runs the same scan, then asks an LLM to rate,
+challenge and explain the findings. Unlike `scan`, it **sends code snippets
+to the LLM endpoint you choose**, and asks you to confirm the endpoint first.
+
+Pick one path:
+
+| Path | Good for | Setup |
+|---|---|---|
+| **Ollama** | No code leaves your machine | Install [Ollama](https://ollama.com/download), then `ollama pull qwen2.5-coder` |
+| **DeepSeek** | Cheap cloud default | Create a key at [platform.deepseek.com](https://platform.deepseek.com) |
+| **OpenRouter** | Any model (Claude, Gemini, GPT, Llama) with one key | Create a key at [openrouter.ai](https://openrouter.ai) |
+
+For a cloud key, load it into the current shell without writing it to a file
+or your shell history (`read -s` hides what you type):
+
+```bash
+read -rs DEEPSEEK_API_KEY && export DEEPSEEK_API_KEY
+```
+
+Use `OPENROUTER_API_KEY` or `OPENAI_API_KEY` the same way. Ollama needs no key.
+
+Then check, preview and run:
+
+```bash
+rowan doctor                                    # which backend will be used, and is it ready
+rowan estimate /absolute/path/to/your-project   # LLM calls hunt would make; spends nothing
+rowan hunt /absolute/path/to/your-project -o hunt-report.txt
+```
+
+`doctor --live` also sends one tiny request to prove the key works. Choose a
+backend or model explicitly with `--backend` and `--model`, for example
+`--backend openrouter --model anthropic/claude-sonnet-4.5`. Any
+OpenAI-compatible server works through `--backend local` with
+`LOCAL_LLM_BASE_URL` and `LOCAL_LLM_MODEL`. All backends, env vars and
+options are in the [hunt section of the usage guide](usage.md#hunt-autonomous-vulnerability-hunting-experimental).
+
 ## Use with a coding agent
 
 Copy the [agent prompt in the README](../README.md#let-your-coding-agent-do-it).

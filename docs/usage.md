@@ -291,12 +291,25 @@ Three properties are worth knowing before you turn it on:
 
 | Backend | Env vars | Default model | Notes |
 |---------|----------|---------------|-------|
-| `deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` | Default. Cloud API, fast and cheap. |
-| `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` | Set `OPENAI_BASE_URL` for a custom endpoint |
-| `openrouter` | `OPENROUTER_API_KEY` | `deepseek/deepseek-chat` | Access many models via one key |
-| `alibaba` | `ALIBABA_TOKEN_PLAN_API_KEY` | `qwen3.8-max` | Alibaba Cloud Model Studio Token Plan (Qwen). Set `ALIBABA_BASE_URL` for the China endpoint |
-| `ollama` | _(none required)_ | `llama3` | Local Ollama server: **no data leaves the machine** |
+| `deepseek` | `DEEPSEEK_API_KEY`, optional `DEEPSEEK_MODEL`, `DEEPSEEK_BASE_URL` | `deepseek-chat` | Default. Cloud API, fast and cheap. |
+| `openai` | `OPENAI_API_KEY`, optional `OPENAI_MODEL` | `gpt-4o-mini` | Set `OPENAI_BASE_URL` for a custom endpoint |
+| `openrouter` | `OPENROUTER_API_KEY`, optional `OPENROUTER_MODEL` | `deepseek/deepseek-chat` | Access many models via one key |
+| `alibaba` | `ALIBABA_TOKEN_PLAN_API_KEY`, optional `ALIBABA_MODEL` | `qwen3.8-max` | Alibaba Cloud Model Studio Token Plan (Qwen). Set `ALIBABA_BASE_URL` for the China endpoint |
+| `ollama` | _(none required)_, optional `OLLAMA_MODEL`, `OLLAMA_BASE_URL` | `llama3` | Local Ollama server: **no data leaves the machine** |
 | `local` | `LOCAL_LLM_BASE_URL`, `LOCAL_LLM_MODEL` | `local-model` | Any OpenAI-compatible local server |
+
+`--model` overrides the `*_MODEL` variable. With `--backend auto`, Rowan picks the
+first key it finds in this order: DeepSeek, OpenRouter, OpenAI, Alibaba, then a
+reachable Ollama server. `rowan doctor` shows the choice.
+
+Tuning variables for every backend: `LLM_MAX_TOKENS` (default 8192),
+`LLM_TIMEOUT` in seconds (default 120), and `LLM_REASONING_EFFORT` (sent as
+`reasoning_effort`). Reasoning models that return empty answers usually spent
+the whole token budget on thinking: set `LLM_REASONING_EFFORT=low` or raise
+`LLM_MAX_TOKENS`.
+
+To avoid leaving a key in a file or shell history, load it with
+`read -rs DEEPSEEK_API_KEY && export DEEPSEEK_API_KEY` (any key name works).
 
 **Running Llama locally with Ollama**
 
@@ -332,18 +345,18 @@ rowan hunt ./my-project --backend local
 
 ```bash
 # DeepSeek (cloud, recommended for best results)
-export DEEPSEEK_API_KEY=sk-...
+read -rs DEEPSEEK_API_KEY && export DEEPSEEK_API_KEY
 rowan hunt ./my-project
 
 # Llama 3 via Ollama (on-prem, no egress)
 rowan hunt ./my-project --backend ollama --model llama3
 
 # OpenRouter (access Anthropic, Google, Meta, etc. via one key)
-export OPENROUTER_API_KEY=sk-or-...
-rowan hunt ./my-project --backend openrouter --model anthropic/claude-3.5-sonnet
+read -rs OPENROUTER_API_KEY && export OPENROUTER_API_KEY
+rowan hunt ./my-project --backend openrouter --model anthropic/claude-sonnet-4.5
 
 # Alibaba Cloud Model Studio Token Plan (Qwen)
-export ALIBABA_TOKEN_PLAN_API_KEY=sk-...
+read -rs ALIBABA_TOKEN_PLAN_API_KEY && export ALIBABA_TOKEN_PLAN_API_KEY
 rowan hunt ./my-project --backend alibaba
 # China region endpoint instead of the default international one:
 ALIBABA_BASE_URL=https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1 \
