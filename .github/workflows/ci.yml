@@ -40,9 +40,16 @@ jobs:
       - name: Doc counts
         if: matrix.python-version == '3.12'
         run: python scripts/check_doc_counts.py
+      # Full suite on 3.12. The other versions skip the benchmark gates,
+      # which test rule and engine output rather than Python-version behaviour.
       - name: Test
-        run: pytest -q
+        if: matrix.python-version == '3.12'
+        run: pytest -q -n auto
+      - name: Test (without benchmark gates)
+        if: matrix.python-version != '3.12'
+        run: pytest -q -n auto --ignore-glob='tests/test_benchmark*.py'
       - name: JS BOLA benchmark corpus
+        if: matrix.python-version == '3.12'
         run: python scripts/benchmark.py --corpus js_authz
       - name: Wheel ships its rules (packaging smoke test)
         if: matrix.python-version == '3.12'
