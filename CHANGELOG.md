@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.3.1 (alpha)
+
+Documentation and packaging only; scanning behaviour is unchanged.
+
+- Install docs use pipx or `uv tool`; a bare `pip install` fails on
+  Homebrew and other externally managed Pythons.
+- Getting started explains how to add an LLM for `rowan hunt` (Ollama,
+  DeepSeek or OpenRouter), and the usage guide lists every backend env var.
+- The GitHub Action has a fuller description for its Marketplace listing,
+  and its docs show the `security-events: write` permission it needs.
+
 ## v0.3.0 (alpha)
 
 First public release.
