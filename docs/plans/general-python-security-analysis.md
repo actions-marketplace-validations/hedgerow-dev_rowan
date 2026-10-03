@@ -67,9 +67,42 @@ complex returned authorization protocols are not claimed as covered.
   8330dfe987988c1bcbbc5e8d9af9a67e5a1c2744 passes with the prescribed command:
   2,723 files, zero HIGH/CRITICAL findings, and no degraded passes. The gate
   checks completeness and HIGH/CRITICAL claims; it is not a measurement of
-  every lower-severity claim. Langflow and PyTorch gates have not been run.
+  every lower-severity claim. Subsequent gate results are recorded below.
 - Local Modelbay regression: 60/82 versus 46/82 at the original PR head. The
   new detections were adjudicated by defect and function anchor; safe-twin
   results are unchanged. Added claims outside its key are explicitly recorded
   as unmatched, so increased recall is not presented as proof of precision.
   The held-out mappings and raw reports remain in the local benchmark workspace.
+
+## Follow-up after merge
+PR #7 was squash-merged at 5f89f1fa555dfb89eeb87b103640934a5b820148.
+The first precision follow-up disambiguates resolved standard-library regex
+searches from generic vector-store and LDAP search sinks. Aliases are supported;
+shadowed/reassigned imports, wildcard imports, and mixed sink calls on one line
+remain unproven. Unknown search receivers retain their existing claims.
+
+Independent production-pipeline pairs and import/mutation controls pass:
+186 tests across SAST precision, AST enrichment, and cross-file analysis. The corpus rerun retains
+60/82 keyed detections and the existing decoy hit, removing exactly one erroneous
+vector-query claim. Source-review triage is saved locally with the benchmark.
+
+The pinned Langflow scan completed without degradation but initially failed its
+gate on two HIGH cross-file SQL claims. Both originate in an async version-warning
+log containing the word "update". The follow-up extends logging-message recognition
+to async log methods and applies it before cross-file sink attribution. SQL executed
+inside a logging argument and separate query strings on the same line remain sinks.
+Production-pipeline helper/caller pairs cover both outcomes. The full Langflow rerun
+passes at 26dc6fd3bc3a49178022b81c58e44a7d0a659a34: 5,878 files, complete coverage,
+zero HIGH/CRITICAL, no degraded passes, 416.7 seconds. Seven false SQL claims on
+log messages were removed and no claims added. PyTorch's scan is still running.
+The final LangChain rerun also passes: 2,723 files, complete coverage, zero
+HIGH/CRITICAL, no degraded passes, 184.1 seconds.
+
+Remaining precision work needs broader evidence:
+- Numeric logging needs field-sensitive provenance through ORM reads, helper
+  parameters, and mutations. An integer annotation or column declaration alone
+  must not globally sanitize a value that might have been overwritten.
+- Unscoped object reads need a declared privacy/sharing policy before assigning
+  confirmed authorization impact. Existence-only uses must distinguish an oracle
+  from an object disclosure or mutation. No corpus-specific public-object allowlist
+  is added.
