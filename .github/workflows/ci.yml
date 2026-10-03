@@ -15,13 +15,15 @@ concurrency:
 
 jobs:
   test:
-    name: lint + test (py${{ matrix.python-version }})
+    name: lint + test (py${{ matrix.python-version }}, shard ${{ matrix.shard }})
     timeout-minutes: 60
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
+        # Test files are split round-robin across shards (see the Test step).
+        shard: [0, 1, 2]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -38,21 +40,30 @@ jobs:
       - name: Lint
         run: ruff check .
       - name: Doc counts
-        if: matrix.python-version == '3.12'
+        if: matrix.python-version == '3.12' && matrix.shard == 0
         run: python scripts/check_doc_counts.py
       # Full suite on 3.12. The other versions skip the benchmark gates,
       # which test rule and engine output rather than Python-version behaviour.
       - name: Test
-        if: matrix.python-version == '3.12'
-        run: pytest -q -n auto
-      - name: Test (without benchmark gates)
-        if: matrix.python-version != '3.12'
-        run: pytest -q -n auto --ignore-glob='tests/test_benchmark*.py'
+        env:
+          SHARD: ${{ matrix.shard }}
+          SKIP_BENCHMARKS: ${{ matrix.python-version != '3.12' }}
+        run: |
+          files=$(python - <<'PY'
+          import glob, os
+          files = sorted(glob.glob("tests/test_*.py"))
+          if os.environ["SKIP_BENCHMARKS"] == "true":
+              files = [f for f in files if not os.path.basename(f).startswith("test_benchmark")]
+          print(" ".join(files[int(os.environ["SHARD"])::3]))
+          PY
+          )
+          test -n "$files"  # an empty list would make pytest run every test
+          pytest -q -n auto $files
       - name: JS BOLA benchmark corpus
-        if: matrix.python-version == '3.12'
+        if: matrix.python-version == '3.12' && matrix.shard == 0
         run: python scripts/benchmark.py --corpus js_authz
       - name: Wheel ships its rules (packaging smoke test)
-        if: matrix.python-version == '3.12'
+        if: matrix.python-version == '3.12' && matrix.shard == 0
         run: |
           set -euo pipefail
           python -m venv /tmp/rowan-wheel-venv
