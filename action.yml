@@ -1,5 +1,5 @@
 name: "Rowan SAST"
-description: "Run the Rowan SAST scanner and emit SARIF for GitHub code scanning"
+description: "Cross-file taint SAST with AI/ML rules: injection, SSRF, unsafe model files and vulnerable deps, in GitHub code scanning"
 branding:
   icon: "shield"
   color: "green"
