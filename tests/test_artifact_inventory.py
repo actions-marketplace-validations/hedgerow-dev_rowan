@@ -98,7 +98,8 @@ def test_artifact_inventory_preserves_pass_specific_boundaries(tmp_path: Path) -
     context = _publish(tmp_path, languages=["python"], max_file_bytes=1)
     inventory = context.source_inventory
     assert inventory is not None
-    assert inventory.dependency_manifests == (manifest, vendored_manifest)
+    # rglob order is filesystem-specific (ext4 differs from APFS).
+    assert sorted(inventory.dependency_manifests) == [manifest, vendored_manifest]
     # Model files follow .rowanignore like source files; manifests still don't.
     assert inventory.model_artifacts == ()
     assert inventory.files == ()
