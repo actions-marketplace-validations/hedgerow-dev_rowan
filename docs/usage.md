@@ -697,6 +697,10 @@ Use the bundled composite action, which handles install, scan, and SARIF upload:
 name: Security Scan
 on: [push, pull_request]
 
+permissions:
+  contents: read
+  security-events: write   # needed to upload SARIF to code scanning
+
 jobs:
   scan:
     runs-on: ubuntu-latest
@@ -714,7 +718,11 @@ jobs:
 ```
 
 The action installs Rowan, Cosign, and a signature-verified Opengrep
-engine, so its default CI scan includes taint analysis.
+engine, so its default CI scan includes taint analysis. It runs with `--ci`,
+so the job fails when it finds issues (exit 1) or cannot finish the scan
+(exit 2); `if: always()` still uploads the SARIF so the findings show up
+under the repository's Security tab. A working example:
+[hedgerow-dev/rowan-action-demo](https://github.com/hedgerow-dev/rowan-action-demo).
 
 ### GitLab CI
 
