@@ -15,16 +15,14 @@ risky agent tools, unsafe model loading and more. It never runs your code.
 
 ## Quick start
 
-You need **Python 3.10+** and **Git**.
+You need **Python 3.10+**.
 
-**1. Install Rowan** in its own folder, not inside the project you want to scan:
+**1. Install Rowan** into its own virtual environment:
 
 ```bash
-git clone --branch v0.3.0 https://github.com/hedgerow-dev/rowan.git
-cd rowan
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install ".[js-crossfile]"
+python3 -m venv ~/.rowan
+source ~/.rowan/bin/activate
+python -m pip install "rowan-sast[js-crossfile]"
 ```
 
 **2. Install the scan engine** ([Opengrep](https://github.com/opengrep/opengrep)) and check it:

@@ -2,12 +2,10 @@
 
 ## Installation
 
-Rowan is not yet on PyPI. Install from source:
+Install the `rowan-sast` package from PyPI (it provides the `rowan` command):
 
 ```bash
-git clone --branch v0.3.0 https://github.com/hedgerow-dev/rowan.git
-cd rowan
-pip install .
+pip install rowan-sast
 ```
 
 Install the Opengrep taint-analysis engine (required for the `Taint` pass):
@@ -22,7 +20,7 @@ still gets Opengrep's own intra-file cross-function taint flows. Installing
 tree-sitter adds the additional Python-equivalent cross-file propagation layer:
 
 ```bash
-pip install -e ".[js-crossfile]"
+pip install "rowan-sast[js-crossfile]"
 ```
 
 Verify:
@@ -568,7 +566,7 @@ source coverage was incomplete.
 its dataflow claims in computed facts instead of inferring them.
 
 ```bash
-pip install "rowan[mcp]"
+pip install "rowan-sast[mcp]"
 rowan-mcp                 # stdio server; clients launch this themselves
 ```
 
@@ -730,7 +728,7 @@ under the repository's Security tab. A working example:
 security-scan:
   image: python:3.12
   script:
-    - git clone https://github.com/hedgerow-dev/rowan.git && pip install -e rowan
+    - pip install rowan-sast
     - rowan install-engine
     - rowan scan . --ci -f sarif -o gl-sast-report.json
   artifacts:

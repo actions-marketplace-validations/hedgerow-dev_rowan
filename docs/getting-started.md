@@ -5,23 +5,21 @@ You do not need an LLM account or API key for `scan`.
 
 ## 1. Install Rowan
 
-Use Python 3.10 or newer and Git. The commands below use a macOS/Linux shell.
-Choose a tools directory outside the project you will scan, then run:
+Use Python 3.10 or newer. The commands below use a macOS/Linux shell and keep
+Rowan in its own virtual environment:
 
 ```bash
-git clone --branch v0.3.0 https://github.com/hedgerow-dev/rowan.git
-cd rowan
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install ".[js-crossfile]"
+python3 -m venv ~/.rowan
+source ~/.rowan/bin/activate
+python -m pip install "rowan-sast[js-crossfile]"
 ```
 
+The package is called `rowan-sast` on PyPI; the command it installs is `rowan`.
 The extra adds the parsers used for JavaScript, TypeScript and Go cross-file
 analysis. Omit it for a smaller installation if you do not need those features.
-Rowan is not on PyPI yet.
 
-For development, use `python -m pip install -e ".[dev,js-crossfile,mcp]"`
-instead. An editable installation picks up local source changes.
+For development, clone the repository and install it editable instead:
+`git clone https://github.com/hedgerow-dev/rowan.git && cd rowan && python -m pip install -e ".[dev,js-crossfile,mcp]"`.
 
 **Windows:** the Python package requires Python 3.10+ too. In PowerShell, create
 the environment with `py -m venv .venv` and activate it with
@@ -95,10 +93,11 @@ Copy the [agent prompt in the README](../README.md#let-your-coding-agent-do-it).
 The CLI works with any agent that can run terminal commands. No MCP setup is
 required for that workflow.
 
-For agents with MCP support, install the optional server from the Rowan checkout:
+For agents with MCP support, install the optional server into the same
+environment:
 
 ```bash
-python -m pip install ".[mcp,js-crossfile]"
+python -m pip install "rowan-sast[mcp,js-crossfile]"
 ```
 
 Configure your MCP client with the **absolute path** to the installed executable
@@ -108,7 +107,7 @@ and the project root it is allowed to scan:
 {
   "mcpServers": {
     "rowan-evidence": {
-      "command": "/absolute/path/to/rowan/.venv/bin/rowan-mcp",
+      "command": "/absolute/path/to/.rowan/bin/rowan-mcp",
       "env": {
         "ROWAN_MCP_ROOTS": "/absolute/path/to/your-project"
       }
