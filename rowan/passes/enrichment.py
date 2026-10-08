@@ -1311,18 +1311,27 @@ class EnrichmentPass:
         cookie missing both HttpOnly and Secure is two findings).
 
         The survivor has the strongest evidence, then the highest severity,
-        so a proven flow is never replaced by a pattern match. A rule
-        disabled in thresholds.yaml is never the survivor, for the reason
-        given on _merge_duplicate_cluster.
+        so a proven flow is never replaced by a pattern match.
+
+        Findings that _apply_thresholds (the next step) will drop -- a
+        disabled rule, or confidence under the rule's min_confidence -- take
+        no part: as a survivor they would take every absorbed finding down
+        with them.
         """
+
+        def dropped_by_thresholds(f: Finding) -> bool:
+            cfg = thresholds.get(f.rule_id) or {}
+            min_conf = cfg.get("min_confidence")
+            return cfg.get("enabled") is False or (min_conf is not None and f.confidence < min_conf)
+
         buckets: dict[tuple[str, int, Category], list[Finding]] = defaultdict(list)
         for f in findings:
-            buckets[(f.file_path, f.start_line, f.category)].append(f)
+            if not dropped_by_thresholds(f):
+                buckets[(f.file_path, f.start_line, f.category)].append(f)
 
         def rank(f: Finding) -> tuple:
-            disabled = (thresholds.get(f.rule_id) or {}).get("enabled") is False
             tier = _EVIDENCE_TIER_RANK.get(f.metadata.get("evidence_tier"), len(_EVIDENCE_TIER_RANK))
-            return (disabled, tier, _SEVERITY_RANK[f.severity], f.rule_id)
+            return (tier, _SEVERITY_RANK[f.severity], f.rule_id)
 
         merged_away: set[int] = set()
         for bucket in buckets.values():
