@@ -9,7 +9,7 @@ rules:
       cwe:
         - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
       confidence: HIGH
-      category: security
+      category: injection
       fix: "Use PreparedStatement with bound parameters (setString/setInt) instead of concatenating input into SQL text."
     pattern-sources:
       # rowan-registry:begin source=web_request_java
@@ -111,7 +111,7 @@ rules:
       cwe:
         - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
       confidence: MEDIUM
-      category: security
+      category: injection
       source_kind: operator_input
       fix: "Use PreparedStatement with bound parameters (setString/setInt) instead of concatenating input into SQL text."
     pattern-sources:
@@ -159,7 +159,7 @@ rules:
       cwe:
         - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
       confidence: HIGH
-      category: security
+      category: command_injection
       fix: "Pass arguments to ProcessBuilder/Runtime.exec() as separate array elements, never via a shell-interpolated string."
     pattern-sources:
       # rowan-registry:begin source=web_request_java
@@ -247,7 +247,7 @@ rules:
       cwe:
         - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
       confidence: MEDIUM
-      category: security
+      category: command_injection
       source_kind: operator_input
       fix: "Pass arguments to ProcessBuilder/Runtime.exec() as separate array elements, never via a shell-interpolated string."
     pattern-sources:
@@ -286,7 +286,7 @@ rules:
       cwe:
         - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
       confidence: HIGH
-      category: security
+      category: path_traversal
       fix: "Resolve with Path.normalize() and verify the result is still under the intended base directory (startsWith the base's real path) before use, or use FilenameUtils.getName() to discard directory components entirely."
     pattern-sources:
       # rowan-registry:begin source=web_request_java
@@ -377,7 +377,7 @@ rules:
       cwe:
         - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
       confidence: MEDIUM
-      category: security
+      category: path_traversal
       source_kind: operator_input
       fix: "Resolve with Path.normalize() and verify the result is still under the intended base directory (startsWith the base's real path) before use, or use FilenameUtils.getName() to discard directory components entirely."
     pattern-sources:
@@ -419,7 +419,7 @@ rules:
       cwe:
         - "CWE-918: Server-Side Request Forgery (SSRF)"
       confidence: HIGH
-      category: security
+      category: ssrf
       fix: "Validate the destination host against an explicit allowlist of permitted domains/IPs before making the request."
     pattern-sources:
       # rowan-registry:begin source=web_request_java
@@ -505,7 +505,7 @@ rules:
       cwe:
         - "CWE-918: Server-Side Request Forgery (SSRF)"
       confidence: MEDIUM
-      category: security
+      category: ssrf
       source_kind: operator_input
       fix: "Validate the destination host against an explicit allowlist of permitted domains/IPs before making the request."
     pattern-sources:
@@ -542,7 +542,7 @@ rules:
       cwe:
         - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
       confidence: HIGH
-      category: security
+      category: xss
       fix: "HTML-encode output with StringEscapeUtils.escapeHtml4()/Encode.forHtml() (or the framework's auto-escaping template engine) instead of writing user input directly into the response."
     # EXT-19: no operator-input sibling. An env var echoed into a response
     # is not a reflected-XSS class worth a rule.
@@ -631,7 +631,7 @@ rules:
       cwe:
         - "CWE-502: Deserialization of Untrusted Data"
       confidence: HIGH
-      category: security
+      category: deserialization
       fix: "Avoid Java native deserialization (ObjectInputStream) on untrusted data; use a JSON library with a known target type, or an allowlisting ObjectInputFilter."
     pattern-sources:
       - pattern: (HttpServletRequest $REQ).getParameter(...)
@@ -735,7 +735,7 @@ rules:
       cwe:
         - "CWE-611: Improper Restriction of XML External Entity Reference"
       confidence: HIGH
-      category: security
+      category: injection
       fix: "Disable DTDs and external entities on the factory before parsing: setFeature(\"http://apache.org/xml/features/disallow-doctype-decl\", true) on DocumentBuilderFactory/SAXParserFactory, setProperty(XMLInputFactory.SUPPORT_DTD, false) on XMLInputFactory, or setProperty(XMLConstants.ACCESS_EXTERNAL_DTD, \"\") on the factory."
     pattern-sources:
       - pattern: (HttpServletRequest $REQ).getParameter(...)
@@ -841,7 +841,7 @@ rules:
       cwe:
         - "CWE-90: Improper Neutralization of Special Elements used in an LDAP Query ('LDAP Injection')"
       confidence: HIGH
-      category: security
+      category: injection
       fix: "Escape LDAP special characters in filters/DNs (e.g. OWASP ESAPI's encodeForLDAP), or use a parameterized query API."
     pattern-sources:
       - pattern: (HttpServletRequest $REQ).getParameter(...)
@@ -909,7 +909,7 @@ rules:
       cwe:
         - "CWE-917: Improper Neutralization of Special Elements used in an Expression Language Statement ('Expression Language Injection')"
       confidence: HIGH
-      category: security
+      category: injection
       fix: "Never evaluate an expression-language string built from user input; if dynamic lookups are required, resolve them through an explicit allowlist of permitted expressions/beans."
     pattern-sources:
       - pattern: (HttpServletRequest $REQ).getParameter(...)
@@ -977,7 +977,7 @@ rules:
       cwe:
         - "CWE-117: Improper Output Neutralization for Logs"
       confidence: MEDIUM
-      category: security
+      category: injection
       fix: "Strip or encode newline/CR characters before writing user input to a log entry, so a single log line can't be forged."
     # EXT-19: no operator-input sibling. An env var in a log line is not a
     # log-forging class worth a rule.
@@ -1059,3 +1059,190 @@ rules:
       # pattern/replacement args, which this pattern doesn't pin down --
       # $S.replaceAll("unrelated", "x") clears taint here even though it
       # does nothing to remove \n/\r. See docs/taint-sanitizer-audit.md.
+
+  - id: tnt-ja-redirect-001
+    mode: taint
+    languages: [java]
+    severity: WARNING
+    message: >-
+      User input reaches a redirect target: open redirect. An attacker can send
+      victims to an external phishing page from a trusted link.
+    metadata:
+      cwe:
+        - "CWE-601: URL Redirection to Untrusted Site ('Open Redirect')"
+      confidence: HIGH
+      category: general
+      source_kind: http_input
+      fix: "Redirect only to internal paths or an allowlist of hosts; never to a raw user-supplied URL."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_java
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).getParameter(...)
+              - pattern: request.getParameter(...)
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @$MAPPING(...)
+                      $RET $METHOD(..., String $PARAM, ...) {
+                        ...
+                      }
+                  - metavariable-regex:
+                      metavariable: $MAPPING
+                      regex: ^(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping|PatchMapping)$
+      # rowan-registry:end source=web_request_java
+    pattern-sinks:
+      - pattern: (HttpServletResponse $RESP).sendRedirect(...)
+      - pattern: $RESP.sendRedirect(...)
+      - pattern: new RedirectView(...)
+      # Spring MVC view name: only the part after "redirect:" is the target.
+      - patterns:
+          - pattern: '"redirect:" + $URL'
+          - focus-metavariable: $URL
+    pattern-sanitizers:
+      # A number or UUID cannot carry a URL; it can only select one (WebGoat
+      # OpenRedirectSecureController maps an Integer id to fixed paths).
+      - pattern: (Integer $X)
+      - pattern: (int $X)
+      - pattern: (Long $X)
+      - pattern: (long $X)
+      - pattern: (UUID $X)
+
+  - id: tnt-ja-ssti-001
+    mode: taint
+    languages: [java]
+    severity: ERROR
+    message: >-
+      User input is used as template source, enabling server-side template
+      injection. Velocity, FreeMarker and Pebble run expressions in the
+      template, so this is usually remote code execution.
+    metadata:
+      cwe:
+        - "CWE-1336: Improper Neutralization of Special Elements Used in a Template Engine"
+      confidence: HIGH
+      category: ssti
+      source_kind: http_input
+      fix: "Load templates from fixed resources and pass user input only through the template context, never as the template text."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_java
+      - patterns:
+          - pattern-either:
+              - pattern: (HttpServletRequest $REQ).getParameter(...)
+              - pattern: request.getParameter(...)
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @PathVariable(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @RequestBody(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      $RET $METHOD(..., @QueryParam(...) $TYPE $PARAM, ...) {
+                        ...
+                      }
+              - patterns:
+                  - pattern: $PARAM
+                  - pattern-inside: |
+                      @$MAPPING(...)
+                      $RET $METHOD(..., String $PARAM, ...) {
+                        ...
+                      }
+                  - metavariable-regex:
+                      metavariable: $MAPPING
+                      regex: ^(GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping|PatchMapping)$
+      # rowan-registry:end source=web_request_java
+    pattern-sinks:
+      # Only the template text; values put into the context are the safe path.
+      - patterns:
+          - pattern-either:
+              - pattern: Velocity.evaluate($CTX, $OUT, $TAG, $TPL)
+              - pattern: (VelocityEngine $V).evaluate($CTX, $OUT, $TAG, $TPL)
+              - pattern: new Template($NAME, new StringReader($TPL), ...)
+              - pattern: new Template($NAME, (String $TPL), ...)
+              - pattern: (PebbleEngine $P).getLiteralTemplate($TPL)
+          - focus-metavariable: $TPL

@@ -4487,12 +4487,13 @@ def _record_sink(sig: _FunctionSig, finding: Finding, line: int) -> None:
 # (same categories, just resolved via metadata instead of a fragile ID
 # prefix), plus every other rule that shares one of those categories but
 # fell outside the hand-enumerated prefixes/ID-range now correctly does too.
-# ai_ml, prompt_injection, xml_dos, config, auth, crypto, secrets, and
-# general are deliberately NOT included here -- broadening cross-file sink
-# status to those categories is a separate, not-yet-made decision.
+# Rule categories are validated against `Category` (tests/test_rule_categories.py),
+# so only enum values belong here. ai_ml, prompt_injection, config, auth,
+# crypto, secrets, and general are deliberately NOT included here --
+# broadening cross-file sink status to those categories is a separate,
+# not-yet-made decision.
 _SINK_CATEGORIES: frozenset[str] = frozenset(
     {
-        "code_execution",
         "command_injection",
         "deserialization",
         "injection",
@@ -4502,12 +4503,7 @@ _SINK_CATEGORIES: frozenset[str] = frozenset(
         "xss",
         "nosql_injection",
         "prototype_pollution",
-        "model_integrity",
         "supply_chain",
-        "langchain",
-        "llamaindex",
-        "mcp_agent",
-        "agent_safety",
     }
 )
 
@@ -4583,6 +4579,13 @@ _SINK_RULE_PREFIXES: tuple[str, ...] = (
 )
 
 
+#: Rules that are cross-file sinks although their category is not in
+#: _SINK_CATEGORIES. ns-aiml-159 (JWT decoded without audience validation) is
+#: an `auth` rule, but a caller handing it a request token is the flow that
+#: matters (Langfail V44: service_exchange -> verify_service_token).
+_EXTRA_SINK_RULE_IDS: frozenset[str] = frozenset({"ns-aiml-159"})
+
+
 def _is_sink_rule(rule_id: str, rule_map: dict[str, dict] | None = None) -> bool:
     """Check if a rule ID indicates a sink (source→sink flow relevant), vs a
     config/secrets/crypto misc warning.
@@ -4596,6 +4599,8 @@ def _is_sink_rule(rule_id: str, rule_map: dict[str, dict] | None = None) -> bool
     above `_SINK_RULE_PREFIXES` for why that list is still kept as a
     fallback rather than deleted.
     """
+    if rule_id in _EXTRA_SINK_RULE_IDS:
+        return True
     if rule_map:
         info = rule_map.get(rule_id)
         if info and info.get("category"):

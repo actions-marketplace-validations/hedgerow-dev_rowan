@@ -9,7 +9,7 @@ rules:
       cwe:
         - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
       confidence: HIGH
-      category: security
+      category: injection
       fix: "Use parameterized queries (the driver's placeholder/prepared-statement API) instead of concatenating input into SQL text."
     pattern-sources:
       - pattern: req.query
@@ -53,7 +53,7 @@ rules:
       cwe:
         - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
       confidence: HIGH
-      category: security
+      category: command_injection
       fix: "Use child_process.execFile()/spawn() with an argument array instead of exec() with a shell-interpolated string."
     pattern-sources:
       - pattern: req.query
@@ -85,7 +85,7 @@ rules:
       cwe:
         - "CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal')"
       confidence: HIGH
-      category: security
+      category: path_traversal
       fix: "Resolve with path.resolve() and verify the result is still under the intended base directory (startsWith the base's resolved path) before use, or use path.basename() to discard directory components entirely."
     pattern-sources:
       - pattern: req.query
@@ -119,7 +119,7 @@ rules:
       cwe:
         - "CWE-918: Server-Side Request Forgery (SSRF)"
       confidence: HIGH
-      category: security
+      category: ssrf
       fix: "Validate the destination host against an explicit allowlist of permitted domains/IPs before making the request."
     pattern-sources:
       - pattern: req.query
@@ -153,7 +153,7 @@ rules:
       cwe:
         - "CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')"
       confidence: HIGH
-      category: security
+      category: xss
       fix: "Assign user input via textContent (not innerHTML), or sanitize with DOMPurify.sanitize() before inserting into the DOM."
     pattern-sources:
       - pattern: req.query
@@ -187,7 +187,7 @@ rules:
       cwe:
         - "CWE-943: Improper Neutralization of Special Elements in Data Query Logic"
       confidence: HIGH
-      category: security
+      category: nosql_injection
       fix: "Reject non-primitive query values (e.g. an object where a string is expected) so operators like $ne/$gt can't be injected, or use a schema-validating ODM."
     pattern-sources:
       - pattern: req.query
@@ -220,7 +220,7 @@ rules:
       cwe:
         - "CWE-117: Improper Output Neutralization for Logs"
       confidence: MEDIUM
-      category: security
+      category: injection
       fix: "Strip or encode newline/CR characters before writing user input to a log entry, so a single log line can't be forged."
     pattern-sources:
       - pattern: req.query
@@ -253,7 +253,7 @@ rules:
       cwe:
         - "CWE-113: Improper Neutralization of CRLF Sequences in HTTP Headers ('HTTP Response Splitting')"
       confidence: HIGH
-      category: security
+      category: injection
       fix: "Reject or strip CR/LF characters from values written into HTTP response headers before setting them."
     pattern-sources:
       - pattern: req.query
@@ -272,9 +272,130 @@ rules:
       - pattern: res.set(...)
       - pattern: res.header(...)
       - pattern: res.cookie(...)
-      - pattern: res.redirect(...)
     pattern-sanitizers:
       - pattern: encodeURIComponent(...)
+
+  - id: tnt-js-redirect-001
+    mode: taint
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: >-
+      User input reaches a redirect target: open redirect. An attacker can send
+      victims to an external phishing page from a trusted link.
+    metadata:
+      cwe:
+        - "CWE-601: URL Redirection to Untrusted Site ('Open Redirect')"
+      confidence: HIGH
+      category: general
+      source_kind: http_input
+      fix: "Redirect only to internal paths or an allowlist of hosts; never to a raw user-supplied URL."
+    pattern-sources:
+      - pattern: req.query
+      - pattern: req.body
+      - pattern: req.params
+      - pattern: req.headers
+      - pattern: request.query
+      - pattern: request.body
+      - pattern: request.params
+      - pattern: ctx.query
+      - pattern: ctx.request.query
+      - pattern: ctx.request.body
+      - pattern: ctx.params
+      - pattern: ctx.headers
+    pattern-sinks:
+      - pattern: res.redirect(...)
+      - pattern: res.location(...)
+      - pattern: ctx.redirect(...)
+      - pattern: reply.redirect(...)
+
+  - id: tnt-js-deser-001
+    mode: taint
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      User input reaches a deserializer that can execute code (node-serialize,
+      funcster, cryo, or js-yaml with the full schema), enabling remote code
+      execution.
+    metadata:
+      cwe:
+        - "CWE-502: Deserialization of Untrusted Data"
+      confidence: HIGH
+      category: deserialization
+      source_kind: http_input
+      fix: "Parse untrusted data with JSON.parse (or js-yaml's default safe schema); never deserialize it with a library that revives functions."
+    pattern-sources:
+      - pattern: req.query
+      - pattern: req.body
+      - pattern: req.params
+      - pattern: req.headers
+      - pattern: req.cookies
+      - pattern: request.query
+      - pattern: request.body
+      - pattern: request.params
+      - pattern: ctx.query
+      - pattern: ctx.request.body
+      - pattern: ctx.params
+      - pattern: ctx.headers
+      - pattern: ctx.cookies.get(...)
+    pattern-sinks:
+      # Unsafe in every version: these revive functions from the payload.
+      - pattern: $S.unserialize(...)
+      - pattern: $F.deepDeserialize(...)
+      - pattern: cryo.parse(...)
+      # js-yaml 4 load() is safe by default; only an explicit full schema is
+      # unsafe in every version that has it.
+      - patterns:
+          - pattern-either:
+              - pattern: "$Y.load($DOC, {..., schema: $Y.DEFAULT_FULL_SCHEMA, ...})"
+              - pattern: "$Y.loadAll($DOC, ..., {..., schema: $Y.DEFAULT_FULL_SCHEMA, ...})"
+          - focus-metavariable: $DOC
+
+  - id: tnt-js-ssti-001
+    mode: taint
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      User input is used as template source, enabling server-side template
+      injection. Template engines run expressions in the template, so this is
+      usually remote code execution.
+    metadata:
+      cwe:
+        - "CWE-1336: Improper Neutralization of Special Elements Used in a Template Engine"
+      confidence: HIGH
+      category: ssti
+      source_kind: http_input
+      fix: "Load templates from fixed files and pass user input only as render data, never as the template string."
+    pattern-sources:
+      - pattern: req.query
+      - pattern: req.body
+      - pattern: req.params
+      - pattern: req.headers
+      - pattern: request.query
+      - pattern: request.body
+      - pattern: request.params
+      - pattern: ctx.query
+      - pattern: ctx.request.body
+      - pattern: ctx.params
+    pattern-sinks:
+      # Only the template-source argument; render data is the safe path.
+      - patterns:
+          - pattern-either:
+              - pattern: ejs.render($TPL, ...)
+              - pattern: ejs.compile($TPL, ...)
+              - pattern: pug.render($TPL, ...)
+              - pattern: pug.compile($TPL, ...)
+              - pattern: nunjucks.renderString($TPL, ...)
+              - pattern: $ENV.renderString($TPL, ...)
+              - pattern: _.template($TPL, ...)
+              - pattern: lodash.template($TPL, ...)
+              - pattern: doT.template($TPL, ...)
+          - focus-metavariable: $TPL
+      - patterns:
+          - pattern: $HB.compile($TPL, ...)
+          - metavariable-regex:
+              metavariable: $HB
+              regex: ^(Handlebars|handlebars|hbs|HBS)$
+          - focus-metavariable: $TPL
 
   - id: tnt-js-proto-001
     mode: taint
@@ -286,7 +407,7 @@ rules:
       cwe:
         - "CWE-1321: Improperly Controlled Modification of Object Prototype Attributes ('Prototype Pollution')"
       confidence: HIGH
-      category: security
+      category: prototype_pollution
       fix: "Reject keys named `__proto__`/`constructor`/`prototype` before merging user-controlled objects, or use Object.create(null)/a merge library with prototype-pollution protection."
     pattern-sources:
       - pattern: req.query

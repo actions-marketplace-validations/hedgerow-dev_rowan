@@ -1,6 +1,6 @@
 # Rule Catalog
 
-Rowan ships 590 source-code rules across 48 YAML files. Model files are
+Rowan ships 597 source-code rules across 48 YAML files. Model files are
 scanned by [Hayward](https://github.com/hedgerow-dev/hayward), Hedgerow's
 model-file scanner, which Rowan installs as a dependency.
 
@@ -8,8 +8,8 @@ model-file scanner, which Rowan installs as a dependency.
 
 | Engine | Speed | Precision | Rules |
 |--------|-------|-----------|-------|
-| NeuroScan (regex) | Fast (<1ms/file) | Surface-level | 400 |
-| Taint/structural (Opengrep) | Slower | Evidence varies by rule | 190 |
+| NeuroScan (regex) | Fast (<1ms/file) | Surface-level | 398 |
+| Taint/structural (Opengrep) | Slower | Evidence varies by rule | 199 |
 | Hayward (model files) | Fast | Format-aware, structural | [Hayward rules](https://github.com/hedgerow-dev/hayward/blob/main/docs/rules.md) |
 
 ## Selected taint rule files
@@ -21,26 +21,26 @@ model-file scanner, which Rowan installs as a dependency.
 | `ml_taint.yaml` | 21 | Python | Chat template SSTI, HF pipeline, OmegaConf, vector store, agent tool, LangChain, torch.hub, vector-store filter injection, unbounded generation params, SSRF |
 | `llm_output_taint.yaml` | 6 | Python | Insecure LLM output handling: text-to-SQL, shell/eval injection, SSRF, path traversal, HTML/markdown XSS |
 | `web_taint.yaml` | 7 | Python | SQLi, XSS (incl. Django mark_safe/format_html escaping bypasses), path traversal, open redirect, file upload, sensitive data exposure in logs |
-| `python_taint.yaml` | 8 | Python | Log injection, header injection, LDAP, arg injection, stored XSS, network pickle |
+| `python_taint.yaml` | 8 | Python | Log injection, header injection, LDAP, arg injection, network pickle |
 | `python_taint_extended.yaml` | 9 | Python | SQLi, CMDi, SSRF, SSTI, model loading, path traversal, code injection, prompt injection, NoSQLi |
 | `python_web_surface_taint.yaml` | 1 | Python | Reflection / dynamic dispatch on a request-derived name (getattr/globals/import_module); taint-mode companion to the presence-only rule in `python_web_surface.yaml` |
 | `supply_chain_taint.yaml` | 5 | Python | HF hub download chain, HTTP download, base64 decode, file write propagation, SSRF, deserialization, code injection, path traversal |
 | `a2a_taint.yaml` | 3 | Python | Agent-to-Agent (A2A) protocol: SSRF, deserialization, prompt injection |
 | `langchain_hardening_taint.yaml` | 4 | Python | LangChain hardening, taint mode: prompt-template loading path traversal, Cypher injection, Jinja SSTI, SSRF |
-| `java_taint.yaml` | 10 | Java | SQLi, CMDi, path traversal, SSRF, XSS, deserialization, XXE, LDAP, EL injection, log injection |
+| `java_taint.yaml` | 16 | Java | SQLi, CMDi, path traversal, SSRF, XSS, deserialization, XXE, LDAP, EL injection, SSTI, log injection, open redirect |
 | `java_ai_taint.yaml` | 4 | Java | Spring AI / LangChain4j `@Tool` method parameter (model-chosen) to command execution, filesystem path, SQL text, outbound HTTP URL |
 | `java_llm_taint.yaml` | 11 | Java | LLM output (Spring AI `ChatClient`, LangChain4j, openai-java, anthropic-java) to SQL, command, HTTP URL, path, servlet response, SpEL/script/Freemarker, YAML/Java deserialization; request to system prompt, vector/graph query, SnakeYAML; config to MCP stdio transport |
 | `java_llm_opengrep.yaml` | 1 | Java | Search mode: `StdioMcpTransport.Builder.command(...)` / `ServerParameters.builder(...)` with a non-literal command (the aideepin DB-configured MCP shape) |
-| `javascript_taint.yaml` | 9 | JS/TS | SQLi, CMDi, path traversal, SSRF, XSS, NoSQLi, log injection, header injection |
+| `javascript_taint.yaml` | 12 | JS/TS | SQLi, CMDi, path traversal, SSRF, XSS, NoSQLi, deserialization, SSTI, log injection, header injection, open redirect |
 | `typescript_agent_taint.yaml` | 7 | JS/TS | MCP tool argument (`McpServer.tool`/`registerTool`, low-level `CallToolRequestSchema` handler), Vercel AI SDK `tool({ execute })` and LangChain.js tool input (model-chosen) to command execution, filesystem path, outbound HTTP URL, SQL text; model output (AI SDK `generateText`/`generateObject`, OpenAI, Anthropic) to `eval`/`Function`/`vm` and shell; a server-supplied OAuth authorization URL to `open()` |
-| `go_taint.yaml` | 7 | Go | SQLi, CMDi, path traversal, SSRF, deserialization, log injection, header injection |
+| `go_taint.yaml` | 13 | Go | SQLi, CMDi, path traversal, SSRF, XSS, deserialization, log injection, header injection, open redirect |
 | `go_ai_taint.yaml` | 8 | Go | MCP tool argument (mcp-go `RequireString`/`GetString`/`Params.Arguments`, official go-sdk typed handler args; model-chosen) and LLM completion text (openai-go, go-openai, langchaingo, anthropic-sdk-go, ollama, genkit) to command execution, filesystem path, SQL statement text, outbound HTTP URL |
-| `csharp_taint.yaml` | 8 | C# | SQLi, CMDi, path traversal, SSRF, XSS, deserialization, LDAP, log injection |
+| `csharp_taint.yaml` | 10 | C# | SQLi, CMDi, path traversal, SSRF, XSS, deserialization, XXE, LDAP, log injection, open redirect |
 | `guardrail_opengrep.yaml` | 3 | Python | Guardrail enforcement: result discarded, fail-open handler, verdict checked but not enforced |
 | `langchain_hardening_opengrep.yaml` | 4 | Python | LangChain hardening, search mode: unsafe vector-store deserialization, Jinja few-shot injection, vector-filter injection, dangerous Cypher construction |
 | `go_ai_opengrep.yaml` | 1 | Go | Search mode, inventory: SSE / streamable-HTTP MCP server bound on all interfaces (`0.0.0.0:port` or `:port`) with no auth middleware in view |
 
-**Total: 190 taint/Opengrep rules**
+**Total: 199 taint/Opengrep rules**
 
 `guardrail_opengrep.yaml`, `langchain_hardening_opengrep.yaml`,
 `go_ai_opengrep.yaml` and `java_llm_opengrep.yaml` are the Opengrep files
@@ -54,14 +54,14 @@ rulepack's pattern-only checks; its taint-mode siblings live in
 
 | File | Count | Focus |
 |------|-------|-------|
-| `neuroscan.yaml` | 31 | Core rules: deserialization, injection, SSRF, SSTI, XSS, supply chain |
+| `neuroscan.yaml` | 30 | Core rules: deserialization, injection, SSRF, SSTI, XSS, supply chain |
 | `ai_ml_neuroscan.yaml` | 27 | Chat template SSTI, Gradio, MCP, OmegaConf, vector store, LangChain, numpy/ONNX native-code loading |
 | `ai_security.yaml` | 101 | Extended AI/ML: deserialization, code exec, supply chain, prompt injection, agent tools, markdown exfiltration (named renderer libraries only[^scope]), reflection dispatch (LLM-chosen names only[^scope]), memory-write scoping, RAG isolation, unbounded consumption, model extraction/privacy (LLM logprob exposure only[^scope]), MCP attack classes (FastMCP `.run()` servers only[^scope]), MCP OAuth 2.1 authorization (audience validation, redirect URI, session-as-auth, PKCE), agent sandbox/code-interpreter escape configuration, unbounded multi-agent delegation topology, A2A agent-card trust, multimodal media-fetch SSRF on the inference path, fake-sandbox exec/eval given a hand-rolled `__builtins__` dict |
 | `security_surface.yaml` | 44 | SSRF, path traversal, CMDi, SSTI, SQLi, NoSQLi, XSS, deserialization, JWT |
 | `framework_rules.yaml` | 23 | Express.js, Spring, ASP.NET, Gin/Echo, Flask/Django |
 | `misc_rules.yaml` | 33 | Bug bounty patterns, auth, logging, Gradio, Streamlit, container isolation, identity disclosure |
 | `cloud_rules.yaml` | 7 | S3, IAM, encryption, database, logging, security groups |
-| `javascript.yaml` | 11 | JS-specific: eval, child_process, XSS, deserialization, SSRF |
+| `javascript.yaml` | 10 | JS-specific: eval, child_process, XSS, deserialization |
 | `java.yaml` | 10 | Java-specific: Runtime.exec, ProcessBuilder, SQL, deserialization |
 | `java_ai_surface.yaml` | 5 | Java AI/MCP surface: public HTTP bind, literal provider keys, mutable tool descriptions, remote DJL model URLs, non-literal model paths |
 | `go.yaml` | 11 | Go-specific: exec, template, SQL, SSRF, crypto |
@@ -77,7 +77,7 @@ rulepack's pattern-only checks; its taint-mode siblings live in
 | `ingest_surface.yaml` | 5 | Ingest-time RCE: fsspec ReferenceFileSystem unsandboxed Jinja rendering, HDF5/zarr/kerchunk artifact-internal path following |
 | `inference_plane.yaml` | 5 | Inference-plane parameter and cache-key leaks: KV/routing control params on the public request schema, unkeyed or truncated cache-key derivation |
 
-**Total: 400 NeuroScan rules**
+**Total: 398 NeuroScan rules**
 
 ## Model-file rules
 
@@ -150,7 +150,7 @@ message, not in the rule id) and the structural trust-boundary findings
 `AGENT-TOOL-001` (agent-tool sink detection), `TASK-QUEUE-001` (Celery/RQ
 task handlers), `GRPC-001` (gRPC servicer methods), `GRAPHQL-001` (GraphQL
 resolvers), and `WEBHOOK-001` (webhook/callback handlers) are not YAML rules
-and aren't counted in the 590 total above: they're emitted directly by
+and aren't counted in the 597 total above: they're emitted directly by
 `CrossFilePass`'s AST analysis rather than loaded from `rules/*.yaml`. See
 `ARCHITECTURE.md`'s "Pass 4: CrossFilePass" section for how they're
 generated.

@@ -1,5 +1,67 @@
 # Changelog
 
+## v0.3.7 (alpha)
+
+Safety release for `rowan hunt`.
+
+- Prompts sent to an LLM endpoint that is not on this machine have likely
+  secrets replaced with `[REDACTED-SECRET]`: private keys, cloud and API
+  tokens, JWTs, URL passwords, and high-entropy literals in secret-named
+  variables. Local endpoints (Ollama, a local server) receive source unchanged.
+- `--exploit` only probes a `--base-url` on loopback or a private network.
+  Pass `--allow-remote-target` to probe anything else you are authorized to
+  test.
+- New `--audit-log PATH` appends one JSON line per LLM call and live probe:
+  endpoint, sizes, hashes and outcome, never content.
+
+Redaction is pattern-based, so a secret in an unusual format can still reach a
+cloud model. `--allow-remote-target` is your confirmation, not a check.
+Link-local addresses, including cloud metadata endpoints, count as local.
+
+## v0.3.6 (alpha)
+
+- New taint rules outside Python: open redirect for JavaScript, Go, Java and
+  C#; XSS for Go; deserialization for JavaScript; template injection for
+  JavaScript and Java; XXE for C#. JavaScript and Go redirects were previously
+  reported as header injection.
+- The new rules flag only what is unsafe in every library version: plain
+  js-yaml `load` and default .NET XML parsing are not flagged, and template
+  injection means user input used as the template, never as render data.
+- A taint flow from a rule whose sources are request reads now keeps its
+  severity in route modules without a framework import and in repositories
+  detected as libraries.
+- Validated on NodeGoat, WebGoat, govwa and WebGoat.NET: the new rules report
+  five planted bugs in the default view, after fixing one false positive and
+  one missed source found that way.
+
+No benchmark here covers JavaScript, Go, Java or C# web code, so evidence for
+the new rules is those apps plus unit fixtures. JavaScript handlers that
+destructure the request (`({ query }: Request)`) are not yet modeled as
+sources.
+
+## v0.3.5 (alpha)
+
+- Fix 117 rules that declared categories the scanner did not recognize. Some
+  code-execution rules (unsafe `yaml.load`, `weights_only=False`, Keras
+  `model_from_json`) were hidden from the default view as a result.
+- Merge findings from different rules on the same sink into one, keeping the
+  strongest evidence. Absorbed rules are listed in the new `duplicate_rule_ids`
+  JSON field.
+- `ns-auth-002` now sees an auth decorator above a handler. Remove
+  `TNT-STORED-001`, `JS-SSRF-001` and `NS-SSRF-002`, which produced no true
+  positives on RealVuln.
+- RealVuln default view: precision 0.384 to 0.516, F2 26.5 to 28.1
+  ([results](benchmark/results/realvuln-2026-10-08/README.md)).
+- Hunt: attack-surface inventory, source-grounded verification evidence,
+  configurable budgets, and resumable runs with `--checkpoint` / `--resume`.
+- Baselines give identical lines distinct fingerprints and reject unknown
+  versions. Opengrep runs with an allowlisted environment. JSON reports add
+  `scan_manifest` and `schema_version`. New `--fail-on-degraded` flag.
+
+A 0.3.4 baseline that covered several identical lines with one entry reports
+the extra copies once. `ns-auth-002` findings on decorated handlers now point
+at the first decorator line. Rowan was tuned with RealVuln in view.
+
 ## v0.3.4 (alpha)
 
 - Calibrate log-forging findings using bounded values and resolved numeric

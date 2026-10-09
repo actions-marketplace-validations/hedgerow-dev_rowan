@@ -263,6 +263,8 @@ The **verify stage** is an independent second-opinion LLM pass that tries to ref
 
 **Before any source code is sent to an LLM endpoint, you will be shown the endpoint URL and asked to confirm. In non-interactive sessions (CI), the LLM stage is skipped unless `--yes` is passed.**
 
+Prompts sent to any endpoint that is not on this machine have likely secrets replaced with `[REDACTED-SECRET]`: private keys, cloud and API tokens, JWTs, URL passwords, and high-entropy string literals assigned to secret-named variables. Redaction is pattern-based, so treat it as a safety net, not a guarantee. Loopback endpoints (Ollama, a local server) receive the source unchanged.
+
 **The discovery stage (`--discover`, experimental)**
 
 Discovery asks the model for defects beyond static rules. It schedules both static-implicated files and recognized Python routes, jobs, assistant tools, and sensitive operations with no static hit. File and source-line budgets bound the work; partial/skipped coverage and unsupported inventory languages remain explicit. Whole files or excerpts are supplied, rather than a guaranteed whole-repository review.
@@ -281,7 +283,9 @@ Hunt JSON schema version 2 separates the full static inventory from verification
 | `--no-sca` | | Skip dependency scan |
 | `--no-verify` | | Skip adversarial verification (the second-opinion LLM pass after triage) |
 | `--exploit` | | Enable live HTTP exploit probes (off by default: sends real requests to targets) |
-| `--base-url URL` | | Absolute HTTP(S) base URL of the scanned app (e.g. `http://localhost:5000`), required with `--exploit` and rejected without it; credentials, query strings, fragments, and whitespace are not accepted |
+| `--base-url URL` | | Absolute HTTP(S) base URL of the scanned app (e.g. `http://localhost:5000`), required with `--exploit` and rejected without it; credentials, query strings, fragments, and whitespace are not accepted. The host must be loopback or a private network address unless `--allow-remote-target` is passed |
+| `--allow-remote-target` | | Allow `--exploit` probes against a `--base-url` outside loopback and private networks. Only for systems you are authorized to test; this is your confirmation, not a check |
+| `--audit-log PATH` | | Append one JSON line per LLM call and live probe to `PATH` (created owner-only): endpoint, model, prompt hash and size, secrets redacted, probe URL and status. Never prompt or response content |
 | `--discover` | | Enable the LLM **discovery** stage: ask the model for defects the rule corpus cannot express (off by default: costs extra LLM calls) |
 | `--discovery-files N` | | Discovery file budget, default 25 (maximum 500) |
 | `--discovery-lines N` | | Hard source-line budget per discovery file, default 400 |
@@ -371,7 +375,10 @@ ALIBABA_BASE_URL=https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode
   rowan hunt ./my-project --backend alibaba
 
 # Live HTTP exploit probes (only against targets you are authorized to test)
-rowan hunt ./my-project --exploit
+rowan hunt ./my-project --exploit --base-url http://localhost:5000
+
+# Keep an audit trail of what was sent to the LLM and probed
+rowan hunt ./my-project --audit-log hunt-audit.jsonl
 
 # Non-interactive CI (static scan only, no LLM)
 rowan hunt ./my-project --no-sca < /dev/null
@@ -495,6 +502,12 @@ both *lower* severity for reasons unrelated to the finding's truth:
   importers, benchmark dirs, build configs) caps at LOW.
 
 Nothing is deleted by either rule. Use `-s info` to see everything.
+
+**One sink, one finding.** When several rules report the same line with the
+same category and a shared CWE, they are merged into the finding with the
+strongest evidence (then the highest severity). The JSON field
+`duplicate_rule_ids` lists every rule merged into it, so a more specific rule
+that matched the same call is still visible there.
 
 ## Scan manifest
 
@@ -738,7 +751,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: hedgerow-dev/rowan@v0.3.4
+      - uses: hedgerow-dev/rowan@v0.3.7
         with:
           target: .
           output: rowan.sarif
@@ -776,7 +789,7 @@ security-scan:
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/hedgerow-dev/rowan
-    rev: v0.3.4
+    rev: v0.3.7
     hooks:
       - id: rowan
 ```

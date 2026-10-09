@@ -266,6 +266,19 @@ _SEVERITY_RANK = {
     Severity.INFO: 4,
 }
 
+# Strength of a finding's evidence (see _cap_unverified_severity), strongest
+# first. Used to pick which of several findings on one sink survives a merge.
+_EVIDENCE_TIER_RANK: dict[str, int] = {
+    "taint-flow": 0,
+    "engine": 0,
+    "taint-flow-unresolved": 1,
+    "self-evident": 2,
+    "authorization-gap": 2,
+    "pattern-only": 3,
+    "source-context": 3,
+    "presence": 4,
+}
+
 # Groups of rule ids that detect the SAME underlying condition via
 # overlapping/near-identical regex patterns, confirmed by manual review of
 # each pair's languages/category/severity/message in the manifest (not
@@ -382,7 +395,7 @@ _UUID_PATTERN_RE = re.compile(
     r"|_uuid\b|table_name|collection_name|volume_name|index_name"
 )
 
-_SSRF_RULES = frozenset({"NS-SSRF-001", "NS-SSRF-002", "NS-SSRF-007", "NS-SSRF-102", "NS-SSRF-103"})
+_SSRF_RULES = frozenset({"NS-SSRF-001", "NS-SSRF-007", "NS-SSRF-102", "NS-SSRF-103"})
 
 _SQLI_RULES = frozenset({"NS-SQLI-001", "NS-SQLI-002"})
 
@@ -550,6 +563,20 @@ def _has_agent_boundary_source(finding: Finding) -> bool:
     return finding.metadata.get("source_kind") in ("tool_param", "llm_output")
 
 
+def _has_proven_external_source(finding: Finding) -> bool:
+    """The finding's own trace proves external input reached the sink.
+
+    A model boundary source, or a taint flow from a rule whose sources are
+    HTTP request reads (`source_kind: http_input`). File- and repo-level
+    guesses (a web-framework import, the library profile) must not demote it:
+    route modules often receive `app` from elsewhere, and routers such as
+    httprouter or Web Forms code-behind carry no import those guesses know.
+    """
+    return _has_agent_boundary_source(finding) or (
+        finding.taint_flow is not None and finding.metadata.get("source_kind") == "http_input"
+    )
+
+
 def _cap_severity(finding: Finding, cap: Severity) -> None:
     if _SEVERITY_RANK[finding.severity] < _SEVERITY_RANK[cap]:
         finding.severity = cap
@@ -644,6 +671,9 @@ class EnrichmentPass:
         # another was filtered, defeating the merge).
         context.result.findings = self._merge_duplicate_rule_groups(
             context.result.findings, context
+        )
+        context.result.findings = self._merge_same_sink_findings(
+            context.result.findings, self._load_thresholds(context.config.thresholds_path)
         )
         context.result.findings = self._apply_thresholds(context.result.findings, context)
 
@@ -1284,6 +1314,61 @@ class EnrichmentPass:
         return merged
 
     @staticmethod
+    def _merge_same_sink_findings(findings: list[Finding], thresholds: dict) -> list[Finding]:
+        """Collapse different rules reporting the same sink: same file, same
+        line, same category and at least one shared CWE.
+
+        Unlike _DUPLICATE_RULE_GROUPS this needs no hand-kept list: a taint
+        rule and a pattern rule for the same call, or two taint rules whose
+        sinks overlap, land on one line with one category. The shared-CWE
+        requirement keeps genuinely different issues on one line apart (a
+        cookie missing both HttpOnly and Secure is two findings).
+
+        The survivor has the strongest evidence, then the highest severity,
+        so a proven flow is never replaced by a pattern match.
+
+        Findings that _apply_thresholds (the next step) will drop -- a
+        disabled rule, or confidence under the rule's min_confidence -- take
+        no part: as a survivor they would take every absorbed finding down
+        with them.
+        """
+
+        def dropped_by_thresholds(f: Finding) -> bool:
+            cfg = thresholds.get(f.rule_id) or {}
+            min_conf = cfg.get("min_confidence")
+            return cfg.get("enabled") is False or (min_conf is not None and f.confidence < min_conf)
+
+        buckets: dict[tuple[str, int, Category], list[Finding]] = defaultdict(list)
+        for f in findings:
+            if not dropped_by_thresholds(f):
+                buckets[(f.file_path, f.start_line, f.category)].append(f)
+
+        def rank(f: Finding) -> tuple:
+            tier = _EVIDENCE_TIER_RANK.get(f.metadata.get("evidence_tier"), len(_EVIDENCE_TIER_RANK))
+            return (tier, _SEVERITY_RANK[f.severity], f.rule_id)
+
+        merged_away: set[int] = set()
+        for bucket in buckets.values():
+            survivors: list[Finding] = []
+            for f in sorted(bucket, key=rank):
+                into = next(
+                    (
+                        s for s in survivors
+                        if s.rule_id != f.rule_id and set(s.cwe_ids) & set(f.cwe_ids)
+                    ),
+                    None,
+                )
+                if into is None:
+                    survivors.append(f)
+                    continue
+                merged_away.add(id(f))
+                into.metadata["duplicate_rule_ids"] = sorted(
+                    {*into.metadata.get("duplicate_rule_ids", [into.rule_id]),
+                     *f.metadata.get("duplicate_rule_ids", [f.rule_id])}
+                )
+        return [f for f in findings if id(f) not in merged_away]
+
+    @staticmethod
     def _merge_duplicate_cluster(cluster: list[Finding], thresholds: dict) -> Finding:
         if len(cluster) == 1:
             return cluster[0]
@@ -1419,7 +1504,7 @@ class EnrichmentPass:
             if f.category == Category.XSS and _is_client_side_js(f.file_path):
                 result.append(f)
                 continue
-            if f.engine == "siblinggate" or _has_agent_boundary_source(f):
+            if f.engine == "siblinggate" or _has_proven_external_source(f):
                 # A whole-repo consistency claim, or a rule whose source is
                 # the agent boundary: the evidence is not an import here.
                 result.append(f)
@@ -2485,7 +2570,7 @@ class EnrichmentPass:
             # profile heuristic must not override an explicitly-requested pass.
             # Model-file findings fire on load, independent of how the
             # project is deployed, so the deployment profile does not apply.
-            if f.engine in ("authz", "js_authz", "mfv") or _has_agent_boundary_source(f):
+            if f.engine in ("authz", "js_authz", "mfv") or _has_proven_external_source(f):
                 result.append(f)
                 continue
             if f.category in disabled:
