@@ -55,6 +55,47 @@ rules:
               - pattern: st.file_uploader(...)
               - pattern: gr.File(...)
               - pattern: gr.UploadButton(...)
+              - patterns:
+                  - pattern-either:
+                      - pattern-inside: |
+                          @$APP.$M("$ROUTE", ...)
+                          def $F(..., $P: $T, ...):
+                            ...
+
+                      - pattern-inside: |
+                          @$APP.$M("$ROUTE", ...)
+                          async def $F(..., $P: $T, ...):
+                            ...
+
+                  - metavariable-regex:
+                      metavariable: $M
+                      regex: ^(get|post|put|delete|patch|options|head|api_route|websocket)$
+                  - metavariable-regex:
+                      metavariable: $ROUTE
+                      regex: ^(/.*)?$
+                  - metavariable-regex:
+                      metavariable: $T
+                      regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
+                  - metavariable-regex:
+                      metavariable: $T
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                  - pattern-not-inside: |
+                      def $F(..., $P = Depends(...), ...):
+                        ...
+
+                  - pattern-not-inside: |
+                      async def $F(..., $P = Depends(...), ...):
+                        ...
+
+                  - pattern-not-inside: |
+                      def $F(..., $P = Security(...), ...):
+                        ...
+
+                  - pattern-not-inside: |
+                      async def $F(..., $P = Security(...), ...):
+                        ...
+
+                  - pattern: $P
       # rowan-registry:end source=web_request
 
     pattern-sinks:
@@ -138,14 +179,9 @@ rules:
               - pattern: $RESP.headers[$KEY] = $VAL
               - pattern: set_header(...)
               - pattern: add_header(...)
-      # Cookie APIs accept a name and a value. Only the value can inject
-      # response-header bytes; taint in the name or an unrelated option must
-      # not satisfy this sink.
-      - patterns:
-          - pattern-either:
-              - pattern: $RESP.set_cookie($KEY, $VAL, ...)
-              - pattern: $RESP.set_cookie(key=$KEY, value=$VAL, ...)
-          - focus-metavariable: $VAL
+      # No set_cookie sink: Werkzeug's dump_cookie and the stdlib SimpleCookie
+      # (Django, Starlette) quote or reject CR/LF in values and reject bad
+      # names, so a cookie value cannot split the response.
       # Flask accepts response headers as the final element of a response
       # tuple. Focus taint on that element, never on the response body.
       - patterns:
@@ -265,6 +301,47 @@ rules:
               - pattern: st.file_uploader(...)
               - pattern: gr.File(...)
               - pattern: gr.UploadButton(...)
+              - patterns:
+                  - pattern-either:
+                      - pattern-inside: |
+                          @$APP.$M("$ROUTE", ...)
+                          def $F(..., $P: $T, ...):
+                            ...
+
+                      - pattern-inside: |
+                          @$APP.$M("$ROUTE", ...)
+                          async def $F(..., $P: $T, ...):
+                            ...
+
+                  - metavariable-regex:
+                      metavariable: $M
+                      regex: ^(get|post|put|delete|patch|options|head|api_route|websocket)$
+                  - metavariable-regex:
+                      metavariable: $ROUTE
+                      regex: ^(/.*)?$
+                  - metavariable-regex:
+                      metavariable: $T
+                      regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
+                  - metavariable-regex:
+                      metavariable: $T
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                  - pattern-not-inside: |
+                      def $F(..., $P = Depends(...), ...):
+                        ...
+
+                  - pattern-not-inside: |
+                      async def $F(..., $P = Depends(...), ...):
+                        ...
+
+                  - pattern-not-inside: |
+                      def $F(..., $P = Security(...), ...):
+                        ...
+
+                  - pattern-not-inside: |
+                      async def $F(..., $P = Security(...), ...):
+                        ...
+
+                  - pattern: $P
       # rowan-registry:end source=web_request
     pattern-sinks:
       - patterns:
@@ -433,6 +510,47 @@ rules:
                       - pattern: st.file_uploader(...)
                       - pattern: gr.File(...)
                       - pattern: gr.UploadButton(...)
+                      - patterns:
+                          - pattern-either:
+                              - pattern-inside: |
+                                  @$APP.$M("$ROUTE", ...)
+                                  def $F(..., $P: $T, ...):
+                                    ...
+
+                              - pattern-inside: |
+                                  @$APP.$M("$ROUTE", ...)
+                                  async def $F(..., $P: $T, ...):
+                                    ...
+
+                          - metavariable-regex:
+                              metavariable: $M
+                              regex: ^(get|post|put|delete|patch|options|head|api_route|websocket)$
+                          - metavariable-regex:
+                              metavariable: $ROUTE
+                              regex: ^(/.*)?$
+                          - metavariable-regex:
+                              metavariable: $T
+                              regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
+                          - metavariable-regex:
+                              metavariable: $T
+                              regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                          - pattern-not-inside: |
+                              def $F(..., $P = Depends(...), ...):
+                                ...
+
+                          - pattern-not-inside: |
+                              async def $F(..., $P = Depends(...), ...):
+                                ...
+
+                          - pattern-not-inside: |
+                              def $F(..., $P = Security(...), ...):
+                                ...
+
+                          - pattern-not-inside: |
+                              async def $F(..., $P = Security(...), ...):
+                                ...
+
+                          - pattern: $P
               # rowan-registry:end source=web_request
               - pattern: $SOCK.recv(...)
     pattern-sinks:
