@@ -16,37 +16,88 @@ rules:
       - patterns:
           - pattern-either:
               - pattern: $R.URL.Query()
+              - pattern: $R.URL.Path
+              - pattern: $R.URL.RawQuery
               - pattern: $R.FormValue(...)
+              - pattern: $R.PostFormValue(...)
+              - pattern: $R.Header.Get(...)
               - pattern: $R.Body
               - pattern: $C.Param(...)
               - pattern: "($C : *gin.Context).Query(...)"
-              - pattern: $C.ShouldBindJSON(...)
+              - pattern: $C.PostForm(...)
+              - pattern: $C.DefaultQuery(...)
+              - pattern: $C.GetHeader(...)
+              - pattern: $C.QueryParam(...)
+              - pattern: $C.Params(...)
+              - pattern: chi.URLParam(...)
+              - pattern: mux.Vars(...)
       # rowan-registry:end source=web_request_go
+      # rowan-registry:begin source=web_request_go_bind
+      - patterns:
+          - pattern-either:
+              - pattern: $C.ShouldBindJSON(&$X)
+              - pattern: $C.BindJSON(&$X)
+              - pattern: $C.ShouldBind(&$X)
+              - pattern: $C.Bind(&$X)
+              - pattern: $C.ShouldBindQuery(&$X)
+              - pattern: $C.BodyParser(&$X)
+              - pattern: json.NewDecoder($R.Body).Decode(&$X)
+          - focus-metavariable: $X
+        by-side-effect: true
+      # rowan-registry:end source=web_request_go_bind
     # A bare `$DB.Query(...)` sink bound `$DB` to `req.URL` (net/http
     # query string) and to gin's context receiver, so `r.URL.Query()` and
     # `c.Query("k")` were source and sink at once (gin-gonic/gin
     # binding/query.go:16, context.go:581). Exclude the URL/query-getter
     # shapes and gin's context by type, not by receiver name.
     pattern-sinks:
+      # rowan-registry:begin sink=sql_go
       - patterns:
           - pattern-either:
-              - pattern: $DB.Query($SQL, ...)
-              - pattern: $DB.QueryRow($SQL, ...)
-              - pattern: $DB.QueryContext($CTX, $SQL, ...)
-              - pattern: $DB.QueryRowContext($CTX, $SQL, ...)
-              - pattern: $DB.Exec($SQL, ...)
-              - pattern: $DB.ExecContext($CTX, $SQL, ...)
-              # sqlx shape: Get/Select(dest, query, args...). A bare
-              # `$DB.Get(...)` also matched HTTP clients (`httplib.Get(url)`).
-              - pattern: $DB.Select(&$DEST, $SQL, ...)
-              - pattern: $DB.Get(&$DEST, $SQL, ...)
-          - pattern-not: $X.URL.Query(...)
-          - pattern-not: "($X : *gin.Context).Query(...)"
-          # Only the SQL text argument is the sink; a tainted placeholder
-          # value (`db.Query("... $1", id)`) is parameterized (RT-01).
-          - focus-metavariable: $SQL
+              - patterns:
+                  - pattern: $DB.$M($SQL, ...)
+                  - metavariable-regex:
+                      metavariable: $M
+                      regex: ^(Query|QueryRow|Exec|Prepare|Preparex|Queryx|QueryRowx|MustExec|NamedQuery|NamedExec|Raw|Where|Or|Not|Order|Having|Joins|Group)$
+                  - pattern-not-inside: |
+                      $DB, $E := $X.Prepare(...)
+                      ...
+                  - pattern-not-inside: |
+                      $DB, $E = $X.Prepare(...)
+                      ...
+                  - pattern-not-inside: |
+                      $DB, $E := $X.Preparex(...)
+                      ...
+                  - pattern-not-inside: |
+                      $DB, $E = $X.Preparex(...)
+                      ...
+                  - pattern-not: "($DB : *sql.Stmt).$M(...)"
+                  - pattern-not: $X.URL.Query(...)
+                  - pattern-not: "($X : *gin.Context).Query(...)"
+                  - focus-metavariable: $SQL
+              - patterns:
+                  - pattern: $DB.$M($CTX, $SQL, ...)
+                  - metavariable-regex:
+                      metavariable: $M
+                      regex: ^(QueryContext|QueryRowContext|ExecContext|PrepareContext|QueryxContext|QueryRowxContext)$
+                  - focus-metavariable: $SQL
+              - patterns:
+                  - pattern: $DB.$M($CTX, $SQL, ...)
+                  - metavariable-regex:
+                      metavariable: $M
+                      regex: ^(Query|QueryRow|Exec)$
+                  - metavariable-regex:
+                      metavariable: $CTX
+                      regex: (?i).*(ctx|context)
+                  - focus-metavariable: $SQL
+              - patterns:
+                  - pattern-either:
+                      - pattern: $DB.Select(&$DEST, $SQL, ...)
+                      - pattern: $DB.Get(&$DEST, $SQL, ...)
+                  - focus-metavariable: $SQL
+      # rowan-registry:end sink=sql_go
+
     pattern-sanitizers:
-      - pattern: $DB.Prepare(...)
       - pattern: strconv.Atoi(...)
       - pattern: strconv.ParseInt(...)
 
@@ -83,23 +134,53 @@ rules:
               - pattern: viper.Get(...)
       # rowan-registry:end source=operator_input_go
     pattern-sinks:
+      # rowan-registry:begin sink=sql_go
       - patterns:
           - pattern-either:
-              - pattern: $DB.Query($SQL, ...)
-              - pattern: $DB.QueryRow($SQL, ...)
-              - pattern: $DB.QueryContext($CTX, $SQL, ...)
-              - pattern: $DB.QueryRowContext($CTX, $SQL, ...)
-              - pattern: $DB.Exec($SQL, ...)
-              - pattern: $DB.ExecContext($CTX, $SQL, ...)
-              - pattern: $DB.Select(&$DEST, $SQL, ...)
-              - pattern: $DB.Get(&$DEST, $SQL, ...)
-          - pattern-not: $X.URL.Query(...)
-          - pattern-not: "($X : *gin.Context).Query(...)"
-          # Only the SQL text argument is the sink; a tainted placeholder
-          # value (`db.Query("... $1", id)`) is parameterized (RT-01).
-          - focus-metavariable: $SQL
+              - patterns:
+                  - pattern: $DB.$M($SQL, ...)
+                  - metavariable-regex:
+                      metavariable: $M
+                      regex: ^(Query|QueryRow|Exec|Prepare|Preparex|Queryx|QueryRowx|MustExec|NamedQuery|NamedExec|Raw|Where|Or|Not|Order|Having|Joins|Group)$
+                  - pattern-not-inside: |
+                      $DB, $E := $X.Prepare(...)
+                      ...
+                  - pattern-not-inside: |
+                      $DB, $E = $X.Prepare(...)
+                      ...
+                  - pattern-not-inside: |
+                      $DB, $E := $X.Preparex(...)
+                      ...
+                  - pattern-not-inside: |
+                      $DB, $E = $X.Preparex(...)
+                      ...
+                  - pattern-not: "($DB : *sql.Stmt).$M(...)"
+                  - pattern-not: $X.URL.Query(...)
+                  - pattern-not: "($X : *gin.Context).Query(...)"
+                  - focus-metavariable: $SQL
+              - patterns:
+                  - pattern: $DB.$M($CTX, $SQL, ...)
+                  - metavariable-regex:
+                      metavariable: $M
+                      regex: ^(QueryContext|QueryRowContext|ExecContext|PrepareContext|QueryxContext|QueryRowxContext)$
+                  - focus-metavariable: $SQL
+              - patterns:
+                  - pattern: $DB.$M($CTX, $SQL, ...)
+                  - metavariable-regex:
+                      metavariable: $M
+                      regex: ^(Query|QueryRow|Exec)$
+                  - metavariable-regex:
+                      metavariable: $CTX
+                      regex: (?i).*(ctx|context)
+                  - focus-metavariable: $SQL
+              - patterns:
+                  - pattern-either:
+                      - pattern: $DB.Select(&$DEST, $SQL, ...)
+                      - pattern: $DB.Get(&$DEST, $SQL, ...)
+                  - focus-metavariable: $SQL
+      # rowan-registry:end sink=sql_go
+
     pattern-sanitizers:
-      - pattern: $DB.Prepare(...)
       - pattern: strconv.Atoi(...)
       - pattern: strconv.ParseInt(...)
 
@@ -120,28 +201,140 @@ rules:
       - patterns:
           - pattern-either:
               - pattern: $R.URL.Query()
+              - pattern: $R.URL.Path
+              - pattern: $R.URL.RawQuery
               - pattern: $R.FormValue(...)
+              - pattern: $R.PostFormValue(...)
+              - pattern: $R.Header.Get(...)
               - pattern: $R.Body
               - pattern: $C.Param(...)
               - pattern: "($C : *gin.Context).Query(...)"
-              - pattern: $C.ShouldBindJSON(...)
+              - pattern: $C.PostForm(...)
+              - pattern: $C.DefaultQuery(...)
+              - pattern: $C.GetHeader(...)
+              - pattern: $C.QueryParam(...)
+              - pattern: $C.Params(...)
+              - pattern: chi.URLParam(...)
+              - pattern: mux.Vars(...)
       # rowan-registry:end source=web_request_go
+      # rowan-registry:begin source=web_request_go_bind
+      - patterns:
+          - pattern-either:
+              - pattern: $C.ShouldBindJSON(&$X)
+              - pattern: $C.BindJSON(&$X)
+              - pattern: $C.ShouldBind(&$X)
+              - pattern: $C.Bind(&$X)
+              - pattern: $C.ShouldBindQuery(&$X)
+              - pattern: $C.BodyParser(&$X)
+              - pattern: json.NewDecoder($R.Body).Decode(&$X)
+          - focus-metavariable: $X
+        by-side-effect: true
+      # rowan-registry:end source=web_request_go_bind
       # Bare `$C.Query(...)` on purpose here, unlike the SQL rules: the
       # fragment types it to *gin.Context because the bare form collides with
       # the `$DB.Query(...)` SQL sink. These sinks do not collide, and the bare
       # form is what reaches macaron-style contexts (gogs internal/route).
       - pattern: $C.Query(...)
     pattern-sinks:
-      - pattern: exec.Command(...)
-      - pattern: syscall.Exec(...)
-      - pattern: os.StartProcess(...)
-    pattern-sanitizers:
-      - pattern: filepath.Base(...)
+      # rowan-registry:begin sink=exec_go
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern-either:
+                      - pattern: exec.Command($BIN, ...)
+                      - pattern: exec.CommandContext($CTX, $BIN, ...)
+                  - focus-metavariable: $BIN
+              - patterns:
+                  - pattern-either:
+                      - pattern: exec.Command($SH, $FLAG, $CMD, ...)
+                      - pattern: exec.CommandContext($CTX, $SH, $FLAG, $CMD, ...)
+                  - metavariable-regex:
+                      metavariable: $SH
+                      regex: ^\"(sh|bash|zsh|ash|dash|/bin/sh|/bin/bash|/usr/bin/env|cmd|cmd\.exe|powershell|pwsh)\"$
+                  - metavariable-regex:
+                      metavariable: $FLAG
+                      regex: ^\"(-c|/c|/C|-Command)\"$
+                  - focus-metavariable: $CMD
+              - patterns:
+                  - pattern-either:
+                      - pattern: syscall.Exec($BIN, ...)
+                      - pattern: os.StartProcess($BIN, ...)
+                  - focus-metavariable: $BIN
+      # rowan-registry:end sink=exec_go
 
   # EXT-19: operator-controlled sources (env, flags, argv, viper) split out
   # of the -001 rule the EXT-08 way (tnt-go-sqli-002). gogs' 134 env-sourced
   # path hits (GOGS_CUSTOM) and kubernetes-mcp-server's startup flags were
   # the FP set in ADR-0005. Same sinks and sanitizers as the -001.
+  # Request input as an extra argument to a fixed program (#56). No shell
+  # parses it, so it is argument injection (an attacker-chosen flag such as
+  # git's --upload-pack), not command injection.
+  - id: tnt-go-argi-001
+    mode: taint
+    languages: [go]
+    severity: WARNING
+    message: >-
+      User input is passed as an argument to a fixed program. No shell runs it,
+      but a value starting with '-' can be read as an option and change what
+      the program does.
+    metadata:
+      cwe:
+        - "CWE-88: Improper Neutralization of Argument Delimiters in a Command ('Argument Injection')"
+      confidence: MEDIUM
+      category: command_injection
+      source_kind: http_input
+      fix: "Put '--' before user-supplied arguments, or reject values that start with '-', so they cannot be read as options."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_go
+      - patterns:
+          - pattern-either:
+              - pattern: $R.URL.Query()
+              - pattern: $R.URL.Path
+              - pattern: $R.URL.RawQuery
+              - pattern: $R.FormValue(...)
+              - pattern: $R.PostFormValue(...)
+              - pattern: $R.Header.Get(...)
+              - pattern: $R.Body
+              - pattern: $C.Param(...)
+              - pattern: "($C : *gin.Context).Query(...)"
+              - pattern: $C.PostForm(...)
+              - pattern: $C.DefaultQuery(...)
+              - pattern: $C.GetHeader(...)
+              - pattern: $C.QueryParam(...)
+              - pattern: $C.Params(...)
+              - pattern: chi.URLParam(...)
+              - pattern: mux.Vars(...)
+      # rowan-registry:end source=web_request_go
+      # rowan-registry:begin source=web_request_go_bind
+      - patterns:
+          - pattern-either:
+              - pattern: $C.ShouldBindJSON(&$X)
+              - pattern: $C.BindJSON(&$X)
+              - pattern: $C.ShouldBind(&$X)
+              - pattern: $C.Bind(&$X)
+              - pattern: $C.ShouldBindQuery(&$X)
+              - pattern: $C.BodyParser(&$X)
+              - pattern: json.NewDecoder($R.Body).Decode(&$X)
+          - focus-metavariable: $X
+        by-side-effect: true
+      # rowan-registry:end source=web_request_go_bind
+      # Bare `$C.Query(...)` on purpose here, unlike the SQL rules: the
+      # fragment types it to *gin.Context because the bare form collides with
+      # the `$DB.Query(...)` SQL sink. These sinks do not collide, and the bare
+      # form is what reaches macaron-style contexts (gogs internal/route).
+      - pattern: $C.Query(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: exec.Command("$BIN", ..., $ARG, ...)
+              - pattern: exec.CommandContext($CTX, "$BIN", ..., $ARG, ...)
+          # A shell's -c string is command injection (tnt-go-cmdi-001).
+          - pattern-not: exec.Command($SH, "-c", ...)
+          - pattern-not: exec.Command($SH, "/c", ...)
+          - pattern-not: exec.CommandContext($CTX, $SH, "-c", ...)
+          - pattern-not: exec.CommandContext($CTX, $SH, "/c", ...)
+          - focus-metavariable: $ARG
+
   - id: tnt-go-cmdi-002
     mode: taint
     languages: [go]
@@ -170,11 +363,31 @@ rules:
               - pattern: viper.Get(...)
       # rowan-registry:end source=operator_input_go
     pattern-sinks:
-      - pattern: exec.Command(...)
-      - pattern: syscall.Exec(...)
-      - pattern: os.StartProcess(...)
-    pattern-sanitizers:
-      - pattern: filepath.Base(...)
+      # rowan-registry:begin sink=exec_go
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern-either:
+                      - pattern: exec.Command($BIN, ...)
+                      - pattern: exec.CommandContext($CTX, $BIN, ...)
+                  - focus-metavariable: $BIN
+              - patterns:
+                  - pattern-either:
+                      - pattern: exec.Command($SH, $FLAG, $CMD, ...)
+                      - pattern: exec.CommandContext($CTX, $SH, $FLAG, $CMD, ...)
+                  - metavariable-regex:
+                      metavariable: $SH
+                      regex: ^\"(sh|bash|zsh|ash|dash|/bin/sh|/bin/bash|/usr/bin/env|cmd|cmd\.exe|powershell|pwsh)\"$
+                  - metavariable-regex:
+                      metavariable: $FLAG
+                      regex: ^\"(-c|/c|/C|-Command)\"$
+                  - focus-metavariable: $CMD
+              - patterns:
+                  - pattern-either:
+                      - pattern: syscall.Exec($BIN, ...)
+                      - pattern: os.StartProcess($BIN, ...)
+                  - focus-metavariable: $BIN
+      # rowan-registry:end sink=exec_go
 
   - id: tnt-go-path-001
     mode: taint
@@ -193,25 +406,77 @@ rules:
       - patterns:
           - pattern-either:
               - pattern: $R.URL.Query()
+              - pattern: $R.URL.Path
+              - pattern: $R.URL.RawQuery
               - pattern: $R.FormValue(...)
+              - pattern: $R.PostFormValue(...)
+              - pattern: $R.Header.Get(...)
               - pattern: $R.Body
               - pattern: $C.Param(...)
               - pattern: "($C : *gin.Context).Query(...)"
-              - pattern: $C.ShouldBindJSON(...)
+              - pattern: $C.PostForm(...)
+              - pattern: $C.DefaultQuery(...)
+              - pattern: $C.GetHeader(...)
+              - pattern: $C.QueryParam(...)
+              - pattern: $C.Params(...)
+              - pattern: chi.URLParam(...)
+              - pattern: mux.Vars(...)
       # rowan-registry:end source=web_request_go
+      # rowan-registry:begin source=web_request_go_bind
+      - patterns:
+          - pattern-either:
+              - pattern: $C.ShouldBindJSON(&$X)
+              - pattern: $C.BindJSON(&$X)
+              - pattern: $C.ShouldBind(&$X)
+              - pattern: $C.Bind(&$X)
+              - pattern: $C.ShouldBindQuery(&$X)
+              - pattern: $C.BodyParser(&$X)
+              - pattern: json.NewDecoder($R.Body).Decode(&$X)
+          - focus-metavariable: $X
+        by-side-effect: true
+      # rowan-registry:end source=web_request_go_bind
       # Bare `$C.Query(...)` on purpose here, unlike the SQL rules: the
       # fragment types it to *gin.Context because the bare form collides with
       # the `$DB.Query(...)` SQL sink. These sinks do not collide, and the bare
       # form is what reaches macaron-style contexts (gogs internal/route).
       - pattern: $C.Query(...)
     pattern-sinks:
-      - pattern: os.Open(...)
-      - pattern: os.ReadFile(...)
-      - pattern: filepath.Join(...)
-      - pattern: http.ServeFile(...)
+      # rowan-registry:begin sink=file_path_go
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern-either:
+                      - pattern: os.Open($P)
+                      - pattern: os.OpenFile($P, ...)
+                      - pattern: os.ReadFile($P)
+                      - pattern: os.ReadDir($P)
+                      - pattern: os.Create($P)
+                      - pattern: os.WriteFile($P, ...)
+                      - pattern: os.Remove($P)
+                      - pattern: os.RemoveAll($P)
+                      - pattern: os.Mkdir($P, ...)
+                      - pattern: os.MkdirAll($P, ...)
+                      - pattern: os.Rename($P, $Q)
+                      - pattern: os.Rename($Q, $P)
+                      - pattern: ioutil.ReadFile($P)
+                      - pattern: ioutil.WriteFile($P, ...)
+                      - pattern: http.ServeFile($W, $R, $P)
+                  - focus-metavariable: $P
+              - patterns:
+                  - pattern-either:
+                      - pattern: $C.File($P)
+                      - pattern: $C.FileAttachment($P, ...)
+                      - pattern: $C.Attachment($P, ...)
+                      - pattern: $C.SendFile($P, ...)
+                      - pattern: $C.Download($P, ...)
+                  - metavariable-regex:
+                      metavariable: $C
+                      regex: (?i)^(c|ctx|e|context)$
+                  - focus-metavariable: $P
+      # rowan-registry:end sink=file_path_go
     pattern-sanitizers:
       - pattern: filepath.Base(...)
-      - pattern: strings.Contains($PATH, "..")
+      - pattern: securejoin.SecureJoin(...)
 
   # EXT-19 operator-input sibling; see tnt-go-cmdi-002.
   - id: tnt-go-path-002
@@ -242,13 +507,42 @@ rules:
               - pattern: viper.Get(...)
       # rowan-registry:end source=operator_input_go
     pattern-sinks:
-      - pattern: os.Open(...)
-      - pattern: os.ReadFile(...)
-      - pattern: filepath.Join(...)
-      - pattern: http.ServeFile(...)
+      # rowan-registry:begin sink=file_path_go
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern-either:
+                      - pattern: os.Open($P)
+                      - pattern: os.OpenFile($P, ...)
+                      - pattern: os.ReadFile($P)
+                      - pattern: os.ReadDir($P)
+                      - pattern: os.Create($P)
+                      - pattern: os.WriteFile($P, ...)
+                      - pattern: os.Remove($P)
+                      - pattern: os.RemoveAll($P)
+                      - pattern: os.Mkdir($P, ...)
+                      - pattern: os.MkdirAll($P, ...)
+                      - pattern: os.Rename($P, $Q)
+                      - pattern: os.Rename($Q, $P)
+                      - pattern: ioutil.ReadFile($P)
+                      - pattern: ioutil.WriteFile($P, ...)
+                      - pattern: http.ServeFile($W, $R, $P)
+                  - focus-metavariable: $P
+              - patterns:
+                  - pattern-either:
+                      - pattern: $C.File($P)
+                      - pattern: $C.FileAttachment($P, ...)
+                      - pattern: $C.Attachment($P, ...)
+                      - pattern: $C.SendFile($P, ...)
+                      - pattern: $C.Download($P, ...)
+                  - metavariable-regex:
+                      metavariable: $C
+                      regex: (?i)^(c|ctx|e|context)$
+                  - focus-metavariable: $P
+      # rowan-registry:end sink=file_path_go
     pattern-sanitizers:
       - pattern: filepath.Base(...)
-      - pattern: strings.Contains($PATH, "..")
+      - pattern: securejoin.SecureJoin(...)
 
   - id: tnt-go-ssrf-001
     mode: taint
@@ -267,22 +561,67 @@ rules:
       - patterns:
           - pattern-either:
               - pattern: $R.URL.Query()
+              - pattern: $R.URL.Path
+              - pattern: $R.URL.RawQuery
               - pattern: $R.FormValue(...)
+              - pattern: $R.PostFormValue(...)
+              - pattern: $R.Header.Get(...)
               - pattern: $R.Body
               - pattern: $C.Param(...)
               - pattern: "($C : *gin.Context).Query(...)"
-              - pattern: $C.ShouldBindJSON(...)
+              - pattern: $C.PostForm(...)
+              - pattern: $C.DefaultQuery(...)
+              - pattern: $C.GetHeader(...)
+              - pattern: $C.QueryParam(...)
+              - pattern: $C.Params(...)
+              - pattern: chi.URLParam(...)
+              - pattern: mux.Vars(...)
       # rowan-registry:end source=web_request_go
+      # rowan-registry:begin source=web_request_go_bind
+      - patterns:
+          - pattern-either:
+              - pattern: $C.ShouldBindJSON(&$X)
+              - pattern: $C.BindJSON(&$X)
+              - pattern: $C.ShouldBind(&$X)
+              - pattern: $C.Bind(&$X)
+              - pattern: $C.ShouldBindQuery(&$X)
+              - pattern: $C.BodyParser(&$X)
+              - pattern: json.NewDecoder($R.Body).Decode(&$X)
+          - focus-metavariable: $X
+        by-side-effect: true
+      # rowan-registry:end source=web_request_go_bind
       # Bare `$C.Query(...)` on purpose here, unlike the SQL rules: the
       # fragment types it to *gin.Context because the bare form collides with
       # the `$DB.Query(...)` SQL sink. These sinks do not collide, and the bare
       # form is what reaches macaron-style contexts (gogs internal/route).
       - pattern: $C.Query(...)
     pattern-sinks:
-      - pattern: http.Get(...)
-      - pattern: http.Post(...)
-      - pattern: $CLIENT.Do(...)
-      - pattern: url.Parse(...)
+      # rowan-registry:begin sink=http_url_go
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern-either:
+                      - pattern: http.Get($U)
+                      - pattern: http.Head($U)
+                      - pattern: http.Post($U, ...)
+                      - pattern: http.PostForm($U, ...)
+                  - focus-metavariable: $U
+              - patterns:
+                  - pattern-either:
+                      - pattern: $C.Get($U)
+                      - pattern: $C.Head($U)
+                      - pattern: $C.Post($U, ...)
+                      - pattern: $C.PostForm($U, ...)
+                  - metavariable-regex:
+                      metavariable: $C
+                      regex: (?i).*(client|http)
+                  - focus-metavariable: $U
+              - patterns:
+                  - pattern-either:
+                      - pattern: http.NewRequest($M, $U, ...)
+                      - pattern: http.NewRequestWithContext($CTX, $M, $U, ...)
+                  - focus-metavariable: $U
+      # rowan-registry:end sink=http_url_go
 
   # EXT-19 operator-input sibling; see tnt-go-cmdi-002.
   - id: tnt-go-ssrf-002
@@ -313,17 +652,41 @@ rules:
               - pattern: viper.Get(...)
       # rowan-registry:end source=operator_input_go
     pattern-sinks:
-      - pattern: http.Get(...)
-      - pattern: http.Post(...)
-      - pattern: $CLIENT.Do(...)
-      - pattern: url.Parse(...)
+      # rowan-registry:begin sink=http_url_go
+      - patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern-either:
+                      - pattern: http.Get($U)
+                      - pattern: http.Head($U)
+                      - pattern: http.Post($U, ...)
+                      - pattern: http.PostForm($U, ...)
+                  - focus-metavariable: $U
+              - patterns:
+                  - pattern-either:
+                      - pattern: $C.Get($U)
+                      - pattern: $C.Head($U)
+                      - pattern: $C.Post($U, ...)
+                      - pattern: $C.PostForm($U, ...)
+                  - metavariable-regex:
+                      metavariable: $C
+                      regex: (?i).*(client|http)
+                  - focus-metavariable: $U
+              - patterns:
+                  - pattern-either:
+                      - pattern: http.NewRequest($M, $U, ...)
+                      - pattern: http.NewRequestWithContext($CTX, $M, $U, ...)
+                  - focus-metavariable: $U
+      # rowan-registry:end sink=http_url_go
 
   - id: tnt-go-deser-001
     mode: taint
     languages: [go]
-    severity: ERROR
+    severity: WARNING
     message: >-
-      User input flows into a deserialization call, potentially enabling code execution or data corruption.
+      User input is decoded with gob or YAML. Go decodes into declared types, so
+      there is no gadget-chain code execution; the risk is unexpected fields
+      and resource use from an attacker-sized payload.
     metadata:
       cwe:
         - "CWE-502: Deserialization of Untrusted Data"
@@ -337,12 +700,35 @@ rules:
       - patterns:
           - pattern-either:
               - pattern: $R.URL.Query()
+              - pattern: $R.URL.Path
+              - pattern: $R.URL.RawQuery
               - pattern: $R.FormValue(...)
+              - pattern: $R.PostFormValue(...)
+              - pattern: $R.Header.Get(...)
               - pattern: $R.Body
               - pattern: $C.Param(...)
               - pattern: "($C : *gin.Context).Query(...)"
-              - pattern: $C.ShouldBindJSON(...)
+              - pattern: $C.PostForm(...)
+              - pattern: $C.DefaultQuery(...)
+              - pattern: $C.GetHeader(...)
+              - pattern: $C.QueryParam(...)
+              - pattern: $C.Params(...)
+              - pattern: chi.URLParam(...)
+              - pattern: mux.Vars(...)
       # rowan-registry:end source=web_request_go
+      # rowan-registry:begin source=web_request_go_bind
+      - patterns:
+          - pattern-either:
+              - pattern: $C.ShouldBindJSON(&$X)
+              - pattern: $C.BindJSON(&$X)
+              - pattern: $C.ShouldBind(&$X)
+              - pattern: $C.Bind(&$X)
+              - pattern: $C.ShouldBindQuery(&$X)
+              - pattern: $C.BodyParser(&$X)
+              - pattern: json.NewDecoder($R.Body).Decode(&$X)
+          - focus-metavariable: $X
+        by-side-effect: true
+      # rowan-registry:end source=web_request_go_bind
       # Bare `$C.Query(...)` on purpose here, unlike the SQL rules: the
       # fragment types it to *gin.Context because the bare form collides with
       # the `$DB.Query(...)` SQL sink. These sinks do not collide, and the bare
@@ -369,36 +755,49 @@ rules:
       - patterns:
           - pattern-either:
               - pattern: $R.URL.Query()
+              - pattern: $R.URL.Path
+              - pattern: $R.URL.RawQuery
               - pattern: $R.FormValue(...)
+              - pattern: $R.PostFormValue(...)
+              - pattern: $R.Header.Get(...)
               - pattern: $R.Body
               - pattern: $C.Param(...)
               - pattern: "($C : *gin.Context).Query(...)"
-              - pattern: $C.ShouldBindJSON(...)
+              - pattern: $C.PostForm(...)
+              - pattern: $C.DefaultQuery(...)
+              - pattern: $C.GetHeader(...)
+              - pattern: $C.QueryParam(...)
+              - pattern: $C.Params(...)
+              - pattern: chi.URLParam(...)
+              - pattern: mux.Vars(...)
       # rowan-registry:end source=web_request_go
+      # rowan-registry:begin source=web_request_go_bind
+      - patterns:
+          - pattern-either:
+              - pattern: $C.ShouldBindJSON(&$X)
+              - pattern: $C.BindJSON(&$X)
+              - pattern: $C.ShouldBind(&$X)
+              - pattern: $C.Bind(&$X)
+              - pattern: $C.ShouldBindQuery(&$X)
+              - pattern: $C.BodyParser(&$X)
+              - pattern: json.NewDecoder($R.Body).Decode(&$X)
+          - focus-metavariable: $X
+        by-side-effect: true
+      # rowan-registry:end source=web_request_go_bind
       # Bare `$C.Query(...)` on purpose here, unlike the SQL rules: the
       # fragment types it to *gin.Context because the bare form collides with
       # the `$DB.Query(...)` SQL sink. These sinks do not collide, and the bare
       # form is what reaches macaron-style contexts (gogs internal/route).
       - pattern: $C.Query(...)
-      # rowan-registry:begin source=operator_input_go
-      - patterns:
-          - pattern-either:
-              - pattern: os.Getenv(...)
-              - pattern: os.LookupEnv(...)
-              - pattern: flag.String(...)
-              - pattern: flag.Arg(...)
-              - pattern: os.Args
-              - pattern: viper.GetString(...)
-              - pattern: viper.Get(...)
-      # rowan-registry:end source=operator_input_go
     pattern-sinks:
-      - pattern: log.Printf(...)
-      - pattern: log.Println(...)
-      - pattern: slog.Info(...)
-      - pattern: slog.Warn(...)
-      - pattern: logrus.Warn(...)
-      - pattern: logrus.Info(...)
-      - pattern: logrus.Error(...)
+      # The standard log package writes the value as is. slog and logrus
+      # quote or escape newlines in values, and %q escapes them too.
+      - patterns:
+          - pattern: log.$F(...)
+          - metavariable-regex:
+              metavariable: $F
+              regex: ^(Print|Printf|Println|Fatal|Fatalf|Fatalln|Panic|Panicf|Panicln)$
+          - pattern-not: log.$F("=~/%q/", ...)
     pattern-sanitizers:
       - pattern: url.QueryEscape(...)
       # NOT strings.ReplaceAll(...): its neutralizing effect depends
@@ -410,45 +809,67 @@ rules:
   - id: tnt-go-header-001
     mode: taint
     languages: [go]
-    severity: ERROR
+    severity: WARNING
     message: >-
-      User input flows into an HTTP response header, enabling header injection or response splitting.
+      User input is copied into a Set-Cookie or Content-Disposition response
+      header, so the caller controls cookie attributes or the download
+      filename. (net/http replaces CR/LF in header values, so this is not
+      response splitting.)
     metadata:
       cwe:
-        - "CWE-113: Improper Neutralization of CRLF Sequences in HTTP Headers ('HTTP Response Splitting')"
-      confidence: HIGH
+        - "CWE-74: Improper Neutralization of Special Elements in Output Used by a Downstream Component ('Injection')"
+      confidence: MEDIUM
       category: injection
-      fix: "Reject or strip CR/LF characters from values written into HTTP response headers before calling Header().Set/Add."
+      fix: "Build cookies with http.SetCookie and a fixed set of attributes, and quote or sanitize a download filename (mime.FormatMediaType) instead of concatenating request input."
     pattern-sources:
       # rowan-registry:begin source=web_request_go
       - patterns:
           - pattern-either:
               - pattern: $R.URL.Query()
+              - pattern: $R.URL.Path
+              - pattern: $R.URL.RawQuery
               - pattern: $R.FormValue(...)
+              - pattern: $R.PostFormValue(...)
+              - pattern: $R.Header.Get(...)
               - pattern: $R.Body
               - pattern: $C.Param(...)
               - pattern: "($C : *gin.Context).Query(...)"
-              - pattern: $C.ShouldBindJSON(...)
+              - pattern: $C.PostForm(...)
+              - pattern: $C.DefaultQuery(...)
+              - pattern: $C.GetHeader(...)
+              - pattern: $C.QueryParam(...)
+              - pattern: $C.Params(...)
+              - pattern: chi.URLParam(...)
+              - pattern: mux.Vars(...)
       # rowan-registry:end source=web_request_go
+      # rowan-registry:begin source=web_request_go_bind
+      - patterns:
+          - pattern-either:
+              - pattern: $C.ShouldBindJSON(&$X)
+              - pattern: $C.BindJSON(&$X)
+              - pattern: $C.ShouldBind(&$X)
+              - pattern: $C.Bind(&$X)
+              - pattern: $C.ShouldBindQuery(&$X)
+              - pattern: $C.BodyParser(&$X)
+              - pattern: json.NewDecoder($R.Body).Decode(&$X)
+          - focus-metavariable: $X
+        by-side-effect: true
+      # rowan-registry:end source=web_request_go_bind
       # Bare `$C.Query(...)` on purpose here, unlike the SQL rules: the
       # fragment types it to *gin.Context because the bare form collides with
       # the `$DB.Query(...)` SQL sink. These sinks do not collide, and the bare
       # form is what reaches macaron-style contexts (gogs internal/route).
       - pattern: $C.Query(...)
-      # rowan-registry:begin source=operator_input_go
+    pattern-sinks:
+      # Location is the redirect rule's sink.
       - patterns:
           - pattern-either:
-              - pattern: os.Getenv(...)
-              - pattern: os.LookupEnv(...)
-              - pattern: flag.String(...)
-              - pattern: flag.Arg(...)
-              - pattern: os.Args
-              - pattern: viper.GetString(...)
-              - pattern: viper.Get(...)
-      # rowan-registry:end source=operator_input_go
-    pattern-sinks:
-      - pattern: $W.Header().Set(...)
-      - pattern: $W.Header().Add(...)
+              - pattern: $W.Header().Set($NAME, $V)
+              - pattern: $W.Header().Add($NAME, $V)
+          - metavariable-regex:
+              metavariable: $NAME
+              regex: (?i)^"(set-cookie|content-disposition)"$
+          - focus-metavariable: $V
     pattern-sanitizers:
       - pattern: url.QueryEscape(...)
       # NOT strings.ReplaceAll(...): its neutralizing effect depends
@@ -476,12 +897,35 @@ rules:
       - patterns:
           - pattern-either:
               - pattern: $R.URL.Query()
+              - pattern: $R.URL.Path
+              - pattern: $R.URL.RawQuery
               - pattern: $R.FormValue(...)
+              - pattern: $R.PostFormValue(...)
+              - pattern: $R.Header.Get(...)
               - pattern: $R.Body
               - pattern: $C.Param(...)
               - pattern: "($C : *gin.Context).Query(...)"
-              - pattern: $C.ShouldBindJSON(...)
+              - pattern: $C.PostForm(...)
+              - pattern: $C.DefaultQuery(...)
+              - pattern: $C.GetHeader(...)
+              - pattern: $C.QueryParam(...)
+              - pattern: $C.Params(...)
+              - pattern: chi.URLParam(...)
+              - pattern: mux.Vars(...)
       # rowan-registry:end source=web_request_go
+      # rowan-registry:begin source=web_request_go_bind
+      - patterns:
+          - pattern-either:
+              - pattern: $C.ShouldBindJSON(&$X)
+              - pattern: $C.BindJSON(&$X)
+              - pattern: $C.ShouldBind(&$X)
+              - pattern: $C.Bind(&$X)
+              - pattern: $C.ShouldBindQuery(&$X)
+              - pattern: $C.BodyParser(&$X)
+              - pattern: json.NewDecoder($R.Body).Decode(&$X)
+          - focus-metavariable: $X
+        by-side-effect: true
+      # rowan-registry:end source=web_request_go_bind
       # Bare form as in tnt-go-header-001: Redirect is not a SQL sink, so it
       # cannot collide with $DB.Query(...).
       - pattern: $C.Query(...)
@@ -493,6 +937,74 @@ rules:
       - patterns:
           - pattern: $C.Redirect($CODE, $URL)
           - focus-metavariable: $URL
+      - patterns:
+          - pattern-either:
+              - pattern: $W.Header().Set($NAME, $URL)
+              - pattern: $W.Header().Add($NAME, $URL)
+          - metavariable-regex:
+              metavariable: $NAME
+              regex: (?i)^"location"$
+          - focus-metavariable: $URL
+
+  # Request input used as the template SOURCE. Data passed to Execute is
+  # escaped (html/template) or inert; a template the caller writes can call
+  # any method or function reachable from the data and the FuncMap (#56,
+  # replaces GO-SSTI-001, which fired on every text/template import).
+  - id: tnt-go-ssti-001
+    mode: taint
+    languages: [go]
+    severity: ERROR
+    message: >-
+      User input is parsed as a Go template, so the caller writes template
+      code that runs with access to the data and functions passed to it.
+    metadata:
+      cwe:
+        - "CWE-1336: Improper Neutralization of Special Elements Used in a Template Engine"
+      confidence: HIGH
+      category: ssti
+      source_kind: http_input
+      fix: "Parse only templates shipped with the code; pass user input as data to Execute, never as template text."
+    pattern-sources:
+      # rowan-registry:begin source=web_request_go
+      - patterns:
+          - pattern-either:
+              - pattern: $R.URL.Query()
+              - pattern: $R.URL.Path
+              - pattern: $R.URL.RawQuery
+              - pattern: $R.FormValue(...)
+              - pattern: $R.PostFormValue(...)
+              - pattern: $R.Header.Get(...)
+              - pattern: $R.Body
+              - pattern: $C.Param(...)
+              - pattern: "($C : *gin.Context).Query(...)"
+              - pattern: $C.PostForm(...)
+              - pattern: $C.DefaultQuery(...)
+              - pattern: $C.GetHeader(...)
+              - pattern: $C.QueryParam(...)
+              - pattern: $C.Params(...)
+              - pattern: chi.URLParam(...)
+              - pattern: mux.Vars(...)
+      # rowan-registry:end source=web_request_go
+      # rowan-registry:begin source=web_request_go_bind
+      - patterns:
+          - pattern-either:
+              - pattern: $C.ShouldBindJSON(&$X)
+              - pattern: $C.BindJSON(&$X)
+              - pattern: $C.ShouldBind(&$X)
+              - pattern: $C.Bind(&$X)
+              - pattern: $C.ShouldBindQuery(&$X)
+              - pattern: $C.BodyParser(&$X)
+              - pattern: json.NewDecoder($R.Body).Decode(&$X)
+          - focus-metavariable: $X
+        by-side-effect: true
+      # rowan-registry:end source=web_request_go_bind
+      - pattern: $C.Query(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: template.New(...).Parse($SRC)
+              - pattern: $T.Parse($SRC)
+          - focus-metavariable: $SRC
 
   - id: tnt-go-xss-001
     mode: taint
@@ -513,12 +1025,35 @@ rules:
       - patterns:
           - pattern-either:
               - pattern: $R.URL.Query()
+              - pattern: $R.URL.Path
+              - pattern: $R.URL.RawQuery
               - pattern: $R.FormValue(...)
+              - pattern: $R.PostFormValue(...)
+              - pattern: $R.Header.Get(...)
               - pattern: $R.Body
               - pattern: $C.Param(...)
               - pattern: "($C : *gin.Context).Query(...)"
-              - pattern: $C.ShouldBindJSON(...)
+              - pattern: $C.PostForm(...)
+              - pattern: $C.DefaultQuery(...)
+              - pattern: $C.GetHeader(...)
+              - pattern: $C.QueryParam(...)
+              - pattern: $C.Params(...)
+              - pattern: chi.URLParam(...)
+              - pattern: mux.Vars(...)
       # rowan-registry:end source=web_request_go
+      # rowan-registry:begin source=web_request_go_bind
+      - patterns:
+          - pattern-either:
+              - pattern: $C.ShouldBindJSON(&$X)
+              - pattern: $C.BindJSON(&$X)
+              - pattern: $C.ShouldBind(&$X)
+              - pattern: $C.Bind(&$X)
+              - pattern: $C.ShouldBindQuery(&$X)
+              - pattern: $C.BodyParser(&$X)
+              - pattern: json.NewDecoder($R.Body).Decode(&$X)
+          - focus-metavariable: $X
+        by-side-effect: true
+      # rowan-registry:end source=web_request_go_bind
       - pattern: $C.Query(...)
     pattern-sinks:
       # Raw writes to the response. Typed, so writing to stdout or a file is

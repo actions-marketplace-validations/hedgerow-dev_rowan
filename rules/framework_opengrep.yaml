@@ -1,0 +1,173 @@
+# Structural companions to framework_rules.yaml. "X without Y" checks whose Y
+# sits on another line cannot be regex rules: pattern-not only sees the
+# finding's own line (#71). These keep their original rule IDs.
+
+rules:
+  - id: ns-fw-py-004
+    message: >
+      Django MIDDLEWARE does not include CsrfViewMiddleware, so POST forms and
+      views are not protected against cross-site request forgery. Add
+      django.middleware.csrf.CsrfViewMiddleware to MIDDLEWARE.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      cwe: [352]
+      category: auth
+      fix: "Add \"django.middleware.csrf.CsrfViewMiddleware\" to MIDDLEWARE."
+    patterns:
+      - pattern-either:
+          - pattern: MIDDLEWARE = [...]
+          - pattern: MIDDLEWARE = (...)
+      - pattern-not: MIDDLEWARE = [..., "django.middleware.csrf.CsrfViewMiddleware", ...]
+      - pattern-not: MIDDLEWARE = (..., "django.middleware.csrf.CsrfViewMiddleware", ...)
+
+  - id: ns-fw-js-001
+    message: >
+      Express app without Helmet middleware in the same file. Helmet sets
+      security-related HTTP headers. If headers are set elsewhere, ignore
+      this; otherwise add app.use(helmet()).
+    severity: INFO
+    languages: [javascript, typescript]
+    metadata:
+      cwe: [693]
+      category: config
+      fix: "Install helmet and add app.use(helmet()) before the routes."
+    patterns:
+      - pattern: $APP = express()
+      - pattern-not-inside: |
+          $APP = express();
+          ...
+          $APP.use(helmet(...));
+
+  - id: ns-fw-sess-001
+    message: >
+      A login-style key (user_id, uid, ...) is written into the session without
+      rotating the session in the same function. An attacker who planted a
+      session ID before login keeps it after the victim authenticates (session
+      fixation). Rotate first: session.clear() (Flask), new_session() (aiohttp),
+      request.session.cycle_key() or login() (Django).
+    severity: WARNING
+    languages: [python]
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "**/test_*.py"
+    metadata:
+      cwe: [384]
+      category: auth
+      fix: "Issue a fresh session at login before storing the user's identity in it."
+    patterns:
+      - pattern: $SESSION[$KEY] = $VALUE
+      - metavariable-regex:
+          metavariable: $SESSION
+          regex: ^(session|sess|request\.session)$
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: ^["'](user_id|uid|user|username|account_id|auth_user_id|logged_in)["']$
+      # `def` also matches `async def`.
+      - pattern-inside: |
+          def $F(...):
+            ...
+      - pattern-not-inside: |
+          def $F(...):
+            ...
+            $S.clear()
+            ...
+      - pattern-not-inside: |
+          def $F(...):
+            ...
+            $S.cycle_key()
+            ...
+      - pattern-not-inside: |
+          def $F(...):
+            ...
+            $S.invalidate()
+            ...
+      - pattern-not-inside: |
+          def $F(...):
+            ...
+            $S.regenerate(...)
+            ...
+      - pattern-not-inside: |
+          def $F(...):
+            ...
+            $S = await new_session(...)
+            ...
+      - pattern-not-inside: |
+          def $F(...):
+            ...
+            $S = new_session(...)
+            ...
+      - pattern-not-inside: |
+          def $F(...):
+            ...
+            login(...)
+            ...
+
+  - id: ns-fw-java-001
+    message: >
+      CSRF protection is disabled in the Spring Security configuration. This is
+      only safe for a stateless API that authenticates every request with a
+      token rather than a cookie.
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe: [352]
+      category: auth
+      fix: "Keep CSRF enabled for cookie-authenticated endpoints; disable it only on a stateless token-authenticated API."
+    pattern-either:
+      - pattern: $H.csrf().disable()
+      # Opengrep has no pattern syntax for method references.
+      - patterns:
+          - pattern: $H.csrf($M)
+          - metavariable-regex:
+              metavariable: $M
+              regex: .*::disable$
+      - pattern: $H.csrf($C -> $C.disable())
+
+  - id: ns-fw-java-002
+    message: >
+      permitAll() is applied to every request (anyRequest() or "/**"), so the
+      whole application is reachable without authentication.
+    severity: WARNING
+    languages: [java]
+    metadata:
+      cwe: [862]
+      category: auth
+      fix: "Use anyRequest().authenticated() and permitAll() only the specific public paths (login, static assets)."
+    pattern-either:
+      - pattern: $X.anyRequest().permitAll()
+      - pattern: $X.requestMatchers("/**").permitAll()
+      - pattern: $X.antMatchers("/**").permitAll()
+      - pattern: $X.mvcMatchers("/**").permitAll()
+
+  - id: ns-fw-cs-002
+    message: >
+      CORS reflects any origin while allowing credentials, so any site can make
+      authenticated requests and read the responses. (AllowAnyOrigin together
+      with AllowCredentials throws at startup in ASP.NET Core; the
+      SetIsOriginAllowed(_ => true) form does not.)
+    severity: WARNING
+    languages: [csharp]
+    metadata:
+      cwe: [942]
+      category: config
+      fix: "Use WithOrigins(...) with an explicit list of trusted origins when credentials are allowed."
+    pattern-either:
+      - pattern: $B.AllowAnyOrigin().AllowCredentials()
+      - pattern: $B.SetIsOriginAllowed($F).AllowCredentials()
+
+  - id: ns-fw-cs-005
+    message: >
+      UseDeveloperExceptionPage() is called outside an env.IsDevelopment()
+      check, so production responses can expose stack traces and source.
+    severity: ERROR
+    languages: [csharp]
+    metadata:
+      cwe: [209]
+      category: config
+      fix: "Call UseDeveloperExceptionPage() only inside if (env.IsDevelopment()) and use UseExceptionHandler in production."
+    patterns:
+      - pattern: $A.UseDeveloperExceptionPage()
+      - pattern-not-inside: |
+          if ($ENV.IsDevelopment()) { ... }

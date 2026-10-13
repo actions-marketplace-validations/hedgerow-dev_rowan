@@ -36,29 +36,6 @@ rules:
     rule_name: ProcessBuilder command injection
     residual:
     - sanitizer
-- id: JA-INJECT-003
-  languages:
-  - java
-  severity: ERROR
-  message: 'SQL query built via string concatenation is injectable. Use
-
-    PreparedStatement with ? placeholders and .setString()/.setInt().'
-  patterns:
-  - pattern-either:
-    - pattern-regex: Statement.*\.execute(Update|Query)?\s*\(.*\+
-    - pattern-regex: \.execute(Update|Query)?\s*\(.*\+
-  - pattern-not-regex: \.setString\s*\(
-  - pattern-not-regex: \.setInt\s*\(
-  - pattern-not-regex: PreparedStatement
-  - pattern-not-regex: (?m)^\s*//.*
-  metadata:
-    category: injection
-    cwe:
-    - 89
-    original_engine: neuroscan
-    rule_name: SQL injection via string concatenation
-    residual:
-    - sanitizer
 - id: JA-DESER-001
   languages:
   - java
@@ -81,27 +58,6 @@ rules:
       or an allowlisting ObjectInputFilter.
     residual:
     - sanitizer
-- id: JA-SSRF-001
-  languages:
-  - java
-  severity: ERROR
-  message: 'User-controlled URL enables SSRF to internal services. Validate URLs
-
-    against an allowlist before making connections.'
-  patterns:
-  - pattern-either:
-    - pattern-regex: new\s+URL\s*\([^)]*\+
-    - pattern-regex: HttpURLConnection
-  - pattern-not-regex: \.startsWith\s*\(['"]https?:\/\/
-  - pattern-not-regex: (?m)^\s*//.*
-  metadata:
-    category: ssrf
-    cwe:
-    - 918
-    original_engine: neuroscan
-    rule_name: User-controlled URL connection
-    residual:
-    - sanitizer
 - id: JA-CRYPTO-002
   languages:
   - java
@@ -119,46 +75,6 @@ rules:
     - 330
     original_engine: neuroscan
     rule_name: java.util.Random for security
-- id: JA-XXE-001
-  languages:
-  - java
-  severity: ERROR
-  message: 'XML parser without XXE protections. Set FEATURE_SECURE_PROCESSING,
-
-    disallow DOCTYPE, and set external-general-entities/parameter-entities to false.'
-  patterns:
-  - pattern-either:
-    - pattern-regex: DocumentBuilderFactory\.newInstance\(\)
-    - pattern-regex: SAXParserFactory\.newInstance\(\)
-  - pattern-not-regex: setFeature.*EXTERNAL_GENERAL_ENTITIES.*false
-  - pattern-not-regex: setFeature.*EXTERNAL_PARAMETER_ENTITIES.*false
-  - pattern-not-regex: (?m)^\s*//.*
-  metadata:
-    category: injection
-    cwe:
-    - 611
-    original_engine: neuroscan
-    rule_name: XML parser without XXE protection
-    residual:
-    - sanitizer
-- id: JA-AUTH-001
-  languages:
-  - java
-  severity: WARNING
-  message: 'Cookie created without setSecure(true) and setHttpOnly(true).
-
-    Session hijacking risk via MITM or XSS.'
-  patterns:
-  - pattern-regex: new\s+Cookie\s*\(
-  - pattern-not-regex: \.setSecure\s*\(true\)
-  - pattern-not-regex: \.setHttpOnly\s*\(true\)
-  - pattern-not-regex: (?m)^\s*//.*
-  metadata:
-    category: auth
-    cwe:
-    - 614
-    original_engine: neuroscan
-    rule_name: Cookie without Secure/HttpOnly
 - id: JA-INJECT-004
   languages:
   - java

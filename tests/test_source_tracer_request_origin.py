@@ -119,3 +119,139 @@ class TestEndToEndSeverity:
             "Flask SSRF at INFO is what let `scan --severity high` pass it"
         )
         assert all(f.confidence > 0.5 for f in ssrf)
+
+
+# Route parameters are request input with no request object in sight: FastAPI
+# binds typed parameters, Flask binds `<name>` path variables. The taint rules
+# treat them as sources; the tracer must too, or their flows are floored to
+# INFO and hidden by --confirmed (#59).
+_FASTAPI_APP = '''\
+import subprocess
+from fastapi import Depends, FastAPI
+from unittest import mock
+
+app = FastAPI()
+
+
+def get_cmd():
+    return "ls"
+
+
+@app.get("/ping")
+def ping(host: str):
+    return subprocess.run("ping " + host, shell=True)
+
+
+@app.get("/dep")
+def dep(cmd: str = Depends(get_cmd)):
+    return subprocess.run(cmd, shell=True)
+
+
+def helper(host: str):
+    return subprocess.run("ping " + host, shell=True)
+
+
+@mock.patch("pkg.run")
+def patched(host: str):
+    return subprocess.run("ping " + host, shell=True)
+'''
+
+_FLASK_ROUTE_VAR = '''\
+import os
+from flask import Flask
+
+app = Flask(__name__)
+
+
+@app.route("/hi/<name>")
+def hi(name):
+    return os.system("echo " + name)
+'''
+
+
+class TestRouteParameterOrigin:
+    def test_fastapi_route_parameter_is_http_input(self, tmp_path: Path) -> None:
+        app = tmp_path / "app.py"
+        app.write_text(_FASTAPI_APP, encoding="utf-8")
+        assert classify_origin(str(app), "host", 14) == ("http_input", 1.0)
+
+    def test_flask_route_variable_is_http_input(self, tmp_path: Path) -> None:
+        app = tmp_path / "app.py"
+        app.write_text(_FLASK_ROUTE_VAR, encoding="utf-8")
+        assert classify_origin(str(app), "name", 9) == ("http_input", 1.0)
+
+    def test_dependency_and_non_route_parameters_stay_function_params(self, tmp_path: Path) -> None:
+        app = tmp_path / "app.py"
+        app.write_text(_FASTAPI_APP, encoding="utf-8")
+        assert classify_origin(str(app), "cmd", 19) == ("function_param", 0.3)
+        assert classify_origin(str(app), "host", 23) == ("function_param", 0.3)
+        assert classify_origin(str(app), "host", 28) == ("function_param", 0.3)
+
+    def test_fastapi_flow_is_confirmed_end_to_end(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rowan-route-") as td:
+            target = Path(td)
+            (target / "app.py").write_text(_FASTAPI_APP, encoding="utf-8")
+            result = ScanPipeline(ScanConfig(target=target, no_sca=True)).run()
+        ping = [f for f in result.findings if f.taint_flow is not None and f.start_line == 14]
+        assert ping, "the FastAPI route flow must produce a taint finding"
+        for f in ping:
+            assert f.metadata.get("source_origin") == "http_input"
+            assert not f.metadata.get("taint_unconfirmed")
+            assert f.severity.value != "info"
+
+
+_FASTAPI_DEPS = '''\
+from typing import Annotated
+import subprocess
+from fastapi import APIRouter, Depends
+from app.api.deps import CurrentUser, Principal
+from app.schemas import ItemCreate
+
+router = APIRouter()
+SettingsAlias = Annotated["Settings", Depends(lambda: 1)]
+
+
+@router.post("/a")
+def a(s: SettingsAlias, u: CurrentUser, p: Principal, item: ItemCreate, name: str):
+    return subprocess.run(name, shell=True)
+'''
+
+
+def test_dependency_aliases_are_not_route_input(tmp_path: Path) -> None:
+    """Dependencies declared through Annotated[..., Depends(...)] aliases are
+    injected services or principals, not request data: defined in this file,
+    imported from a deps/dependencies module, or named like one."""
+    import ast
+
+    from rowan.analysis.request_sources import route_input_names
+
+    tree = ast.parse(_FASTAPI_DEPS)
+    func = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "a")
+    assert route_input_names(func, module=tree) == {"item", "name"}
+
+
+def test_injected_dependency_alias_flow_is_not_reported_end_to_end() -> None:
+    """A settings object injected through a dependency alias reaching
+    requests.get / subprocess is configuration, not request input: neither
+    the taint rules nor the cross-file HTTP-route boundary may report it.
+    The real request parameter in the same file still is."""
+    src = (
+        "from typing import Annotated\n"
+        "import requests\n"
+        "from fastapi import APIRouter, Depends\n\n"
+        "router = APIRouter()\n"
+        "def get_settings(): ...\n"
+        "SettingsDep = Annotated['Settings', Depends(get_settings)]\n\n\n"
+        "@router.get('/status')\n"
+        "def status(settings: SettingsDep):\n"
+        "    return requests.get(settings.UPSTREAM_URL)\n\n\n"
+        "@router.get('/fetch')\n"
+        "def fetch(url: str):\n"
+        "    return requests.get(url)\n"
+    )
+    with tempfile.TemporaryDirectory(prefix="rowan-deps-") as td:
+        target = Path(td)
+        (target / "app.py").write_text(src, encoding="utf-8")
+        result = ScanPipeline(ScanConfig(target=target, no_sca=True)).run()
+    ssrf_lines = {f.start_line for f in result.findings if f.category.value == "ssrf"}
+    assert ssrf_lines == {17}, [(f.rule_id, f.start_line) for f in result.findings]

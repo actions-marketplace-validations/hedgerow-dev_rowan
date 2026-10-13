@@ -42,10 +42,6 @@ rules:
               - pattern: request.POST[...]
               - pattern: request.body
               - pattern: request.query_params
-              - pattern: input(...)
-              - pattern: sys.argv
-              - pattern: os.environ[...]
-              - pattern: os.getenv(...)
               - pattern: await request.json(...)
               - pattern: await request.form(...)
               - pattern: await request.body(...)
@@ -79,7 +75,11 @@ rules:
                       regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                   - metavariable-regex:
                       metavariable: $T
-                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                  - pattern-not-inside: |
+                      $T = Annotated[..., Depends(...)]
+                      ...
+
                   - pattern-not-inside: |
                       def $F(..., $P = Depends(...), ...):
                         ...
@@ -139,7 +139,7 @@ rules:
       category: ssrf
       fix: "Validate the destination host against an explicit allowlist of permitted domains/IPs before fetching a URL that feeds a file write or deserialization sink."
     pattern-sources:
-      # rowan-registry:begin source=user_input
+      # rowan-registry:begin source=web_request
       - patterns:
           - pattern-either:
               - pattern: request.args.get(...)
@@ -161,7 +161,6 @@ rules:
               - pattern: request.POST[...]
               - pattern: request.body
               - pattern: request.query_params
-              - pattern: input(...)
               - pattern: await request.json(...)
               - pattern: await request.form(...)
               - pattern: await request.body(...)
@@ -195,7 +194,11 @@ rules:
                       regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                   - metavariable-regex:
                       metavariable: $T
-                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                  - pattern-not-inside: |
+                      $T = Annotated[..., Depends(...)]
+                      ...
+
                   - pattern-not-inside: |
                       def $F(..., $P = Depends(...), ...):
                         ...
@@ -213,7 +216,7 @@ rules:
                         ...
 
                   - pattern: $P
-      # rowan-registry:end source=user_input
+      # rowan-registry:end source=web_request
         label: USER
       # The chain needs a fetch in the middle: only the response of an HTTP
       # request whose arguments carry user input is FETCHED. Without this the
@@ -260,7 +263,7 @@ rules:
       category: deserialization
       fix: "Never base64-decode-then-unpickle untrusted data; use a safe format (json) with a known schema."
     pattern-sources:
-      # rowan-registry:begin source=user_input
+      # rowan-registry:begin source=web_request
       - patterns:
           - pattern-either:
               - pattern: request.args.get(...)
@@ -282,7 +285,6 @@ rules:
               - pattern: request.POST[...]
               - pattern: request.body
               - pattern: request.query_params
-              - pattern: input(...)
               - pattern: await request.json(...)
               - pattern: await request.form(...)
               - pattern: await request.body(...)
@@ -316,7 +318,11 @@ rules:
                       regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                   - metavariable-regex:
                       metavariable: $T
-                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                  - pattern-not-inside: |
+                      $T = Annotated[..., Depends(...)]
+                      ...
+
                   - pattern-not-inside: |
                       def $F(..., $P = Depends(...), ...):
                         ...
@@ -334,7 +340,7 @@ rules:
                         ...
 
                   - pattern: $P
-      # rowan-registry:end source=user_input
+      # rowan-registry:end source=web_request
     pattern-propagators:
       - patterns:
           - pattern: |
@@ -371,7 +377,7 @@ rules:
       category: injection
       fix: "Never pass request-derived data to exec()/eval(). Parse it into a typed structure and dispatch on an allowlist of known operations."
     pattern-sources:
-      # rowan-registry:begin source=user_input
+      # rowan-registry:begin source=web_request
       - patterns:
           - pattern-either:
               - pattern: request.args.get(...)
@@ -393,7 +399,6 @@ rules:
               - pattern: request.POST[...]
               - pattern: request.body
               - pattern: request.query_params
-              - pattern: input(...)
               - pattern: await request.json(...)
               - pattern: await request.form(...)
               - pattern: await request.body(...)
@@ -427,7 +432,11 @@ rules:
                       regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                   - metavariable-regex:
                       metavariable: $T
-                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                  - pattern-not-inside: |
+                      $T = Annotated[..., Depends(...)]
+                      ...
+
                   - pattern-not-inside: |
                       def $F(..., $P = Depends(...), ...):
                         ...
@@ -445,7 +454,7 @@ rules:
                         ...
 
                   - pattern: $P
-      # rowan-registry:end source=user_input
+      # rowan-registry:end source=web_request
     pattern-propagators:
       - patterns:
           - pattern: |

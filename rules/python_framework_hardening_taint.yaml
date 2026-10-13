@@ -20,7 +20,7 @@ rules:
     pattern-sources:
       - patterns:
           - pattern-either:
-              # rowan-registry:begin source=user_input
+              # rowan-registry:begin source=web_request
               - patterns:
                   - pattern-either:
                       - pattern: request.args.get(...)
@@ -42,7 +42,6 @@ rules:
                       - pattern: request.POST[...]
                       - pattern: request.body
                       - pattern: request.query_params
-                      - pattern: input(...)
                       - pattern: await request.json(...)
                       - pattern: await request.form(...)
                       - pattern: await request.body(...)
@@ -76,7 +75,11 @@ rules:
                               regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                           - metavariable-regex:
                               metavariable: $T
-                              regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                              regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                          - pattern-not-inside: |
+                              $T = Annotated[..., Depends(...)]
+                              ...
+
                           - pattern-not-inside: |
                               def $F(..., $P = Depends(...), ...):
                                 ...
@@ -94,7 +97,7 @@ rules:
                                 ...
 
                           - pattern: $P
-              # rowan-registry:end source=user_input
+              # rowan-registry:end source=web_request
       - pattern: request.get_json(...)
     pattern-sinks:
       - patterns:
@@ -135,7 +138,7 @@ rules:
     pattern-sources:
       - patterns:
           - pattern-either:
-              # rowan-registry:begin source=user_input
+              # rowan-registry:begin source=web_request
               - patterns:
                   - pattern-either:
                       - pattern: request.args.get(...)
@@ -157,7 +160,6 @@ rules:
                       - pattern: request.POST[...]
                       - pattern: request.body
                       - pattern: request.query_params
-                      - pattern: input(...)
                       - pattern: await request.json(...)
                       - pattern: await request.form(...)
                       - pattern: await request.body(...)
@@ -191,7 +193,11 @@ rules:
                               regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                           - metavariable-regex:
                               metavariable: $T
-                              regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                              regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                          - pattern-not-inside: |
+                              $T = Annotated[..., Depends(...)]
+                              ...
+
                           - pattern-not-inside: |
                               def $F(..., $P = Depends(...), ...):
                                 ...
@@ -209,7 +215,7 @@ rules:
                                 ...
 
                           - pattern: $P
-              # rowan-registry:end source=user_input
+              # rowan-registry:end source=web_request
       - pattern: request.get_json(...)
     pattern-sinks:
       - patterns:
@@ -232,7 +238,9 @@ rules:
           - pattern-either:
               - pattern: secure_filename(...)
               - pattern: os.path.basename(...)
-              - pattern: $ROOT.joinpath(...).resolve(...)
+              # Not joinpath(...).resolve(): without a containment check the
+              # resolved path can still leave the root, as this rule's own
+              # message says (#74).
 
   - id: TNT-PY-FWK-URLFETCH-001
     mode: taint
@@ -250,7 +258,7 @@ rules:
     pattern-sources:
       - patterns:
           - pattern-either:
-              # rowan-registry:begin source=user_input
+              # rowan-registry:begin source=web_request
               - patterns:
                   - pattern-either:
                       - pattern: request.args.get(...)
@@ -272,7 +280,6 @@ rules:
                       - pattern: request.POST[...]
                       - pattern: request.body
                       - pattern: request.query_params
-                      - pattern: input(...)
                       - pattern: await request.json(...)
                       - pattern: await request.form(...)
                       - pattern: await request.body(...)
@@ -306,7 +313,11 @@ rules:
                               regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                           - metavariable-regex:
                               metavariable: $T
-                              regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                              regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                          - pattern-not-inside: |
+                              $T = Annotated[..., Depends(...)]
+                              ...
+
                           - pattern-not-inside: |
                               def $F(..., $P = Depends(...), ...):
                                 ...
@@ -324,7 +335,7 @@ rules:
                                 ...
 
                           - pattern: $P
-              # rowan-registry:end source=user_input
+              # rowan-registry:end source=web_request
       - pattern: request.get_json(...)
     pattern-sinks:
       - patterns:
@@ -392,7 +403,7 @@ rules:
     pattern-sources:
       - patterns:
           - pattern-either:
-              # rowan-registry:begin source=user_input
+              # rowan-registry:begin source=web_request
               - patterns:
                   - pattern-either:
                       - pattern: request.args.get(...)
@@ -414,7 +425,6 @@ rules:
                       - pattern: request.POST[...]
                       - pattern: request.body
                       - pattern: request.query_params
-                      - pattern: input(...)
                       - pattern: await request.json(...)
                       - pattern: await request.form(...)
                       - pattern: await request.body(...)
@@ -448,7 +458,11 @@ rules:
                               regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                           - metavariable-regex:
                               metavariable: $T
-                              regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                              regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                          - pattern-not-inside: |
+                              $T = Annotated[..., Depends(...)]
+                              ...
+
                           - pattern-not-inside: |
                               def $F(..., $P = Depends(...), ...):
                                 ...
@@ -466,7 +480,7 @@ rules:
                                 ...
 
                           - pattern: $P
-              # rowan-registry:end source=user_input
+              # rowan-registry:end source=web_request
       - pattern: request.get_json(...)
     pattern-sinks:
       - patterns:

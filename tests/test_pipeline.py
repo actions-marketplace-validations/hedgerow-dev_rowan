@@ -407,7 +407,7 @@ def test_enrichment_dedup():
         },
     )()
 
-    enrich = EnrichmentPass(dedup_threshold=3)
+    enrich = EnrichmentPass()
     enrich.run(ctx)
 
     assert len(ctx.result.findings) == 1
@@ -838,6 +838,11 @@ def test_log_forging_is_audit_only_in_views(tmp_path):
     keep = _finding(Severity.MEDIUM, Category.INJECTION, tier="taint-flow")
     keep.cwe_ids = [89]
     assert pipe._in_actionable_view(keep)
+    # A merged finding that also inherited 117 from a log-forging duplicate
+    # is still the real issue (#61).
+    merged = _finding(Severity.MEDIUM, Category.INJECTION, tier="taint-flow")
+    merged.cwe_ids = [89, 117]
+    assert pipe._in_actionable_view(merged)
 
 
 def test_unreadable_manifest_is_a_warning(tmp_path, monkeypatch, caplog):
@@ -848,6 +853,16 @@ def test_unreadable_manifest_is_a_warning(tmp_path, monkeypatch, caplog):
     pipeline._load_conversion_manifest(tmp_path)
 
     assert "Could not load conversion manifest" in caplog.text
+    # Without the manifest three enrichment filters and the cross-file sink
+    # classifier silently switch off, so the scan is degraded, not just
+    # logged (#64).
+    assert "conversion_manifest" in pipeline._context.result.degraded_passes
+
+
+def test_rules_dir_without_converted_rules_needs_no_manifest(tmp_path):
+    pipeline = ScanPipeline(ScanConfig(target=tmp_path, no_sca=True))
+    pipeline._load_conversion_manifest(tmp_path)
+    assert "conversion_manifest" not in pipeline._context.result.degraded_passes
 
 
 def test_custom_rules_dir_without_converted_is_degraded(tmp_path):

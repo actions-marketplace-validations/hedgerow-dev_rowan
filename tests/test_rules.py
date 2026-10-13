@@ -557,41 +557,6 @@ def test_ns_xss_002_ignores_innerhtml_empty_string_clear(tmp_path):
     assert rule.check(genuine), "must still fire on a genuine innerHTML XSS sink"
 
 
-def test_ns_fw_js_003_ignores_non_express_post_put(tmp_path):
-    """DEF-25: ns-fw-js-003 ("Express missing CSRF protection") had bare
-    `\\.post\\(`/`\\.put\\(` patterns matching the method name on ANY
-    receiver. Confirmed on two real corpus scans: discourse (225 fires)
-    were pretender.js mock-server test route definitions
-    (`pretender.post(...)`/`server.put(...)`, Ember.js frontend test
-    fixtures, not real server routes); prestashop (72 fires) were
-    jQuery's client-side AJAX helper (`$.post(...)`) -- the client making
-    a request, the opposite of a server handling one without CSRF
-    protection. Scoped to the standard Express convention
-    (`app.post(...)`/`router.post(...)`)."""
-    rules_dir = Path(__file__).parent.parent / "rules"
-    rules = load_neuroscan_rules(rules_dir / "framework_rules.yaml")
-    rule = next(r for r in rules if r.metadata.id == "ns-fw-js-003")
-
-    mock_server = tmp_path / "mock.js"
-    mock_server.write_text('pretender.post("/admin/email/test", () => {});\n', encoding="utf-8")
-    assert rule.check(mock_server) == [], "must not fire on pretender.js mock-server test routes"
-
-    jquery_ajax = tmp_path / "client.js"
-    jquery_ajax.write_text(
-        "$.post(url).then(() => window.location.assign(redirectUrl));\n", encoding="utf-8"
-    )
-    assert rule.check(jquery_ajax) == [], "must not fire on jQuery's client-side $.post()"
-
-    genuine = tmp_path / "server.js"
-    genuine.write_text(
-        "const express = require('express');\n"
-        "const app = express();\n"
-        "app.post('/transfer', (req, res) => { doTransfer(req.body); });\n",
-        encoding="utf-8",
-    )
-    assert rule.check(genuine), "must still fire on a real Express app.post() route without CSRF"
-
-
 def test_ns_path_005_ignores_unrelated_extract_methods(tmp_path):
     """DEF-16: NS-PATH-005's bare `\\.extract\\(` pattern matched the method
     name "extract" on ANY receiver, not just tarfile/zipfile objects.
@@ -714,7 +679,7 @@ def test_c_family_rules_use_correct_comment_syntax(tmp_path):
     cases = [
         ("go.yaml", "GO-INJECT-001", "main.go", 'exec.Command("sh", "-c", userInput)'),
         ("java.yaml", "JA-INJECT-001", "Handler.java", "Runtime.getRuntime().exec(userInput);"),
-        ("csharp.yaml", "CS-INJECT-001", "Handler.cs", "Process.Start(userInput);"),
+        ("csharp.yaml", "CS-DESER-001", "Handler.cs", "new BinaryFormatter().Deserialize(stream);"),
         ("javascript.yaml", "JS-INJECT-001", "handler.js", "eval(userInput)"),
     ]
     for fname, rule_id, filename, dangerous_line in cases:
@@ -1207,63 +1172,15 @@ def _web_surface_rule(rule_id: str) -> NeuroScanRule:
     return matches[0]
 
 
-def test_ns_websec_1004_flags_cookie_without_httponly(tmp_path):
-    rule = _web_surface_rule("ns-websec-1004-001")
-    assert rule.metadata.cwe_ids == [1004]
-    assert rule.metadata.category == Category.CONFIG
-
-    path = tmp_path / "views.py"
-    path.write_text(
-        "def login(user):\n"
-        "    resp = make_response(redirect('/'))\n"
-        "    resp.set_cookie('session', issue_token(user.id))\n"
-        "    return resp\n",
-        encoding="utf-8",
-    )
-    findings = rule.check(path)
-    assert len(findings) == 1
-    assert findings[0].start_line == 3
+def _misc_rule(rule_id: str) -> NeuroScanRule:
+    rules_path = Path(__file__).resolve().parents[1] / "rules" / "misc_rules.yaml"
+    matches = [r for r in load_neuroscan_rules(rules_path) if r.metadata.id == rule_id]
+    assert matches, f"{rule_id} not found in misc_rules.yaml"
+    return matches[0]
 
 
-def test_ns_websec_1004_silent_when_httponly_passed(tmp_path):
-    """The sanitizer window must cover a multi-line set_cookie() call, and must
-    accept a non-literal value: `httponly=settings.HTTPONLY` still passes the
-    flag. Requiring the literal `True` produced 9 false positives in langflow."""
-    rule = _web_surface_rule("ns-websec-1004-001")
-
-    literal = tmp_path / "literal.py"
-    literal.write_text(
-        "def login(user):\n"
-        "    resp = make_response(redirect('/'))\n"
-        "    resp.set_cookie(\n"
-        "        'session',\n"
-        "        issue_token(user.id),\n"
-        "        httponly=True,\n"
-        "        secure=True,\n"
-        "        samesite='Lax',\n"
-        "    )\n"
-        "    return resp\n",
-        encoding="utf-8",
-    )
-    assert rule.check(literal) == []
-
-    from_config = tmp_path / "from_config.py"
-    from_config.write_text(
-        "def login(user):\n"
-        "    resp = make_response(redirect('/'))\n"
-        "    resp.set_cookie(\n"
-        "        'session',\n"
-        "        issue_token(user.id),\n"
-        "        httponly=auth_settings.ACCESS_HTTPONLY,\n"
-        "    )\n"
-        "    return resp\n",
-        encoding="utf-8",
-    )
-    assert rule.check(from_config) == []
-
-
-def test_ns_websec_330_flags_token_from_random_module(tmp_path):
-    rule = _web_surface_rule("ns-websec-330-001")
+def test_ns_bb_014_flags_token_from_random_module(tmp_path):
+    rule = _misc_rule("ns-bb-014")
     assert rule.metadata.cwe_ids == [330, 338]
     assert rule.metadata.category == Category.CRYPTO
 
@@ -1284,8 +1201,8 @@ def test_ns_websec_330_flags_token_from_random_module(tmp_path):
     assert lines == {4, 8}
 
 
-def test_ns_websec_330_silent_on_secrets_and_systemrandom(tmp_path):
-    rule = _web_surface_rule("ns-websec-330-001")
+def test_ns_bb_014_silent_on_secrets_and_systemrandom(tmp_path):
+    rule = _misc_rule("ns-bb-014")
     path = tmp_path / "security.py"
     path.write_text(
         "import random\n"
@@ -1305,11 +1222,11 @@ def test_ns_websec_330_silent_on_secrets_and_systemrandom(tmp_path):
     assert rule.check(path) == []
 
 
-def test_ns_websec_330_silent_on_benign_random_string(tmp_path):
+def test_ns_bb_014_silent_on_benign_random_string(tmp_path):
     """The withdrawn idiom-anchored patterns fired on random suffixes for temp
     names (44 hits, near-100% false positive). Only a security-named binding
     counts."""
-    rule = _web_surface_rule("ns-websec-330-001")
+    rule = _misc_rule("ns-bb-014")
     path = tmp_path / "local.py"
     path.write_text(
         "import random\n"

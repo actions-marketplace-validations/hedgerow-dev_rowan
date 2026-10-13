@@ -46,7 +46,10 @@ from rowan.analysis.request_sources import (
 from rowan.analysis.request_sources import (
     function_reads_source as _function_reads_request_source,
 )
+from rowan.analysis.request_sources import route_input_names
 from rowan.analysis.stmt_walk import iter_body_statements as _iter_body_statements
+from rowan.analysis.test_paths import ENTRYPOINT_RE as _ENTRYPOINT_RE
+from rowan.analysis.test_paths import is_example_only_path as _is_example_only_path
 from rowan.analysis.test_paths import is_test_path as _is_test_path
 from rowan.core.confidence import BOUNDARY_SOURCE, CROSSFILE_TAINT
 from rowan.core.finding_clusters import concrete_sink_symbol
@@ -1573,6 +1576,18 @@ def _collect_http_route_nodes(tree: ast.AST) -> set[int]:
 # the same spirit as AGENT-TOOL-001 -- the vulnerability doesn't need to
 # cross a file boundary to be real, since the "caller" here is an external
 # broker/client, not trusted in-repo code.
+# What reaches a boundary's parameters. The model chooses a tool's arguments;
+# an HTTP-facing entrypoint receives request data. File-level reachability
+# guesses must not demote either (#60). Task-queue payloads come from whoever
+# can enqueue, which is not established here, so they get no source kind.
+_BOUNDARY_SOURCE_KIND: dict[str, str] = {
+    "agent_tool": "tool_param",
+    "http_route": "http_input",
+    "webhook": "http_input",
+    "graphql": "http_input",
+    "grpc": "http_input",
+}
+
 _BOUNDARY_RULE_IDS: dict[str, tuple[str, str]] = {
     "agent_tool": ("AGENT-TOOL-001", "Agent tool"),
     "task_queue": ("TASK-QUEUE-001", "Task queue handler"),
@@ -3894,9 +3909,17 @@ def _extract_functions(
                 for dec in node.decorator_list
             )
             is_boundary_source = boundary_kind is not None
+            # An HTTP route's injected dependencies (Depends(), dependency
+            # aliases such as SessionDep or CurrentUser) are not request input.
+            route_seed = (
+                route_input_names(node, module=tree)
+                if boundary_kind == "http_route" and isinstance(tree, ast.Module)
+                else None
+            )
             has_sink, sink_detail, sink_line = (
                 _structural_path_sink(
-                    node, def_nodes, is_boundary_source, file_path, import_graph, def_nodes_by_name
+                    node, def_nodes, is_boundary_source, file_path, import_graph, def_nodes_by_name,
+                    seed_params=route_seed,
                 )
                 if def_nodes is not None
                 else (False, "", 0)
@@ -5277,7 +5300,9 @@ def _drop_test_anchored(result: ScanResult, target_path: Path) -> int:
     findings (88%) anchored in test files, and 121 of 121 in langchain, because
     test suites call `llm.invoke()` / `model.generate()` constantly and every
     one matched the model-receiver heuristic. `EnrichmentPass._suppress_test_
-    findings` only downgrades to MEDIUM/0.4, which still buries the real ones.
+    findings` only downgrades, which still buries the real ones. A demo or
+    example file that is itself an entrypoint (Gradio, Streamlit, a route
+    module) is deployed code and is kept (#65).
 
     The path is made relative to the scan root first. Testing the absolute path
     would match any repository that merely happens to live under a directory
@@ -5291,12 +5316,20 @@ def _drop_test_anchored(result: ScanResult, target_path: Path) -> int:
             rel = str(Path(f.file_path).resolve().relative_to(Path(target_path).resolve()))
         except (ValueError, OSError):
             rel = Path(f.file_path).name  # outside the root: judge on filename alone
-        if _is_test_path(rel):
+        if _is_test_path(rel) and not (_is_example_only_path(rel) and _is_entrypoint(f.file_path)):
             dropped += 1
             continue
         kept.append(f)
     result.findings = kept
     return dropped
+
+
+def _is_entrypoint(file_path: str) -> bool:
+    """A demo/example file that serves requests itself is deployed code (#65)."""
+    try:
+        return bool(_ENTRYPOINT_RE.search(Path(file_path).read_text(encoding="utf-8", errors="ignore")))
+    except OSError:
+        return False
 
 
 def _sink_description(callee_sig: _FunctionSig | None, taint_flow: TaintFlow | None) -> str:
@@ -5858,9 +5891,10 @@ class CrossFilePass:
                         "boundary_source": True,
                         "boundary_kind": boundary_kind,
                         "caller": func.name,
-                        # The model chooses a tool's arguments: file-level
-                        # reachability guesses must not demote this finding.
-                        **({"source_kind": "tool_param"} if boundary_kind == "agent_tool" else {}),
+                        # See _BOUNDARY_SOURCE_KIND: file-level reachability
+                        # guesses must not demote this finding.
+                        **({"source_kind": _BOUNDARY_SOURCE_KIND[boundary_kind]}
+                           if boundary_kind in _BOUNDARY_SOURCE_KIND else {}),
                     },
                 )
             )

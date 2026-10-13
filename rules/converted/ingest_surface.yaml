@@ -2,7 +2,7 @@ rules:
 - id: ns-aiml-130
   languages:
   - python
-  severity: ERROR
+  severity: WARNING
   message: 'fsspec''s ReferenceFileSystem renders six spec fields through Jinja2:
 
     refs[k][0], every value in templates, and gen''s key, url, offset and
@@ -97,7 +97,7 @@ rules:
     dataset descriptor. Presence signal: confirm who authors this spec.'
   patterns:
   - pattern-either:
-    - pattern-regex: '"(?:url|key|offset|length)"\s*:\s*"[^"]*\{\{'
+    - pattern-regex: '"(?:offset|length)"\s*:\s*"[^"]*\{\{'
     - pattern-regex: '"templates"\s*:\s*\{[^}]*"[^"]*\{\{'
     - pattern-regex: \[\s*"[^"]*\{\{[^"]*"\s*,\s*\d+\s*,\s*\d+\s*\]
   metadata:
@@ -139,7 +139,7 @@ rules:
   patterns:
   - pattern-either:
     - pattern-regex: H5Pset_external
-    - pattern-regex: (?:create_dataset|require_dataset)\(.{0,200}?\bexternal\s*=\s*\[
+    - pattern-regex: (?:create_dataset|require_dataset)\((?:[^()]|\([^()]*\))*?\bexternal\s*=\s*\[
     - pattern-regex: h5py\.ExternalLink\(
   - pattern-not-regex: (?m)^\s*#
   - pattern-not-regex: (?:def test_|conftest|unittest)
@@ -175,7 +175,7 @@ rules:
     reading any dataset.'
   patterns:
   - pattern-either:
-    - pattern-regex: (?:h5py\.File|h5netcdf\.File|zarr\.open(?:_group|_array|_consolidated)?|SingleHdf5ToZarr)\(\s*[^,)]*(?:request\.|request\[|\bupload|\buser_|\buntrusted|\battacker|\bincoming_|\bremote_|\.filename)
+    - pattern-regex: (?:h5py\.File|h5netcdf\.File|zarr\.open(?:_group|_array|_consolidated)?|SingleHdf5ToZarr)\(\s*[^,)]*(?:request\.|request\[|\bupload|\buser_\w*(?:url|uri)\b|\buntrusted|\battacker|\bincoming_)
     - pattern-regex: (?:h5py\.File|h5netcdf\.File|zarr\.open(?:_group|_array|_consolidated)?|SingleHdf5ToZarr)\(\s*[^,)]*files\[
   - pattern-not-regex: (?m)^\s*#
   - pattern-not-regex: (?:def test_|conftest|unittest)

@@ -275,7 +275,11 @@ rules:
       # 2: a security-named function/lambda whose one-line body draws from a
       # non-crypto PRNG (def make_token(): ..., const genOtp = () => ...).
       - '(?i)\b(?:def|function)\s+\w*(?:token(?!iz)|secret|nonce|salt|otp|passwd|password|passphrase|passcode|apikey|api_key|session|csrf|coupon|voucher|verification|activation|confirmation|recovery|credential)\w*\s*\([^)]*\)\s*(?:->\s*[\w\[\], ]+)?:?.{0,140}?(?:random\.(?:random|randint|randrange|choice|choices|sample|shuffle|uniform|getrandbits)|(?:np|numpy)\.random\.\w+|Math\.random)\s*\('
+      # Key material built byte by byte from a non-crypto PRNG.
+      - '\b(?:key|iv|nonce|seed_material)\w*\s*=\s*bytes(?:array)?\s*\(\s*random\.'
     pattern-not:
+      # ML token counts and vocabulary samples, not secrets.
+      - '(?i)\b(?:(?:max|min|num|n|total)_tokens|tokens|\w*tokens?_(?:ids?|idx|indices|counts?|len|length|num))\s*[:=]'
       # random.SystemRandom() is the OS-CSPRNG-backed API (same method names).
       - 'random\.SystemRandom'
       - '(?m)^\s*#'
@@ -512,7 +516,7 @@ rules:
     cwe: [668]
     languages: [python]
     patterns:
-      - '\.launch\([^)]*share\s*=\s*True'
+      - '\.launch\((?:[^()]|\([^()]*\))*share\s*=\s*True'
     pattern-not:
       - '(?m)^\s*#'
       - '(?:def test_|conftest|unittest)'
@@ -527,7 +531,7 @@ rules:
     cwe: [287]
     languages: [python]
     patterns:
-      - '\.launch\([^)]*server_name\s*=\s*["'']0\.0\.0\.0["'']'
+      - '\.launch\((?:[^()]|\([^()]*\))*server_name\s*=\s*["'']0\.0\.0\.0["'']'
     pattern-not:
       - 'auth\s*='
       - '(?m)^\s*#'

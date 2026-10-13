@@ -1,11 +1,11 @@
 {
   "meta": {
-    "total_rules": 394,
-    "ok": 394,
+    "total_rules": 358,
+    "ok": 358,
     "warning": 0,
     "error": 0,
     "secrets_residual": 5,
-    "sanitizer_residual": 231,
+    "sanitizer_residual": 212,
     "converter_version": "1.0"
   },
   "rules": [
@@ -141,9 +141,9 @@
         "shell\\s*=\\s*False",
         "(?:argparse|sys\\.argv|--help|setup\\.py|pip\\s+install|pip\\s+uninstall)",
         "subprocess\\.run\\(\\[[\"'](?:git|docker|pip|npm|cargo|go|make|cmake)[\"']",
-        "subprocess\\.(?:run|Popen|call)\\([^)]*capture_output\\s*=\\s*True",
-        "subprocess\\.(?:run|Popen|call)\\([^)]*check\\s*=\\s*True",
-        "subprocess\\.(?:run|Popen|call)\\([^)]*text\\s*=\\s*True",
+        "subprocess\\.(?:run|Popen|call)\\((?:[^()]|\\([^()]*\\))*capture_output\\s*=\\s*True",
+        "subprocess\\.(?:run|Popen|call)\\((?:[^()]|\\([^()]*\\))*check\\s*=\\s*True",
+        "subprocess\\.(?:run|Popen|call)\\((?:[^()]|\\([^()]*\\))*text\\s*=\\s*True",
         "(?m)^\\s*#",
         "(?:def test_|conftest|unittest)",
         "(?:@fixture|@pytest)"
@@ -972,8 +972,8 @@
       "pattern_not": [
         "weights_only\\s*=\\s*True",
         "safetensors",
-        "torch\\.load\\([^)]*map_location\\s*=",
-        "torch\\.load\\([^)]*mmap\\s*=\\s*True",
+        "torch\\.load\\((?:[^()]|\\([^()]*\\))*map_location\\s*=",
+        "torch\\.load\\((?:[^()]|\\([^()]*\\))*mmap\\s*=\\s*True",
         "if\\s+format\\s+in\\s+\\[",
         "(?m)^\\s*#",
         "(?:def test_|conftest|unittest)"
@@ -1264,7 +1264,7 @@
         "filter\\s*=\\s*[\"'\\w]",
         "members\\s*=",
         "tarfile\\.open\\([^)]*[\"']r:",
-        "tarfile\\.open\\([^)]*mode\\s*=\\s*[\"']r",
+        "tarfile\\.open\\((?:[^()]|\\([^()]*\\))*mode\\s*=\\s*[\"']r",
         "ZipFile\\([^)]*\\).*\\.extractall\\(",
         "(?m)^\\s*#",
         "(?:def test_|conftest|unittest)"
@@ -1498,9 +1498,9 @@
         "shell\\s*=\\s*False",
         "(?:argparse|sys\\.argv|--help|setup\\.py|pip\\s+install|pip\\s+uninstall)",
         "subprocess\\.(?:run|Popen|call)\\(\\[[\"'](?:git|docker|pip|npm|cargo|go|make|cmake)[\"']",
-        "subprocess\\.(?:run|Popen|call)\\([^)]*capture_output\\s*=\\s*True",
-        "subprocess\\.(?:run|Popen|call)\\([^)]*check\\s*=\\s*True",
-        "subprocess\\.(?:run|Popen|call)\\([^)]*text\\s*=\\s*True",
+        "subprocess\\.(?:run|Popen|call)\\((?:[^()]|\\([^()]*\\))*capture_output\\s*=\\s*True",
+        "subprocess\\.(?:run|Popen|call)\\((?:[^()]|\\([^()]*\\))*check\\s*=\\s*True",
+        "subprocess\\.(?:run|Popen|call)\\((?:[^()]|\\([^()]*\\))*text\\s*=\\s*True",
         "(?m)^\\s*#",
         "(?:def test_|conftest|unittest)",
         "(?:@fixture|@pytest)"
@@ -2650,9 +2650,9 @@
         "shell\\s*=\\s*False",
         "(?:argparse|sys\\.argv|--help|setup\\.py|pip\\s+install|pip\\s+uninstall)",
         "subprocess\\.run\\(\\[[\"\\x27](?:git|docker|pip|npm|cargo|go|make|cmake)[\"\\x27]",
-        "subprocess\\.(?:run|Popen|call)\\([^)]*capture_output\\s*=\\s*True",
-        "subprocess\\.(?:run|Popen|call)\\([^)]*check\\s*=\\s*True",
-        "subprocess\\.(?:run|Popen|call)\\([^)]*text\\s*=\\s*True",
+        "subprocess\\.(?:run|Popen|call)\\((?:[^()]|\\([^()]*\\))*capture_output\\s*=\\s*True",
+        "subprocess\\.(?:run|Popen|call)\\((?:[^()]|\\([^()]*\\))*check\\s*=\\s*True",
+        "subprocess\\.(?:run|Popen|call)\\((?:[^()]|\\([^()]*\\))*text\\s*=\\s*True",
         "(?i)os\\.system\\s*\\((?:(?!\\ndef )[\\s\\S]){0,400}?(?:e2b|Sandbox\\(|modal\\.Sandbox|\\bdocker\\b|gvisor|nsjail|firecracker|RestrictedPython|compile_restricted|pyodide|daytona)",
         "(?i)subprocess\\.(?:run|Popen|call)\\s*\\((?:(?!\\ndef )[\\s\\S]){0,400}?(?:e2b|Sandbox\\(|modal\\.Sandbox|\\bdocker\\b|gvisor|nsjail|firecracker|RestrictedPython|compile_restricted|pyodide|daytona)",
         "(?i)@(?:tool|mcp\\.tool|server\\.tool|app\\.tool)\\b(?:(?!\\ndef )[\\s\\S]){0,300}?\\bexec\\((?:(?!\\ndef )[\\s\\S]){0,400}?(?:e2b|Sandbox\\(|modal\\.Sandbox|\\bdocker\\b|gvisor|nsjail|firecracker|RestrictedPython|compile_restricted|pyodide|daytona)"
@@ -2910,7 +2910,7 @@
       "cwe": [
         285
       ],
-      "original_severity": "ERROR",
+      "original_severity": "WARNING",
       "original_engine": "neuroscan",
       "residual": [],
       "status": "ok",
@@ -3010,25 +3010,6 @@
         "(?m)^\\s*#",
         "(?m)^\\s*//.*",
         "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "CS-INJECT-001",
-      "category": "command_injection",
-      "cwe": [
-        78
-      ],
-      "original_severity": "high",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "name": "Process.Start command injection",
-      "pattern_not": [
-        "UseShellExecute\\s*=\\s*false",
-        "(?m)^\\s*//.*"
       ]
     },
     {
@@ -3157,24 +3138,6 @@
       "status": "ok",
       "warnings": [],
       "name": "User-controlled file path",
-      "pattern_not": [
-        "(?m)^\\s*//.*"
-      ]
-    },
-    {
-      "id": "CS-SSRF-001",
-      "category": "ssrf",
-      "cwe": [
-        918
-      ],
-      "original_severity": "high",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "name": "Unvalidated outbound HTTP",
       "pattern_not": [
         "(?m)^\\s*//.*"
       ]
@@ -3418,143 +3381,9 @@
       "residual": [],
       "status": "ok",
       "warnings": [],
-      "name": "Setuid/setgid bit in COPY",
+      "name": "Setuid/setgid bit set with chmod",
       "pattern_not": [
-        "(?m)^\\s*#",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-js-001",
-      "category": "config",
-      "cwe": [
-        693
-      ],
-      "original_severity": "WARNING",
-      "original_engine": "neuroscan",
-      "residual": [],
-      "status": "ok",
-      "warnings": [],
-      "name": "Express missing Helmet",
-      "pattern_not": [
-        "helmet\\(",
-        "(?m)^\\s*#",
-        "(?m)^\\s*//.*",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-js-002",
-      "category": "config",
-      "cwe": [
-        942
-      ],
-      "original_severity": "WARNING",
-      "original_engine": "neuroscan",
-      "residual": [],
-      "status": "ok",
-      "warnings": [],
-      "name": "CORS wildcard origin",
-      "pattern_not": [
-        "(?m)^\\s*#",
-        "(?m)^\\s*//.*",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-js-003",
-      "category": "auth",
-      "cwe": [
-        352
-      ],
-      "original_severity": "WARNING",
-      "original_engine": "neuroscan",
-      "residual": [],
-      "status": "ok",
-      "warnings": [],
-      "name": "Express missing CSRF protection",
-      "pattern_not": [
-        "csrf\\(",
-        "csurf\\(",
-        "(?m)^\\s*#",
-        "(?m)^\\s*//.*",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-js-004",
-      "category": "injection",
-      "cwe": [
-        89
-      ],
-      "original_severity": "ERROR",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "name": "SQL injection in Express route",
-      "pattern_not": [
-        "(?m)^\\s*#",
-        "(?m)^\\s*//.*",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-js-005",
-      "category": "xss",
-      "cwe": [
-        79
-      ],
-      "original_severity": "ERROR",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "name": "Unsanitized response in Express",
-      "pattern_not": [
-        "(?m)^\\s*#",
-        "(?m)^\\s*//.*",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-java-001",
-      "category": "auth",
-      "cwe": [
-        352
-      ],
-      "original_severity": "ERROR",
-      "original_engine": "neuroscan",
-      "residual": [],
-      "status": "ok",
-      "warnings": [],
-      "name": "Spring CSRF disabled",
-      "pattern_not": [
-        "(?m)^\\s*#",
-        "(?m)^\\s*//.*",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-java-002",
-      "category": "auth",
-      "cwe": [
-        862
-      ],
-      "original_severity": "WARNING",
-      "original_engine": "neuroscan",
-      "residual": [],
-      "status": "ok",
-      "warnings": [],
-      "name": "Spring permitAll on sensitive endpoint",
-      "pattern_not": [
-        "(?m)^\\s*#",
-        "(?m)^\\s*//.*",
-        "(?:def test_|conftest|unittest)"
+        "(?m)^\\s*#"
       ]
     },
     {
@@ -3569,161 +3398,6 @@
       "status": "ok",
       "warnings": [],
       "name": "Spring Actuator endpoints exposed",
-      "pattern_not": [
-        "(?m)^\\s*#",
-        "(?m)^\\s*//.*",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-java-004",
-      "category": "injection",
-      "cwe": [
-        917
-      ],
-      "original_severity": "ERROR",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "name": "Spring SpEL injection",
-      "pattern_not": [
-        "(?m)^\\s*#",
-        "(?m)^\\s*//.*",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-java-005",
-      "category": "injection",
-      "cwe": [
-        915
-      ],
-      "original_severity": "ERROR",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "name": "Spring mass assignment",
-      "pattern_not": [
-        "(?m)^\\s*#",
-        "(?m)^\\s*//.*",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-cs-001",
-      "category": "auth",
-      "cwe": [
-        862
-      ],
-      "original_severity": "WARNING",
-      "original_engine": "neuroscan",
-      "residual": [],
-      "status": "ok",
-      "warnings": [],
-      "name": "ASP.NET missing Authorize attribute",
-      "pattern_not": [
-        "\\[Authorize",
-        "(?m)^\\s*#",
-        "(?m)^\\s*//.*",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-cs-002",
-      "category": "config",
-      "cwe": [
-        942
-      ],
-      "original_severity": "WARNING",
-      "original_engine": "neuroscan",
-      "residual": [],
-      "status": "ok",
-      "warnings": [],
-      "name": "ASP.NET CORS any origin with credentials",
-      "pattern_not": [
-        "(?m)^\\s*#",
-        "(?m)^\\s*//.*",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-cs-003",
-      "category": "injection",
-      "cwe": [
-        89
-      ],
-      "original_severity": "ERROR",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "name": "ASP.NET raw SQL injection",
-      "pattern_not": [
-        "(?m)^\\s*#",
-        "(?m)^\\s*//.*",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-cs-004",
-      "category": "auth",
-      "cwe": [
-        352
-      ],
-      "original_severity": "WARNING",
-      "original_engine": "neuroscan",
-      "residual": [],
-      "status": "ok",
-      "warnings": [],
-      "name": "ASP.NET missing anti-forgery token",
-      "pattern_not": [
-        "\\[ValidateAntiForgeryToken\\]",
-        "(?m)^\\s*#",
-        "(?m)^\\s*//.*",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-cs-005",
-      "category": "config",
-      "cwe": [
-        209
-      ],
-      "original_severity": "ERROR",
-      "original_engine": "neuroscan",
-      "residual": [],
-      "status": "ok",
-      "warnings": [],
-      "name": "ASP.NET developer exception page in production",
-      "pattern_not": [
-        "(?m)^\\s*#",
-        "(?m)^\\s*//.*",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-go-001",
-      "category": "injection",
-      "cwe": [
-        89,
-        78
-      ],
-      "original_severity": "ERROR",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "name": "Go framework unsanitized input to dangerous sink",
       "pattern_not": [
         "(?m)^\\s*#",
         "(?m)^\\s*//.*",
@@ -3749,26 +3423,6 @@
       ]
     },
     {
-      "id": "ns-fw-go-003",
-      "category": "xss",
-      "cwe": [
-        79
-      ],
-      "original_severity": "ERROR",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "name": "Go HTML template injection",
-      "pattern_not": [
-        "(?m)^\\s*#",
-        "(?m)^\\s*//.*",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
       "id": "ns-fw-go-005",
       "category": "injection",
       "cwe": [
@@ -3785,80 +3439,6 @@
       "pattern_not": [
         "(?m)^\\s*#",
         "(?m)^\\s*//.*",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-py-001",
-      "category": "config",
-      "cwe": [
-        489
-      ],
-      "original_severity": "ERROR",
-      "original_engine": "neuroscan",
-      "residual": [],
-      "status": "ok",
-      "warnings": [],
-      "name": "Flask debug mode enabled",
-      "pattern_not": [
-        "(?m)^\\s*#",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-py-003",
-      "category": "injection",
-      "cwe": [
-        601
-      ],
-      "original_severity": "ERROR",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "name": "Flask open redirect",
-      "pattern_not": [
-        "(?m)^\\s*#",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-py-004",
-      "category": "auth",
-      "cwe": [
-        352
-      ],
-      "original_severity": "WARNING",
-      "original_engine": "neuroscan",
-      "residual": [],
-      "status": "ok",
-      "warnings": [],
-      "name": "Django CSRF middleware missing",
-      "pattern_not": [
-        "CsrfViewMiddleware",
-        "(?m)^\\s*#",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-fw-sess-001",
-      "category": "auth",
-      "cwe": [
-        384
-      ],
-      "original_severity": "WARNING",
-      "original_engine": "neuroscan",
-      "residual": [],
-      "status": "ok",
-      "warnings": [],
-      "name": "Session fixation risk",
-      "pattern_not": [
-        "session\\.regenerate",
-        "cycle_key\\(",
-        "flush\\(",
-        "(?m)^\\s*#",
         "(?:def test_|conftest|unittest)"
       ]
     },
@@ -4061,7 +3641,7 @@
       "cwe": [
         328
       ],
-      "original_severity": "medium",
+      "original_severity": "low",
       "original_engine": "neuroscan",
       "residual": [],
       "status": "ok",
@@ -4084,66 +3664,7 @@
       "warnings": [],
       "name": "math/rand for security",
       "pattern_not": [
-        "\"crypto/rand\"",
-        "(?m)^\\s*//.*"
-      ]
-    },
-    {
-      "id": "GO-SSRF-001",
-      "category": "ssrf",
-      "cwe": [
-        918
-      ],
-      "original_severity": "high",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "name": "Unvalidated HTTP client",
-      "pattern_not": [
-        "context\\.",
-        "\\.WithContext\\s*\\(",
-        "(?m)^\\s*//.*"
-      ]
-    },
-    {
-      "id": "GO-PATH-001",
-      "category": "path_traversal",
-      "cwe": [
-        22
-      ],
-      "original_severity": "high",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "name": "User-controlled file path",
-      "pattern_not": [
-        "filepath\\.Clean\\s*\\(",
-        "filepath\\.Abs\\s*\\(",
-        "(?m)^\\s*//.*"
-      ]
-    },
-    {
-      "id": "GO-SSTI-001",
-      "category": "ssti",
-      "cwe": [
-        94
-      ],
-      "original_severity": "medium",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "name": "text/template used for HTML",
-      "pattern_not": [
-        "\"html/template\"",
+        "rand\\.Reader",
         "(?m)^\\s*//.*"
       ]
     },
@@ -4160,41 +3681,6 @@
       "warnings": [],
       "name": "TLS verification disabled",
       "pattern_not": [
-        "(?m)^\\s*//.*"
-      ]
-    },
-    {
-      "id": "GO-AUTH-001",
-      "category": "auth",
-      "cwe": [
-        319
-      ],
-      "original_severity": "medium",
-      "original_engine": "neuroscan",
-      "residual": [],
-      "status": "ok",
-      "warnings": [],
-      "name": "HTTP server without TLS",
-      "pattern_not": [
-        "http\\.ListenAndServeTLS\\s*\\(",
-        "(?m)^\\s*//.*"
-      ]
-    },
-    {
-      "id": "GO-SUPPLY-001",
-      "category": "supply_chain",
-      "cwe": [
-        772
-      ],
-      "original_severity": "low",
-      "original_engine": "neuroscan",
-      "residual": [],
-      "status": "ok",
-      "warnings": [],
-      "name": "Missing response body close",
-      "pattern_not": [
-        "(?i)once\\.Do\\s*\\(",
-        "(?s)\\.Do\\s*\\(.{0,300}?defer\\s+\\S+\\.Body\\.Close\\s*\\(\\s*\\)",
         "(?m)^\\s*//.*"
       ]
     },
@@ -4260,7 +3746,7 @@
         327,
         328
       ],
-      "original_severity": "ERROR",
+      "original_severity": "WARNING",
       "original_engine": "neuroscan",
       "residual": [],
       "status": "ok",
@@ -4269,6 +3755,8 @@
       "fix": "Use an untruncated keyed digest (HMAC-SHA256 or BLAKE3) for cache and block keys, and never narrow the stored identifier below 128 bits.",
       "pattern_not": [
         "(?m)^\\s*#",
+        ">>\\s*\\d+\\s*\\)?\\s*&\\s*0x",
+        "\\[\\s*\\d+\\s*\\]\\s*&\\s*0x",
         "(?:def test_|conftest|unittest)"
       ]
     },
@@ -4327,7 +3815,7 @@
         1336,
         918
       ],
-      "original_severity": "ERROR",
+      "original_severity": "WARNING",
       "original_engine": "neuroscan",
       "residual": [],
       "status": "ok",
@@ -4456,27 +3944,6 @@
       ]
     },
     {
-      "id": "JA-INJECT-003",
-      "category": "injection",
-      "cwe": [
-        89
-      ],
-      "original_severity": "high",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "name": "SQL injection via string concatenation",
-      "pattern_not": [
-        "\\.setString\\s*\\(",
-        "\\.setInt\\s*\\(",
-        "PreparedStatement",
-        "(?m)^\\s*//.*"
-      ]
-    },
-    {
       "id": "JA-DESER-001",
       "category": "deserialization",
       "cwe": [
@@ -4497,25 +3964,6 @@
       ]
     },
     {
-      "id": "JA-SSRF-001",
-      "category": "ssrf",
-      "cwe": [
-        918
-      ],
-      "original_severity": "high",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "name": "User-controlled URL connection",
-      "pattern_not": [
-        "\\.startsWith\\s*\\(['\"]https?:\\/\\/",
-        "(?m)^\\s*//.*"
-      ]
-    },
-    {
       "id": "JA-CRYPTO-002",
       "category": "crypto",
       "cwe": [
@@ -4529,44 +3977,6 @@
       "name": "java.util.Random for security",
       "pattern_not": [
         "new\\s+SecureRandom\\s*\\(",
-        "(?m)^\\s*//.*"
-      ]
-    },
-    {
-      "id": "JA-XXE-001",
-      "category": "injection",
-      "cwe": [
-        611
-      ],
-      "original_severity": "high",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "name": "XML parser without XXE protection",
-      "pattern_not": [
-        "setFeature.*EXTERNAL_GENERAL_ENTITIES.*false",
-        "setFeature.*EXTERNAL_PARAMETER_ENTITIES.*false",
-        "(?m)^\\s*//.*"
-      ]
-    },
-    {
-      "id": "JA-AUTH-001",
-      "category": "auth",
-      "cwe": [
-        614
-      ],
-      "original_severity": "medium",
-      "original_engine": "neuroscan",
-      "residual": [],
-      "status": "ok",
-      "warnings": [],
-      "name": "Cookie without Secure/HttpOnly",
-      "pattern_not": [
-        "\\.setSecure\\s*\\(true\\)",
-        "\\.setHttpOnly\\s*\\(true\\)",
         "(?m)^\\s*//.*"
       ]
     },
@@ -5137,6 +4547,7 @@
       "warnings": [],
       "name": "Insecure random for security-sensitive value",
       "pattern_not": [
+        "(?i)\\b(?:(?:max|min|num|n|total)_tokens|tokens|\\w*tokens?_(?:ids?|idx|indices|counts?|len|length|num))\\s*[:=]",
         "random\\.SystemRandom",
         "(?m)^\\s*#",
         "(?m)^\\s*//.*",
@@ -5595,8 +5006,8 @@
       "pattern_not": [
         "weights_only\\s*=\\s*True",
         "safetensors\\.torch\\.load_file",
-        "torch\\.load\\([^)]*map_location\\s*=",
-        "torch\\.load\\([^)]*mmap\\s*=\\s*True",
+        "torch\\.load\\((?:[^()]|\\([^()]*\\))*map_location\\s*=",
+        "torch\\.load\\((?:[^()]|\\([^()]*\\))*mmap\\s*=\\s*True",
         "from_pretrained",
         "model\\.load",
         "(?m)^\\s*#",
@@ -6413,87 +5824,6 @@
       ]
     },
     {
-      "id": "ns-websec-1333-001",
-      "category": "general",
-      "cwe": [
-        1333
-      ],
-      "original_severity": "WARNING",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "fix": "Rewrite the group so repetitions cannot overlap: require a literal or disjoint separator between repeated atoms (e.g. `[a-z0-9]+(?:[._-][a-z0-9]+)*` instead of `([a-z0-9_]+)*`), use an atomic/possessive group if your regex engine supports one, or validate with a bounded, linear-time check (a single non-nested character class with a length cap) instead of a general-purpose pattern.",
-      "pattern_not": [
-        "(?m)^\\s*#",
-        "(?:def test_|conftest|unittest)"
-      ]
-    },
-    {
-      "id": "ns-websec-1004-001",
-      "category": "config",
-      "cwe": [
-        1004
-      ],
-      "original_severity": "WARNING",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "fix": "Pass `httponly=True` on any cookie carrying a session or auth token, together with `secure=True` and `samesite=\"Lax\"` (or `\"Strict\"`). Only set `httponly=False` for a cookie a first-party script genuinely has to read, and never for one that authenticates the request.",
-      "pattern_not": [
-        "(?m)^\\s*#",
-        "set_cookie\\s*\\(\\s*\\*\\*"
-      ],
-      "sanitizers": [
-        "(?i)httponly\\s*="
-      ]
-    },
-    {
-      "id": "ns-websec-614-001",
-      "category": "config",
-      "cwe": [
-        614
-      ],
-      "original_severity": "WARNING",
-      "original_engine": "neuroscan",
-      "residual": [
-        "sanitizer"
-      ],
-      "status": "ok",
-      "warnings": [],
-      "fix": "Pass `secure=True` on any cookie carrying a session or auth token, together with `httponly=True` and `samesite=\"Lax\"` (or `\"Strict\"`). For Django, set `SESSION_COOKIE_SECURE = True` and `CSRF_COOKIE_SECURE = True` in settings. Only serve a cookie without Secure over a connection you know is never HTTPS, which for an authenticated app is never.",
-      "pattern_not": [
-        "(?m)^\\s*#",
-        "set_cookie\\s*\\(\\s*\\*\\*"
-      ],
-      "sanitizers": [
-        "(?i)\\bsecure\\s*=\\s*(?!false\\b)\\S"
-      ]
-    },
-    {
-      "id": "ns-websec-330-001",
-      "category": "crypto",
-      "cwe": [
-        330,
-        338
-      ],
-      "original_severity": "ERROR",
-      "original_engine": "neuroscan",
-      "residual": [],
-      "status": "ok",
-      "warnings": [],
-      "fix": "Use the `secrets` module: `secrets.token_urlsafe(32)` for a URL-safe token, `secrets.token_bytes(32)` for raw key material, `secrets.choice(alphabet)` for a random character. Where an existing `random.Random` API shape must be kept, swap the instance for `random.SystemRandom()`.",
-      "pattern_not": [
-        "(?m)^\\s*#",
-        "random\\.SystemRandom"
-      ]
-    },
-    {
       "id": "ns-websec-276-001",
       "category": "config",
       "cwe": [
@@ -7094,7 +6424,7 @@
         "filter\\s*=\\s*[\"'\\w]",
         "members\\s*=",
         "tarfile\\.open\\([^)]*[\"']r:",
-        "tarfile\\.open\\([^)]*mode\\s*=\\s*[\"']r",
+        "tarfile\\.open\\((?:[^()]|\\([^()]*\\))*mode\\s*=\\s*[\"']r",
         "ZipFile\\([^)]*\\).*\\.extractall\\(",
         "(?m)^\\s*#",
         "(?:def test_|conftest|unittest)"
@@ -7762,22 +7092,9 @@
       "fix": "Drop the |safe filter, or sanitize the value with bleach.clean() (or the framework's sanitizer) before it reaches the template.",
       "pattern_not": [
         "\\|\\s*(?:escape|force_escape|e)\\b",
+        "\\|\\s*tojson\\s*\\|\\s*safe",
         "(?m)^\\s*(?:\\{#|<!--)"
       ]
-    },
-    {
-      "id": "NS-TPL-003",
-      "category": "auth",
-      "cwe": [
-        352
-      ],
-      "original_severity": "medium",
-      "original_engine": "neuroscan",
-      "residual": [],
-      "status": "ok",
-      "warnings": [],
-      "name": "Django csrf_token exempted in template form",
-      "fix": "Remove the exemption and include {% csrf_token %} in the form."
     },
     {
       "id": "TF-CONFIG-001",

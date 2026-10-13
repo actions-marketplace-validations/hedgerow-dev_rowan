@@ -35,10 +35,6 @@ rules:
               - pattern: request.POST[...]
               - pattern: request.body
               - pattern: request.query_params
-              - pattern: input(...)
-              - pattern: sys.argv
-              - pattern: os.environ[...]
-              - pattern: os.getenv(...)
               - pattern: await request.json(...)
               - pattern: await request.form(...)
               - pattern: await request.body(...)
@@ -72,7 +68,11 @@ rules:
                       regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                   - metavariable-regex:
                       metavariable: $T
-                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                  - pattern-not-inside: |
+                      $T = Annotated[..., Depends(...)]
+                      ...
+
                   - pattern-not-inside: |
                       def $F(..., $P = Depends(...), ...):
                         ...
@@ -91,6 +91,15 @@ rules:
 
                   - pattern: $P
       # rowan-registry:end source=web_request
+      # rowan-registry:begin source=operator_input
+      - patterns:
+          - pattern-either:
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: args.$PARAM
+      # rowan-registry:end source=operator_input
 
     pattern-sinks:
       - patterns:
@@ -121,7 +130,7 @@ rules:
       category: xss
       fix: "HTML-escape user input before writing it into the response, or use the framework's auto-escaping template engine instead of raw string interpolation."
     pattern-sources:
-      # rowan-registry:begin source=user_input
+      # rowan-registry:begin source=web_request
       - patterns:
           - pattern-either:
               - pattern: request.args.get(...)
@@ -143,7 +152,6 @@ rules:
               - pattern: request.POST[...]
               - pattern: request.body
               - pattern: request.query_params
-              - pattern: input(...)
               - pattern: await request.json(...)
               - pattern: await request.form(...)
               - pattern: await request.body(...)
@@ -177,7 +185,11 @@ rules:
                       regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                   - metavariable-regex:
                       metavariable: $T
-                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                  - pattern-not-inside: |
+                      $T = Annotated[..., Depends(...)]
+                      ...
+
                   - pattern-not-inside: |
                       def $F(..., $P = Depends(...), ...):
                         ...
@@ -195,7 +207,7 @@ rules:
                         ...
 
                   - pattern: $P
-      # rowan-registry:end source=user_input
+      # rowan-registry:end source=web_request
     pattern-sinks:
       - patterns:
           - pattern-either:
@@ -212,6 +224,9 @@ rules:
               - pattern: HttpResponse($INPUT)
               - pattern: HTMLResponse($INPUT)
               - pattern: $INPUT | safe
+          # The rendered value only: a tainted context variable passed to a
+          # constant render_template_string() template is autoescaped (#72).
+          - focus-metavariable: $INPUT
     pattern-sanitizers:
       - patterns:
           - pattern-either:
@@ -252,10 +267,12 @@ rules:
               - pattern: SafeString($INPUT)
               - pattern: SafeText($INPUT)
               # format_html escapes its ARGUMENTS -- only a tainted format
-              # STRING is the vulnerability, so match the first positional
-              # slot rather than the whole call.
+              # STRING is the vulnerability. format_html_join(sep,
+              # format_string, args) takes it second. Without the focus below
+              # the whole call was the sink, so a tainted argument fired too.
               - pattern: format_html($INPUT, ...)
-              - pattern: format_html_join(..., $INPUT, ...)
+              - pattern: format_html_join($SEP, $INPUT, ...)
+          - focus-metavariable: $INPUT
     pattern-sanitizers:
       - patterns:
           - pattern-either:
@@ -263,7 +280,8 @@ rules:
               - pattern: django.utils.html.escape($INPUT)
               - pattern: conditional_escape($INPUT)
               - pattern: bleach.clean($INPUT)
-              - pattern: strip_tags($INPUT)
+              # Not strip_tags: Django documents that its output is not
+              # guaranteed safe HTML (#74).
 
   - id: TNT-PATH-001
     mode: taint
@@ -275,7 +293,7 @@ rules:
       category: path_traversal
       fix: "Resolve the path and verify the result is still under the intended base directory (os.path.realpath + os.path.commonpath check) before use, or use os.path.basename() to discard directory components entirely."
     pattern-sources:
-      # rowan-registry:begin source=user_input
+      # rowan-registry:begin source=web_request
       - patterns:
           - pattern-either:
               - pattern: request.args.get(...)
@@ -297,7 +315,6 @@ rules:
               - pattern: request.POST[...]
               - pattern: request.body
               - pattern: request.query_params
-              - pattern: input(...)
               - pattern: await request.json(...)
               - pattern: await request.form(...)
               - pattern: await request.body(...)
@@ -331,7 +348,11 @@ rules:
                       regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                   - metavariable-regex:
                       metavariable: $T
-                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                  - pattern-not-inside: |
+                      $T = Annotated[..., Depends(...)]
+                      ...
+
                   - pattern-not-inside: |
                       def $F(..., $P = Depends(...), ...):
                         ...
@@ -349,7 +370,7 @@ rules:
                         ...
 
                   - pattern: $P
-      # rowan-registry:end source=user_input
+      # rowan-registry:end source=web_request
     pattern-sinks:
       - patterns:
           - pattern-either:
@@ -421,7 +442,11 @@ rules:
                       regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                   - metavariable-regex:
                       metavariable: $T
-                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                  - pattern-not-inside: |
+                      $T = Annotated[..., Depends(...)]
+                      ...
+
                   - pattern-not-inside: |
                       def $F(..., $P = Depends(...), ...):
                         ...

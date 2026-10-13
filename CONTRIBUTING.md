@@ -86,6 +86,12 @@ Add to an existing YAML file in `rules/` or create a new one:
   languages: [python]
 ```
 
+Regex rules match one pattern at a time. Know these limits before writing one:
+
+- **`patterns` is OR, not AND.** A rule with patterns A and B fires on any line with A or any line with B.
+- **`pattern-not` only sees the finding's own line.** An exclusion on another line (a later Terraform attribute, a `setSecure` call, a comment above) never suppresses anything. "X without Y" across lines needs a structural Opengrep rule (`pattern` plus `pattern-not-inside`).
+- **Do not write `\([^)]*kw=`.** It stops at the first `)`, so `run(build(x), shell=True)` is missed. Use `\((?:[^()]|\([^()]*\))*kw=`; a test lints for this.
+
 ### Taint rule
 
 Add to an existing `*_taint.yaml` file in `rules/`:
@@ -171,6 +177,32 @@ improvement if the rules were not changed to chase it. Scorer or harness fixes
 that let existing findings be credited are worth making, but report them
 separately from real capability gains.
 
+### Benchmarks measure, they do not steer
+
+The rule above applies to every benchmark (`benchmark/ground_truth/`,
+RealVuln, Langfail, any future one) and to every change, not only rules:
+taint sources and sinks, enrichment, deduplication, severity, and the shape of
+the output.
+
+- **Decide on the merits, then measure.** A change needs a reason that holds
+  for real code: a CWE definition, what a framework actually does, a
+  reproducible false positive or miss. Test it on a fixture written for that
+  reason, not one copied from a benchmark app.
+- **Ship the honest choice even when it scores worse.** Example: merged
+  findings list every CWE their rules assigned. RealVuln counts each CWE as a
+  separate finding, so this costs precision there. It stays, because it is
+  the accurate output.
+- **When a benchmark surfaces a problem, fix the problem, not the score.**
+  State the code-level reason in the PR and say the benchmark only revealed it.
+- **Never key anything to a benchmark.** No patterns, allowlists or
+  suppressions tied to benchmark repo names, paths, function names, or the
+  quirks of seeded bugs.
+- **Never change a scorer, parser, matcher or ground truth to move Rowan's
+  number.** A harness fix is allowed only when it corrects a real misreading
+  of Rowan's output, and its effect is reported separately.
+- **Report regressions as they are.** Do not iterate on a change until a
+  benchmark number recovers.
+
 ### Rule ID conventions
 
 | Prefix | Engine | Scope |
@@ -228,6 +260,8 @@ grep -rhoE '^[[:space:]]*-[[:space:]]*id:[[:space:]]*[^[:space:]]+' rules/*.yaml
       "Validating a rule")
 - [ ] New rules report their total hit count across `scan-targets/`
 - [ ] No rule was authored or tuned against `benchmark/ground_truth/`
+- [ ] No change was made to raise a benchmark score; each has a real-code
+      reason and its own fixture (see "Benchmarks measure, they do not steer")
 - [ ] Rule messages claim only what the rule computes (no "user-controlled"
       from a bare pattern match)
 - [ ] `python scripts/benchmark.py --corpus clean_code` shows no high/critical

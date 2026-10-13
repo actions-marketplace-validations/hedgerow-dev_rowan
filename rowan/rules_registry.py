@@ -58,9 +58,12 @@ _PARAM_TYPE = (
     r"^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|"
     r"(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$"
 )
+# Framework objects, plus dependency aliases by naming convention
+# (`SessionDep`, `TokenDep`, `CurrentUser` in the FastAPI template), whose
+# Annotated[..., Depends(...)] definition usually lives in another module.
 _NOT_FRAMEWORK_TYPE = (
     r"^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|"
-    r"Session|AsyncSession|UUID|Decimal)$)"
+    r"Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)"
 )
 _FASTAPI_PARAM_SOURCE: Entry = {
     "patterns": [
@@ -76,6 +79,9 @@ _FASTAPI_PARAM_SOURCE: Entry = {
         {"metavariable-regex": {"metavariable": "$ROUTE", "regex": r"^(/.*)?$"}},
         {"metavariable-regex": {"metavariable": "$T", "regex": _PARAM_TYPE}},
         {"metavariable-regex": {"metavariable": "$T", "regex": _NOT_FRAMEWORK_TYPE}},
+        # A type alias for an injected dependency defined in this file:
+        # `SettingsDep = Annotated[Settings, Depends(get_settings)]`.
+        {"pattern-not-inside": "$T = Annotated[..., Depends(...)]\n...\n"},
         {"pattern-not-inside": "def $F(..., $P = Depends(...), ...):\n  ...\n"},
         {"pattern-not-inside": "async def $F(..., $P = Depends(...), ...):\n  ...\n"},
         {"pattern-not-inside": "def $F(..., $P = Security(...), ...):\n  ...\n"},
@@ -108,10 +114,6 @@ _WEB_REQUEST_SOURCES: list[Entry] = [
     "request.POST[...]",
     "request.body",
     "request.query_params",
-    "input(...)",
-    "sys.argv",
-    "os.environ[...]",
-    "os.getenv(...)",
     "await request.json(...)",
     "await request.form(...)",
     "await request.body(...)",
@@ -125,17 +127,16 @@ _WEB_REQUEST_SOURCES: list[Entry] = [
     _FASTAPI_PARAM_SOURCE,
 ]
 
-# Parsed CLI arguments are an additional operator-controlled source. JSON
-# parsing and kwargs lookups propagate existing taint; neither creates it.
-_WEB_REQUEST_ARGPARSE_SOURCES: list[Entry] = [*_WEB_REQUEST_SOURCES, "args.$PARAM"]
-
-# End-user input: everything in web_request except operator-controlled CLI
-# args and environment. `open(sys.argv[1])` in a CLI tool or
-# `requests.get(os.environ["API_URL"])` is configuration, not an attack
-# surface, so rules that never treated argv/env as a source (SSRF, path
-# traversal, prompt/tool-arg injection) take this fragment instead.
-_USER_INPUT_SOURCES: list[Entry] = [
-    p for p in _WEB_REQUEST_SOURCES if p not in ("sys.argv", "os.environ[...]", "os.getenv(...)")
+# Operator input: set by whoever runs the program, not by a remote attacker.
+# `torch.load(sys.argv[1])` in a CLI or `requests.get(os.environ["API_URL"])`
+# is configuration, so only SQL and command injection take this fragment, and
+# enrichment reports those findings at MEDIUM (#73).
+_OPERATOR_INPUT_SOURCES: list[Entry] = [
+    "input(...)",
+    "sys.argv",
+    "os.environ[...]",
+    "os.getenv(...)",
+    "args.$PARAM",
 ]
 
 # Some rules need HTTP-only sources rather than operator input (CLI/env)
@@ -462,11 +463,46 @@ _OPERATOR_INPUT_JAVA_SOURCES: list[Entry] = [
 #: query its own source and sink.
 _WEB_REQUEST_GO_SOURCES: list[Entry] = [
     "$R.URL.Query()",
+    "$R.URL.Path",
+    "$R.URL.RawQuery",
     "$R.FormValue(...)",
+    "$R.PostFormValue(...)",
+    "$R.Header.Get(...)",
     "$R.Body",
     "$C.Param(...)",
     '"($C : *gin.Context).Query(...)"',
-    "$C.ShouldBindJSON(...)",
+    # gin, echo, fiber accessors; chi and gorilla/mux route params.
+    "$C.PostForm(...)",
+    "$C.DefaultQuery(...)",
+    "$C.GetHeader(...)",
+    "$C.QueryParam(...)",
+    "$C.Params(...)",
+    "chi.URLParam(...)",
+    "mux.Vars(...)",
+]
+
+# Bind calls return an error; the request lands in the bound variable (#56).
+# by-side-effect only works on a top-level source item, so this fragment is
+# rendered as one (see _TOP_LEVEL_FRAGMENTS). json.NewDecoder is scoped to a
+# request body so decoding a config file is not a source.
+_WEB_REQUEST_GO_BIND_SOURCES: list[Entry] = [
+    {
+        "patterns": [
+            {
+                "pattern-either": [
+                    "$C.ShouldBindJSON(&$X)",
+                    "$C.BindJSON(&$X)",
+                    "$C.ShouldBind(&$X)",
+                    "$C.Bind(&$X)",
+                    "$C.ShouldBindQuery(&$X)",
+                    "$C.BodyParser(&$X)",
+                    "json.NewDecoder($R.Body).Decode(&$X)",
+                ]
+            },
+            {"focus-metavariable": "$X"},
+        ],
+        "by-side-effect": "true",
+    },
 ]
 
 #: Go operator-controlled input (env, flags, argv, viper config). Split from
@@ -641,11 +677,84 @@ _WEB_REQUEST_JS_DESTRUCTURED_SOURCES: list[Entry] = [
     },
 ]
 
+#: Request values in frameworks whose handlers never read `req.query` /
+#: `req.body` (detection review, #54). Next.js route-handler reads are scoped
+#: to an exported HTTP-verb function so `await response.json()` on a fetch
+#: result is not a source.
+_NEXT_ROUTE_VERB = r"^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)$"
+_WEB_REQUEST_JS_FRAMEWORK_SOURCES: list[Entry] = [
+    # Express / Koa accessors the explicit sources miss.
+    "req.get(...)",
+    "req.header(...)",
+    "req.cookies",
+    "req.originalUrl",
+    "req.url",
+    "req.path",
+    "req.files",
+    "req.file",
+    "ctx.request.query",
+    "ctx.cookies.get(...)",
+    # Hono: `c.req.query('x')`, `c.req.param()`, `await c.req.json()`.
+    "$C.req.query(...)",
+    "$C.req.queries(...)",
+    "$C.req.param(...)",
+    "$C.req.header(...)",
+    "$C.req.json()",
+    "$C.req.parseBody(...)",
+    "$C.req.formData()",
+    # Next.js App Router route handlers.
+    {
+        "patterns": [
+            {
+                "pattern-either": [
+                    {"pattern-inside": "export async function $VERB($REQ, ...) {\n  ...\n}"},
+                    {"pattern-inside": "export function $VERB($REQ, ...) {\n  ...\n}"},
+                ]
+            },
+            {"metavariable-regex": {"metavariable": "$VERB", "regex": _NEXT_ROUTE_VERB}},
+            {
+                "pattern-either": [
+                    "$REQ.nextUrl.searchParams.get(...)",
+                    "$REQ.nextUrl.searchParams",
+                    "$REQ.json()",
+                    "$REQ.formData()",
+                    "$REQ.text()",
+                    "new URL($REQ.url)",
+                ]
+            },
+        ]
+    },
+    # Next.js server actions and form handlers take a FormData argument.
+    {
+        "patterns": [
+            {
+                "pattern-either": [
+                    {"pattern-inside": "async function $F(..., $FD: FormData, ...) {\n  ...\n}"},
+                    {"pattern-inside": "function $F(..., $FD: FormData, ...) {\n  ...\n}"},
+                ]
+            },
+            "$FD.get(...)",
+        ]
+    },
+    # NestJS controller parameters bound by decorator.
+    {
+        "patterns": [
+            {
+                "pattern-either": [
+                    {"pattern-inside": "'class $CLS { $M(..., @$DEC(...) $P: $T, ...) { ... } }'"},
+                    {"pattern-inside": "'class $CLS { async $M(..., @$DEC(...) $P: $T, ...) { ... } }'"},
+                ]
+            },
+            {"metavariable-regex": {"metavariable": "$DEC", "regex": r"^(Query|Param|Body|Headers|Ip|HostParam)$"}},
+            "$P",
+        ]
+    },
+]
+
 #: name -> ordered list of opengrep source entries.
 SOURCES: dict[str, list[Entry]] = {
     "web_request": _WEB_REQUEST_SOURCES,
-    "web_request_argparse": _WEB_REQUEST_ARGPARSE_SOURCES,
-    "user_input": _USER_INPUT_SOURCES,
+    "operator_input": _OPERATOR_INPUT_SOURCES,
     "http_request": _HTTP_REQUEST_SOURCES,
     "model_metadata": _MODEL_METADATA_SOURCES,
     "document_ingest": _DOCUMENT_INGEST_SOURCES,
@@ -653,20 +762,195 @@ SOURCES: dict[str, list[Entry]] = {
     "web_request_java": _WEB_REQUEST_JAVA_SOURCES,
     "operator_input_java": _OPERATOR_INPUT_JAVA_SOURCES,
     "web_request_go": _WEB_REQUEST_GO_SOURCES,
+    "web_request_go_bind": _WEB_REQUEST_GO_BIND_SOURCES,
     "operator_input_go": _OPERATOR_INPUT_GO_SOURCES,
     "llm_output_java": _LLM_OUTPUT_JAVA_SOURCES,
     "llm_tool_param_java": _LLM_TOOL_PARAM_JAVA_SOURCES,
     "llm_output_go": _LLM_OUTPUT_GO_SOURCES,
     "mcp_tool_arg_go": _MCP_TOOL_ARG_GO_SOURCES,
     "web_request_js_destructured": _WEB_REQUEST_JS_DESTRUCTURED_SOURCES,
+    "web_request_js_frameworks": _WEB_REQUEST_JS_FRAMEWORK_SOURCES,
     # For Python rules whose source list does not include it (open
     # redirect's narrower list, the http_request rules).
     "web_request_fastapi_params": [_FASTAPI_PARAM_SOURCE],
 }
 
+# Go SQL text sinks (#56). Only the SQL text argument is the sink: a tainted
+# bind value (`db.Query("... $1", id)`) is parameterized. A prepared
+# statement's own Query/Exec takes bind values, so it is not a sink; the
+# Prepare call that builds it is.
+_GO_SQL_METHOD = (
+    r"^(Query|QueryRow|Exec|Prepare|Preparex|Queryx|QueryRowx|MustExec|NamedQuery|NamedExec"
+    r"|Raw|Where|Or|Not|Order|Having|Joins|Group)$"
+)
+_GO_SQL_SINKS: list[Entry] = [
+    {
+        "patterns": [
+            "$DB.$M($SQL, ...)",
+            {"metavariable-regex": {"metavariable": "$M", "regex": _GO_SQL_METHOD}},
+            {"pattern-not-inside": "$DB, $E := $X.Prepare(...)\n..."},
+            {"pattern-not-inside": "$DB, $E = $X.Prepare(...)\n..."},
+            {"pattern-not-inside": "$DB, $E := $X.Preparex(...)\n..."},
+            {"pattern-not-inside": "$DB, $E = $X.Preparex(...)\n..."},
+            {"pattern-not": '"($DB : *sql.Stmt).$M(...)"'},
+            {"pattern-not": "$X.URL.Query(...)"},
+            {"pattern-not": '"($X : *gin.Context).Query(...)"'},
+            {"focus-metavariable": "$SQL"},
+        ]
+    },
+    {
+        "patterns": [
+            "$DB.$M($CTX, $SQL, ...)",
+            {
+                "metavariable-regex": {
+                    "metavariable": "$M",
+                    "regex": r"^(QueryContext|QueryRowContext|ExecContext|PrepareContext|QueryxContext|QueryRowxContext)$",
+                }
+            },
+            {"focus-metavariable": "$SQL"},
+        ]
+    },
+    # pgx puts the context first: conn.Query(ctx, sql, args...).
+    {
+        "patterns": [
+            "$DB.$M($CTX, $SQL, ...)",
+            {"metavariable-regex": {"metavariable": "$M", "regex": r"^(Query|QueryRow|Exec)$"}},
+            {"metavariable-regex": {"metavariable": "$CTX", "regex": r"(?i).*(ctx|context)"}},
+            {"focus-metavariable": "$SQL"},
+        ]
+    },
+    # sqlx Get/Select(dest, query, args...).
+    {
+        "patterns": [
+            {"pattern-either": ["$DB.Select(&$DEST, $SQL, ...)", "$DB.Get(&$DEST, $SQL, ...)"]},
+            {"focus-metavariable": "$SQL"},
+        ]
+    },
+]
+
+# Go SSRF sinks (#56): the URL argument only. A tainted request body sent to
+# a fixed URL is not SSRF, `$CLIENT.Do(...)` matched any `.Do`, and
+# url.Parse does not make a request.
+_GO_HTTP_URL_SINKS: list[Entry] = [
+    {
+        "patterns": [
+            {
+                "pattern-either": [
+                    "http.Get($U)",
+                    "http.Head($U)",
+                    "http.Post($U, ...)",
+                    "http.PostForm($U, ...)",
+                ]
+            },
+            {"focus-metavariable": "$U"},
+        ]
+    },
+    {
+        "patterns": [
+            {"pattern-either": ["$C.Get($U)", "$C.Head($U)", "$C.Post($U, ...)", "$C.PostForm($U, ...)"]},
+            {"metavariable-regex": {"metavariable": "$C", "regex": r"(?i).*(client|http)"}},
+            {"focus-metavariable": "$U"},
+        ]
+    },
+    {
+        "patterns": [
+            {
+                "pattern-either": [
+                    "http.NewRequest($M, $U, ...)",
+                    "http.NewRequestWithContext($CTX, $M, $U, ...)",
+                ]
+            },
+            {"focus-metavariable": "$U"},
+        ]
+    },
+]
+
+# Go command execution (#56): the program, or the string a shell runs.
+# An extra argument to a fixed program is argument injection (CWE-88), a
+# separate rule (tnt-go-argi-001).
+_GO_SHELL = r"^\"(sh|bash|zsh|ash|dash|/bin/sh|/bin/bash|/usr/bin/env|cmd|cmd\.exe|powershell|pwsh)\"$"
+_GO_SHELL_FLAG = r"^\"(-c|/c|/C|-Command)\"$"
+_GO_EXEC_SINKS: list[Entry] = [
+    {
+        "patterns": [
+            {"pattern-either": ["exec.Command($BIN, ...)", "exec.CommandContext($CTX, $BIN, ...)"]},
+            {"focus-metavariable": "$BIN"},
+        ]
+    },
+    {
+        "patterns": [
+            {
+                "pattern-either": [
+                    "exec.Command($SH, $FLAG, $CMD, ...)",
+                    "exec.CommandContext($CTX, $SH, $FLAG, $CMD, ...)",
+                ]
+            },
+            {"metavariable-regex": {"metavariable": "$SH", "regex": _GO_SHELL}},
+            {"metavariable-regex": {"metavariable": "$FLAG", "regex": _GO_SHELL_FLAG}},
+            {"focus-metavariable": "$CMD"},
+        ]
+    },
+    {
+        "patterns": [
+            {"pattern-either": ["syscall.Exec($BIN, ...)", "os.StartProcess($BIN, ...)"]},
+            {"focus-metavariable": "$BIN"},
+        ]
+    },
+]
+
+# Go filesystem sinks (#56): the path argument of a call that uses it.
+# filepath.Join only builds a path, so it propagates taint instead of
+# being a sink.
+_GO_FILE_PATH_SINKS: list[Entry] = [
+    {
+        "patterns": [
+            {
+                "pattern-either": [
+                    "os.Open($P)",
+                    "os.OpenFile($P, ...)",
+                    "os.ReadFile($P)",
+                    "os.ReadDir($P)",
+                    "os.Create($P)",
+                    "os.WriteFile($P, ...)",
+                    "os.Remove($P)",
+                    "os.RemoveAll($P)",
+                    "os.Mkdir($P, ...)",
+                    "os.MkdirAll($P, ...)",
+                    "os.Rename($P, $Q)",
+                    "os.Rename($Q, $P)",
+                    "ioutil.ReadFile($P)",
+                    "ioutil.WriteFile($P, ...)",
+                    "http.ServeFile($W, $R, $P)",
+                ]
+            },
+            {"focus-metavariable": "$P"},
+        ]
+    },
+    # gin/echo c.File, c.FileAttachment; fiber c.SendFile, c.Download.
+    {
+        "patterns": [
+            {
+                "pattern-either": [
+                    "$C.File($P)",
+                    "$C.FileAttachment($P, ...)",
+                    "$C.Attachment($P, ...)",
+                    "$C.SendFile($P, ...)",
+                    "$C.Download($P, ...)",
+                ]
+            },
+            {"metavariable-regex": {"metavariable": "$C", "regex": r"(?i)^(c|ctx|e|context)$"}},
+            {"focus-metavariable": "$P"},
+        ]
+    },
+]
+
 #: name -> ordered list of opengrep sink entries.
-#: (Populated incrementally as sink blocks are migrated; see issue #159.)
-SINKS: dict[str, list[Entry]] = {}
+SINKS: dict[str, list[Entry]] = {
+    "sql_go": _GO_SQL_SINKS,
+    "http_url_go": _GO_HTTP_URL_SINKS,
+    "exec_go": _GO_EXEC_SINKS,
+    "file_path_go": _GO_FILE_PATH_SINKS,
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -783,6 +1067,12 @@ def fragment_patterns(kind: str, name: str) -> list[Entry]:
         ) from None
 
 
+#: Fragments whose entries are complete source/sink items, rendered as list
+#: items directly rather than inside one pattern-either (needed for keys such
+#: as by-side-effect that are only valid on a top-level item).
+_TOP_LEVEL_FRAGMENTS = frozenset({"web_request_go_bind"})
+
+
 def render_pattern_either_block(kind: str, name: str, base_indent: int) -> str:
     """Render a fragment as a `- patterns: / pattern-either:` YAML block.
 
@@ -792,6 +1082,8 @@ def render_pattern_either_block(kind: str, name: str, base_indent: int) -> str:
     +8), so an expansion of an already-correct block is byte-identical to what
     was there before.
     """
+    if name in _TOP_LEVEL_FRAGMENTS:
+        return "\n".join(_render_entries(fragment_patterns(kind, name), base_indent))
     pad = " " * base_indent
     lines = [
         f"{pad}- patterns:",
@@ -804,10 +1096,11 @@ def render_pattern_either_block(kind: str, name: str, base_indent: int) -> str:
 def _render_entries(entries: list[Entry], indent: int) -> list[str]:
     """Render fragment entries as YAML list items at column ``indent``.
 
-    A string is ``- pattern: <string>``. A single-key dict is ``- <key>:``
-    followed by its value: a nested entry list at +4, a scalar mapping
+    A string is ``- pattern: <string>``. A dict is ``- <key>:`` for its first
+    key, followed by its value: a nested entry list at +4, a scalar mapping
     (``metavariable-regex``) at +4, a multi-line string as a ``|`` block at
-    +4, or an inline scalar on the same line.
+    +4, or an inline scalar on the same line. Further keys must be scalars
+    and become siblings of the first (``by-side-effect: true``).
     """
     pad = " " * indent
     out: list[str] = []
@@ -815,9 +1108,9 @@ def _render_entries(entries: list[Entry], indent: int) -> list[str]:
         if isinstance(entry, str):
             out.append(f"{pad}- pattern: {entry}")
             continue
-        if len(entry) != 1:
-            raise ValueError(f"fragment entry must have exactly one key: {entry!r}")
-        ((key, value),) = entry.items()
+        (key, value), *extra = entry.items()
+        if any(not isinstance(v, str) for _, v in extra):
+            raise ValueError(f"fragment entry keys after the first must be scalars: {entry!r}")
         if isinstance(value, list):
             out.append(f"{pad}- {key}:")
             out.extend(_render_entries(value, indent + 4))
@@ -829,4 +1122,5 @@ def _render_entries(entries: list[Entry], indent: int) -> list[str]:
             out.extend(f"{pad}    {line}" if line else "" for line in value.split("\n"))
         else:
             out.append(f"{pad}- {key}: {value}")
+        out.extend(f"{pad}  {k}: {v}" for k, v in extra)
     return out

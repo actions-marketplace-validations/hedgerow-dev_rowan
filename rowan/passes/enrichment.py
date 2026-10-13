@@ -10,7 +10,7 @@ import contextlib
 import logging
 import re
 import time
-from collections import Counter, defaultdict
+from collections import defaultdict
 from functools import cache
 from pathlib import Path
 
@@ -26,10 +26,11 @@ from rowan.analysis.dominance import (
 from rowan.analysis.guard_clause import check_guard_suppression
 from rowan.analysis.request_sources import HTTP_INPUT_RE, ROUTE_DECORATOR_RE
 from rowan.analysis.source_tracer import classify_origin as ast_classify_origin
+from rowan.analysis.test_paths import ENTRYPOINT_RE as _ENTRYPOINT_RE
+from rowan.analysis.test_paths import is_example_only_path as _is_example_only_path
 from rowan.analysis.test_paths import is_no_attacker_path as _is_no_attacker_path
 from rowan.analysis.test_paths import is_test_path as _is_test_path
 from rowan.core.confidence import (
-    BULK_MATCH_CAP,
     OPENGREP_TAINT,
     PATTERN_ONLY_CAP,
 )
@@ -183,6 +184,13 @@ _SOURCE_KIND_ORIGINS: dict[str, tuple[str, float]] = {
     "operator_input": ("cli_input", 0.9),
 }
 
+#: Rules whose findings may trace to operator input (argv, env, input()): the
+#: SQL and command rules that take the `operator_input` source fragment, and
+#: TNT-DESER-001, which caught env-sourced model paths before #73. The
+#: operator is not a remote attacker, so such a finding is reported at MEDIUM.
+#: Rules where env is the point (secret logging, MCP rug-pull) are not listed.
+_OPERATOR_SOURCE_RULES = frozenset({"TNT-SQLI-001", "TNT-SQLI-002", "TNT-CMDI-001", "TNT-DESER-001"})
+
 _SAFE_ORIGINS_BY_CATEGORY: dict[Category, float] = {
     Category.INJECTION: 0.3,
     Category.NOSQL_INJECTION: 0.3,
@@ -268,6 +276,22 @@ _SEVERITY_RANK = {
 
 # Strength of a finding's evidence (see _cap_unverified_severity), strongest
 # first. Used to pick which of several findings on one sink survives a merge.
+#: CWEs that let findings on one line merge across categories, because rules
+#: file one issue under different categories: code injection (eval/exec as
+#: CWE-94 or 95), OS command injection, and debug mode left on. Code and
+#: command injection stay apart: `eval(x); os.system(y)` is two issues (#61).
+_RELATED_CWES: tuple[frozenset[int], ...] = (
+    frozenset({94, 95}),
+    frozenset({78}),
+    frozenset({215, 489}),
+)
+
+
+def _cwe_families(cwe_ids: list[int]) -> set[int]:
+    """Indexes of the related-CWE families these CWEs fall in."""
+    return {i for i, family in enumerate(_RELATED_CWES) if family & set(cwe_ids)}
+
+
 _EVIDENCE_TIER_RANK: dict[str, int] = {
     "taint-flow": 0,
     "engine": 0,
@@ -296,9 +320,8 @@ _DUPLICATE_RULE_GROUPS: tuple[frozenset[str], ...] = (
     frozenset({"NS-AIML-005", "ns-grd-003"}),  # Gradio file upload w/o restriction
     frozenset({"GO-CONFIG-001", "ns-bb-004"}),  # TLS verification disabled
     frozenset({"NS-PATH-005", "ns-aiml-063"}),  # tarfile extractall zip-slip
-    frozenset({"NS-CACHE-001", "ns-fw-js-002"}),  # CORS wildcard origin
     frozenset({"NS-DESER-010", "ns-aiml-043"}),  # Keras model_from_json code exec
-    frozenset({"NS-REDIRECT-001", "ns-fw-py-003", "TNT-REDIR-001"}),
+    frozenset({"NS-REDIRECT-001", "TNT-REDIR-001"}),
     frozenset({"NS-INJECT-001", "NS-INJECT-002", "ns-aiml-046"}),
     frozenset({"NS-CMDI-002", "NS-INJECT-003"}),
     frozenset({"NS-SSTI-001", "ns-aiml-129"}),
@@ -565,15 +588,20 @@ def _has_agent_boundary_source(finding: Finding) -> bool:
 def _has_proven_external_source(finding: Finding) -> bool:
     """The finding's own trace proves external input reached the sink.
 
-    A model boundary source, or a taint flow from a rule whose sources are
-    HTTP request reads (`source_kind: http_input`). File- and repo-level
+    A model boundary source, a taint flow from a rule whose sources are HTTP
+    request reads (`source_kind: http_input`), or a cross-file boundary
+    finding for an HTTP-facing entrypoint. File- and repo-level
     guesses (a web-framework import, the library profile) must not demote it:
     route modules often receive `app` from elsewhere, and routers such as
     httprouter or Web Forms code-behind carry no import those guesses know.
     """
-    return _has_agent_boundary_source(finding) or (
-        finding.taint_flow is not None and finding.metadata.get("source_kind") == "http_input"
-    )
+    if _has_agent_boundary_source(finding):
+        return True
+    if finding.metadata.get("source_kind") != "http_input":
+        return False
+    # A taint trace, or a cross-file boundary finding: its boundary kind
+    # (HTTP route, webhook, GraphQL, gRPC) is the external source.
+    return finding.taint_flow is not None or bool(finding.metadata.get("boundary_source"))
 
 
 def _cap_severity(finding: Finding, cap: Severity) -> None:
@@ -584,9 +612,9 @@ def _cap_severity(finding: Finding, cap: Severity) -> None:
 class EnrichmentPass:
     name = "enrichment"
 
-    def __init__(self, dedup_threshold: int = 3):
-        self._dedup_threshold = dedup_threshold
+    def __init__(self):
         self._file_head_cache: dict[str, str] = {}
+        self._entrypoint_cache: dict[str, bool] = {}
         self._guard_ast_cache: dict[str, ast.AST | None] = {}
 
     def run(self, context: ScanContext) -> ScanResult:
@@ -997,11 +1025,12 @@ class EnrichmentPass:
                     f.metadata.get("package"),
                     f.metadata.get("version"),
                     # Proven operations keep their sink identity. Multiple source
-                    # paths to one unpickling operation merge; nearby operations
-                    # remain distinct rather than collapsing by file proximity.
+                    # paths to one sink merge; nearby sinks remain distinct
+                    # rather than collapsing by file proximity. Every taint
+                    # rule, not only TNT-DESER-001 (#62).
                     f.metadata.get("operation_id") or (
                         (f.taint_flow.sink.file_path, f.taint_flow.sink.line, f.taint_flow.sink.column)
-                        if f.rule_id == "TNT-DESER-001" and f.taint_flow and f.taint_flow.sink
+                        if f.taint_flow and f.taint_flow.sink
                         else (f.start_line, f.start_column) if f.rule_id == "TNT-DESER-001" else None
                     ),
                 )
@@ -1029,8 +1058,7 @@ class EnrichmentPass:
                     cluster = [f]
             merged.append(self._merge_cluster(cluster))
 
-        counts = Counter((f.file_path, f.rule_id) for f in merged)
-        return [self._mark_bulk(f, counts) for f in merged]
+        return merged
 
     @staticmethod
     def _merge_cluster(cluster: list[Finding]) -> Finding:
@@ -1043,13 +1071,6 @@ class EnrichmentPass:
             best.metadata["cluster_end"] = cluster[-1].start_line
             best.metadata["occurrence_count"] = len(cluster)
         return best
-
-    def _mark_bulk(self, finding: Finding, counts: Counter) -> Finding:
-        count = counts.get((finding.file_path, finding.rule_id), 1)
-        if count >= self._dedup_threshold:
-            finding.metadata["bulk_match"] = True
-            finding.metadata["match_count"] = count
-        return finding
 
     def _merge_duplicate_rule_groups(
         self, findings: list[Finding], context: ScanContext
@@ -1115,7 +1136,9 @@ class EnrichmentPass:
     @staticmethod
     def _merge_same_sink_findings(findings: list[Finding], thresholds: dict) -> list[Finding]:
         """Collapse different rules reporting the same sink: same file, same
-        line, same category and at least one shared CWE.
+        line, same category and at least one shared CWE (or, in any category,
+        CWEs from one _RELATED_CWES family). Also absorbs a pattern finding
+        on a line its taint flow passes through, when they share a CWE.
 
         Unlike _DUPLICATE_RULE_GROUPS this needs no hand-kept list: a taint
         rule and a pattern rule for the same call, or two taint rules whose
@@ -1137,34 +1160,77 @@ class EnrichmentPass:
             min_conf = cfg.get("min_confidence")
             return cfg.get("enabled") is False or (min_conf is not None and f.confidence < min_conf)
 
-        buckets: dict[tuple[str, int, Category], list[Finding]] = defaultdict(list)
-        for f in findings:
-            if not dropped_by_thresholds(f):
-                buckets[(f.file_path, f.start_line, f.category)].append(f)
+        candidates = [f for f in findings if not dropped_by_thresholds(f)]
+        buckets: dict[tuple[str, int], list[Finding]] = defaultdict(list)
+        for f in candidates:
+            buckets[(f.file_path, f.start_line)].append(f)
 
         def rank(f: Finding) -> tuple:
             tier = _EVIDENCE_TIER_RANK.get(f.metadata.get("evidence_tier"), len(_EVIDENCE_TIER_RANK))
-            return (tier, _SEVERITY_RANK[f.severity], f.rule_id)
+            # A proven flow first, preferring one that can show its trace.
+            # Without one, the most severe report represents the issue: an
+            # INFO inventory match must not stand in for a MEDIUM injection.
+            # A flow whose source could not be traced to external input
+            # (taint_unconfirmed) is not proven (#61).
+            proven = (
+                f.metadata.get("evidence_tier") in ("taint-flow", "engine")
+                and not f.metadata.get("taint_unconfirmed")
+            )
+            return (not proven, proven and f.taint_flow is None, _SEVERITY_RANK[f.severity], tier, f.rule_id)
+
+        def same_issue(a: Finding, b: Finding) -> bool:
+            # Same category and a shared CWE; or, in any category, CWEs from
+            # one related family (rules tag one eval() as CWE-94 or 95).
+            if a.category == b.category and set(a.cwe_ids) & set(b.cwe_ids):
+                return True
+            return bool(_cwe_families(a.cwe_ids) & _cwe_families(b.cwe_ids))
 
         merged_away: set[int] = set()
+
+        def absorb(into: Finding, f: Finding) -> None:
+            merged_away.add(id(f))
+            # Keep every CWE the rules gave this issue, not only the
+            # survivor's own label.
+            into.cwe_ids = into.cwe_ids + [c for c in f.cwe_ids if c not in into.cwe_ids]
+            # One issue: as severe and as confident as its strongest report,
+            # so a weak survivor cannot hide a finding from the default view.
+            if _SEVERITY_RANK[f.severity] < _SEVERITY_RANK[into.severity]:
+                into.severity = f.severity
+            into.confidence = max(into.confidence, f.confidence)
+            into.metadata["duplicate_rule_ids"] = sorted(
+                {*into.metadata.get("duplicate_rule_ids", [into.rule_id]),
+                 *f.metadata.get("duplicate_rule_ids", [f.rule_id])}
+            )
+
         for bucket in buckets.values():
             survivors: list[Finding] = []
             for f in sorted(bucket, key=rank):
-                into = next(
-                    (
-                        s for s in survivors
-                        if s.rule_id != f.rule_id and set(s.cwe_ids) & set(f.cwe_ids)
-                    ),
-                    None,
-                )
+                into = next((s for s in survivors if s.rule_id != f.rule_id and same_issue(s, f)), None)
                 if into is None:
                     survivors.append(f)
-                    continue
-                merged_away.add(id(f))
-                into.metadata["duplicate_rule_ids"] = sorted(
-                    {*into.metadata.get("duplicate_rule_ids", [into.rule_id]),
-                     *f.metadata.get("duplicate_rule_ids", [f.rule_id])}
-                )
+                else:
+                    absorb(into, f)
+
+        # A pattern finding on a line the taint trace passes through is the
+        # same bug seen one step earlier: `body = Template(...).render(x)`
+        # (pattern rule) then `return HTMLResponse(body)` (taint rule). Only
+        # findings without their own flow are absorbed; a second taint finding
+        # there is a second sink.
+        for taint in candidates:
+            flow = taint.taint_flow
+            if flow is None or id(taint) in merged_away or taint.metadata.get("taint_unconfirmed"):
+                continue
+            trace = {n.line for n in (flow.source, *flow.intermediate) if n and n.file_path == taint.file_path}
+            trace.discard(taint.start_line)
+            for line in trace:
+                for f in buckets.get((taint.file_path, line), []):
+                    if (
+                        f.taint_flow is None
+                        and id(f) not in merged_away
+                        and f.rule_id != taint.rule_id
+                        and set(f.cwe_ids) & set(taint.cwe_ids)
+                    ):
+                        absorb(taint, f)
         return [f for f in findings if id(f) not in merged_away]
 
     @staticmethod
@@ -1205,7 +1271,9 @@ class EnrichmentPass:
                     candidate_path = str(
                         Path(f.file_path).resolve().relative_to(context.target_path.resolve())
                     )
-            if _is_test_path(candidate_path):
+            if _is_test_path(candidate_path) and not (
+                _is_example_only_path(candidate_path) and self._is_entrypoint(f.file_path)
+            ):
                 f.confidence = min(f.confidence, 0.4)
                 f.metadata["test_context"] = True
                 # Test/example code is retained in audit output but should not
@@ -1255,7 +1323,9 @@ class EnrichmentPass:
                 rel = str(Path(f.file_path).resolve().relative_to(target.resolve()))
             except ValueError:
                 rel = f.file_path
-            if _is_no_attacker_path(rel):
+            # A file in tools/ or cli/ that serves requests itself is not
+            # operator tooling (#65).
+            if _is_no_attacker_path(rel) and not self._is_entrypoint(f.file_path):
                 f.confidence = min(f.confidence, 0.3)
                 f.metadata["no_attacker_context"] = True
                 if f.severity in (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM):
@@ -2372,6 +2442,11 @@ class EnrichmentPass:
             if f.engine in ("authz", "js_authz", "mfv") or _has_proven_external_source(f):
                 result.append(f)
                 continue
+            # The profile is a repo-level guess; a taint trace is evidence
+            # about this sink and outranks it (#63).
+            if f.taint_flow is not None:
+                result.append(f)
+                continue
             if f.category in disabled:
                 f.severity = Severity.INFO
                 f.confidence = min(f.confidence, 0.2)
@@ -2392,8 +2467,6 @@ class EnrichmentPass:
             elif f.engine == "opengrep" and f.taint_flow is not None:
                 f.confidence = OPENGREP_TAINT(len(f.taint_flow.intermediate))
 
-            if f.metadata.get("bulk_match"):
-                f.confidence = min(f.confidence, BULK_MATCH_CAP)
 
         return findings
 
@@ -2460,7 +2533,7 @@ class EnrichmentPass:
                 continue
             f.metadata["source_confidence"] = conf
             f.metadata["source_origin"] = origin
-            if f.rule_id == "TNT-DESER-001" and origin in {"cli_input", "env_variable"}:
+            if f.rule_id in _OPERATOR_SOURCE_RULES and origin in {"cli_input", "env_variable"}:
                 _cap_severity(f, Severity.MEDIUM)
                 f.confidence = min(f.confidence, 0.5)
                 f.metadata["operator_controlled_source"] = True
@@ -2501,6 +2574,15 @@ class EnrichmentPass:
         _, conf = self._classify_source_origin(snippet)
         return conf if conf > 0.0 else None
 
+    def _is_entrypoint(self, file_path: str) -> bool:
+        if file_path not in self._entrypoint_cache:
+            try:
+                text = Path(file_path).read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                text = ""
+            self._entrypoint_cache[file_path] = bool(_ENTRYPOINT_RE.search(text))
+        return self._entrypoint_cache[file_path]
+
     def _read_file_head(self, file_path: str) -> str:
         if file_path in self._file_head_cache:
             return self._file_head_cache[file_path]
@@ -2531,6 +2613,12 @@ class EnrichmentPass:
             # risk -- each pass's own severity is authoritative. mfv (a model
             # file analysed by Hayward) is the same: a binary has no head.
             if f.engine in ("mcpconfig", "smuggle", "mcptoctou", "mfv"):
+                continue
+            # An evidence-bearing engine (cross-file boundary, authz, ...)
+            # computed its finding; a file-head regex is no evidence against
+            # it. The router's name or an unrelated open() in the first 50
+            # lines used to swing one route between HIGH and LOW (#60).
+            if _is_evidence_bearing_engine(f.engine):
                 continue
             if _has_agent_boundary_source(f) or (
                 f.taint_flow is not None

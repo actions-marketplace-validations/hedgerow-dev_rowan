@@ -632,7 +632,9 @@ class ScanPipeline:
         """
         # Low-urgency hygiene classes (log forging) are audit-only regardless of
         # severity or evidence: real, but not what a reviewer acts on now.
-        if any(c in self._AUDIT_ONLY_CWES for c in (finding.cwe_ids or ())):
+        # All CWEs, not any: a merged finding can inherit 117 from a
+        # log-forging duplicate of a real issue on the same line (#61).
+        if finding.cwe_ids and all(c in self._AUDIT_ONLY_CWES for c in finding.cwe_ids):
             return False
         rank = finding.severity_order  # 0 critical .. 4 info
         tier = (finding.metadata or {}).get("evidence_tier")
@@ -676,6 +678,10 @@ class ScanPipeline:
         """Load the converter manifest for metadata enrichment."""
         # The manifest of the rules actually in use, not the package default (PL-05).
         manifest_path = rules_dir / "converted" / "_manifest.json"
+        if not manifest_path.parent.is_dir():
+            # A rules directory with no converted regex rules has nothing for
+            # the manifest to describe.
+            return
         try:
             data = json.loads(manifest_path.read_text(encoding="utf-8"))
             rule_map: dict[str, dict] = {}
@@ -688,3 +694,9 @@ class ScanPipeline:
             logger.info("Loaded conversion manifest: %d rules", len(rule_map))
         except (OSError, ValueError, KeyError) as e:
             logger.warning("Could not load conversion manifest: %s", e)
+            # Three enrichment filters and the cross-file sink classifier read
+            # it; without it they silently switch off (#64).
+            self._context.result.degraded_passes["conversion_manifest"] = (
+                f"could not load {manifest_path.name} ({e}); sanitizer-window, "
+                "secret and pattern-not filters are off"
+            )

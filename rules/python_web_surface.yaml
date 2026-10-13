@@ -109,6 +109,9 @@ rules:
       - request\.args\[\s*["'](?:token|access_token|auth_token|api_key|apikey|session_token|bearer_token|id_token|refresh_token)["']\s*\]
       - request\.GET\.get\(\s*["'](?:token|access_token|auth_token|api_key|apikey|session_token|bearer_token|id_token|refresh_token)["']
       - request\.GET\[\s*["'](?:token|access_token|auth_token|api_key|apikey|session_token|bearer_token|id_token|refresh_token)["']\s*\]
+      # FastAPI/Starlette query string and Flask's merged args/form.
+      - request\.(?:query_params|values)\.get\(\s*["'](?:token|access_token|auth_token|api_key|apikey|session_token|bearer_token|id_token|refresh_token)["']
+      - request\.(?:query_params|values)\[\s*["'](?:token|access_token|auth_token|api_key|apikey|session_token|bearer_token|id_token|refresh_token)["']\s*\]
     pattern-not:
       - '(?m)^\s*#'
       - '(?:def test_|conftest|unittest)'
@@ -250,30 +253,6 @@ rules:
   # literal check cannot distinguish "this string is compiled as a regex"
   # from "this string is prose that happens to quote a regex example" --
   # found exactly once across the entire 11412-file corpus.
-  - id: ns-websec-1333-001
-    message: >
-      Regex contains a nested quantifier -- a quantified group whose entire
-      content is itself a single quantified atom (e.g. `(a+)+`, `([a-z0-9]+
-      )*`, `(\d*)+`), or a repeated group with two identical alternation
-      branches (e.g. `(a|a)*`). Both shapes admit exponentially many ways to
-      partition a matching prefix across the outer repetition, so a
-      catastrophic-backtracking (ReDoS) input can make a single match call
-      take seconds to hours. If this pattern is ever matched against
-      request-derived input (a form field, header, or query parameter), one
-      request can pin a worker thread.
-    severity: WARNING
-    languages: [python]
-    patterns:
-      - \((?:\?:)?(?:\[[^\]\n]*\]|\\[dwsDWS]|\\.|\.)[+*]\)[+*]
-      - \((\\[dwsDWS]|\[[^\]\n]*\]|\w+)\|\1\)[+*]
-    pattern-not:
-      - '(?m)^\s*#'
-      - '(?:def test_|conftest|unittest)'
-    metadata:
-      cwe: [1333]
-      category: general
-      fix: "Rewrite the group so repetitions cannot overlap: require a literal or disjoint separator between repeated atoms (e.g. `[a-z0-9]+(?:[._-][a-z0-9]+)*` instead of `([a-z0-9_]+)*`), use an atomic/possessive group if your regex engine supports one, or validate with a bounded, linear-time check (a single non-nested character class with a length cap) instead of a general-purpose pattern."
-
   # =========================================================================
   # CWE-915: mass assignment via constructor dict-splat
   # =========================================================================
@@ -299,163 +278,6 @@ rules:
   # taint proxy without an actual dataflow check; requiring the literal
   # `request.*` attribute chain removed all of those false positives (this
   # exact pattern re-run afterward: 0 matches in the same corpora).
-
-  # =========================================================================
-  # CWE-1004: session cookie set without HttpOnly
-  # =========================================================================
-  # Engine note: corpus-wide search (`rg 'cwe:\s*\[?1004\]?' rules/*.yaml`)
-  # found zero existing coverage. The nearest neighbour is ns-bb-003
-  # (misc_rules.yaml, CWE-614), which only matches an *explicit*
-  # `httponly=False` / `secure=False` / `samesite=None`. The far more common
-  # real shape is the argument being absent altogether -- and Flask,
-  # Django's `HttpResponse.set_cookie`, and FastAPI/Starlette all default
-  # `httponly` to False, so omission is insecure-by-default rather than a
-  # neutral "unspecified". Genuine gap, not a duplicate.
-  #
-  # Absence is expressed via `sanitizers:` rather than `pattern-not:`
-  # because a real `set_cookie(...)` call is almost always wrapped across
-  # several lines, and `pattern-not` is evaluated per-line: `httponly=`
-  # three lines below the opening paren would never suppress it. The
-  # sanitizer window is the mechanism that already exists for exactly this.
-  # (Carrying a rule's own `sanitizers:` list onto the default Opengrep
-  # engine path required a converter/EnrichmentPass fix -- see
-  # `manifest["sanitizers"]` in scripts/convert_neuroscan_to_opengrep.py.)
-  #
-  # The sanitizer matches `httponly=` with ANY value, not `httponly=True`:
-  # measured against the real corpus, requiring the literal True produced 9
-  # false positives in langflow alone (`httponly=auth_settings.
-  # REFRESH_HTTPONLY` and friends -- the flag *is* passed, just from
-  # config). This rule's claim is strictly "the argument is absent";
-  # `httponly=False` is ns-bb-003's job.
-  #
-  # VALIDATION (2026-08-02, 39 real repos across scan-targets/ --
-  # langchain, letta, autogen, crewai, vllm, haystack, llamaindex, ragflow,
-  # llmware, flashrag, langflow, chainlit, open-webui, pydantic-ai,
-  # smolagents, deepspeed, tgi, dify, bentoml, diffusers, litellm,
-  # metaflow, feast, sagemaker-python-sdk, FastChat, AutoGPT, LibreChat,
-  # transformers, ollama, open-interpreter, pandas-ai, vanna, mem0,
-  # langgraph, MCP servers + python-sdk, datasets, dagster, prefect,
-  # wandb): VALIDATED. 4 hits, all in one real, currently-maintained
-  # LLM-serving project's proxy layer, all true positives of exactly this
-  # class: a signed session cookie set with no httponly, no secure, and no
-  # samesite at all. 0 false positives, 0 hits in the other 38 repos. Exact
-  # location withheld pending upstream disclosure.
-  - id: ns-websec-1004-001
-    message: >
-      A cookie is set without an `httponly` argument. Flask, Django, and
-      Starlette/FastAPI all default it to False, so the value is readable
-      from JavaScript via `document.cookie` -- any XSS anywhere on the
-      origin can exfiltrate it. If this cookie carries a session or auth
-      token, that turns a contained XSS into full account takeover.
-    severity: WARNING
-    languages: [python]
-    exclude_paths:
-      - "/tests/"
-      - "/test/"
-      - "test_*.py"
-      - "*_test.py"
-      - "conftest.py"
-    patterns:
-      - \.set_cookie\s*\(
-      - \.set_signed_cookie\s*\(
-    sanitizers:
-      - '(?i)httponly\s*='
-    pattern-not:
-      - '(?m)^\s*#'
-      # `set_cookie(**kwargs)` hides its arguments in a helper -- measured
-      # as 3 false positives in dify (`**approval_grant_cleared_cookie_
-      # kwargs()`), where the helper does set httponly.
-      - set_cookie\s*\(\s*\*\*
-    metadata:
-      cwe: [1004]
-      category: config
-      fix: "Pass `httponly=True` on any cookie carrying a session or auth token, together with `secure=True` and `samesite=\"Lax\"` (or `\"Strict\"`). Only set `httponly=False` for a cookie a first-party script genuinely has to read, and never for one that authenticates the request."
-
-  # =========================================================================
-  # CWE-614: session/auth cookie hardened with HttpOnly but missing Secure
-  # =========================================================================
-  # Companion to ns-websec-1004-001 above (which fires only when `httponly` is
-  # ABSENT). The opposite shape: a cookie that sets `httponly=True` yet ships
-  # no Secure flag (omitted or bound to a config/env value that defaults off).
-  # Anchored on `httponly=True` (cookie-only on this corpus) and suppressed by
-  # a windowed `secure=True` sanitizer, so zero overlap with ns-websec-1004-001.
-  # RealVuln measurement: 22 fires, 19 TP / 3 FP (0.86); 12 net-new detections.
-
-  - id: ns-websec-614-001
-    message: >
-      A cookie is set without the `secure` flag (or with `secure=False`).
-      Flask, Django, and Starlette/FastAPI all default it to False, so the
-      browser will send this cookie over plain HTTP -- a network attacker on
-      the path (public Wi-Fi, a downgraded link, a captive portal) reads it
-      directly. If it carries a session or auth token, that is session
-      hijacking with no XSS required. Pass `secure=True` on any cookie that
-      authenticates the request.
-    severity: WARNING
-    languages: [python]
-    exclude_paths:
-      - "/tests/"
-      - "/test/"
-      - "test_*.py"
-      - "*_test.py"
-      - "conftest.py"
-    patterns:
-      - \.set_cookie\s*\(
-      - \.set_signed_cookie\s*\(
-      - (?i)\b(?:SESSION_COOKIE_SECURE|CSRF_COOKIE_SECURE)\s*=\s*False\b
-    sanitizers:
-      # Call-shape sanitizer (does not end in `\(`, so it suppresses on
-      # presence anywhere in the statement window). Matches `secure=True` and
-      # `secure=<config var>` but NOT `secure=False` (negative lookahead), and
-      # NOT the `..._COOKIE_SECURE` constant (the `\b` before `secure` fails
-      # after the `_`), so the config-line pattern above is never
-      # self-suppressed.
-      - '(?i)\bsecure\s*=\s*(?!false\b)\S'
-    pattern-not:
-      - '(?m)^\s*#'
-      # `set_cookie(**kwargs)` hides its arguments in a helper -- the same
-      # false-positive shape ns-websec-1004-001 excludes.
-      - set_cookie\s*\(\s*\*\*
-    metadata:
-      cwe: [614]
-      category: config
-      fix: "Pass `secure=True` on any cookie carrying a session or auth token, together with `httponly=True` and `samesite=\"Lax\"` (or `\"Strict\"`). For Django, set `SESSION_COOKIE_SECURE = True` and `CSRF_COOKIE_SECURE = True` in settings. Only serve a cookie without Secure over a connection you know is never HTTPS, which for an authenticated app is never."
-
-  - id: ns-websec-330-001
-    message: >
-      A security-sensitive value is generated with the `random` module.
-      `random` is a Mersenne Twister seeded from a small state: an attacker
-      who observes a few outputs can recover the internal state and predict
-      every past and future value. For a session token, password-reset
-      code, salt, nonce, or key that is a complete break. Use `secrets`
-      (`secrets.token_urlsafe`, `secrets.token_bytes`) or
-      `random.SystemRandom`, both of which draw from the OS CSPRNG.
-    severity: ERROR
-    languages: [python]
-    exclude_paths:
-      - "/tests/"
-      - "/test/"
-      - "/testing/"
-      - "/benchmarks/"
-      - "/examples/"
-      - "test_*.py"
-      - "*_test.py"
-      - "conftest.py"
-    patterns:
-      # A security-named binding assigned directly from the `random` module.
-      - (?i)\b\w*(?:token|secret|nonce|salt|otp|passwd|password|apikey|api_key|secret_key|session_id|sessionid|reset_code|recovery_code|csrf)\w*\s*=\s*[^=\n]*\brandom\.(?:random|randint|randrange|choice|choices|sample|shuffle|uniform|getrandbits)\s*\(
-      # Key material: a bytes/bytearray buffer filled from the `random`
-      # module. Narrower than bare `getrandbits` (which matches benign
-      # trace-id generators) because the bytes() wrapper is the key-material
-      # idiom specifically.
-      - \b(?:key|iv|nonce|seed_material)\w*\s*=\s*bytes(?:array)?\s*\(\s*random\.
-    pattern-not:
-      - '(?m)^\s*#'
-      # random.SystemRandom() IS the CSPRNG-backed API -- same method names.
-      - random\.SystemRandom
-    metadata:
-      cwe: [330, 338]
-      category: crypto
-      fix: "Use the `secrets` module: `secrets.token_urlsafe(32)` for a URL-safe token, `secrets.token_bytes(32)` for raw key material, `secrets.choice(alphabet)` for a random character. Where an existing `random.Random` API shape must be kept, swap the instance for `random.SystemRandom()`."
 
   # =========================================================================
   # CWE-276/732: world-writable file or directory permissions
@@ -501,7 +323,11 @@ rules:
       - "*_test.py"
       - "conftest.py"
     patterns:
-      - (?:os|shutil)\.(?:chmod|fchmod|lchmod)\s*\([^,\n]+,\s*0o?[0-7]?[0-7][0-7][2367]\s*[),]
+      # First argument may hold nested calls (os.path.join(d, "x")). A
+      # leading 1 is the sticky bit, the /tmp convention, so it is skipped.
+      - (?:os|shutil)\.(?:chmod|fchmod|lchmod)\s*\((?:[^(),\n]|\([^()\n]*\))+,\s*0o?[02-7]?[0-7][0-7][2367]\s*[),]
+      # pathlib: Path(p).chmod(0o777)
+      - \.chmod\s*\(\s*0o?[02-7]?[0-7][0-7][2367]\s*[),]
       - os\.umask\s*\(\s*0+\s*\)
     pattern-not:
       - '(?m)^\s*#'

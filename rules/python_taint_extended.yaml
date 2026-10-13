@@ -20,7 +20,7 @@ rules:
       category: injection
       fix: "Use parameterized queries (cursor.execute(sql, params)) instead of concatenating input into SQL text."
     pattern-sources:
-      # rowan-registry:begin source=web_request_argparse
+      # rowan-registry:begin source=web_request
       - patterns:
           - pattern-either:
               - pattern: request.args.get(...)
@@ -42,10 +42,6 @@ rules:
               - pattern: request.POST[...]
               - pattern: request.body
               - pattern: request.query_params
-              - pattern: input(...)
-              - pattern: sys.argv
-              - pattern: os.environ[...]
-              - pattern: os.getenv(...)
               - pattern: await request.json(...)
               - pattern: await request.form(...)
               - pattern: await request.body(...)
@@ -79,7 +75,11 @@ rules:
                       regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                   - metavariable-regex:
                       metavariable: $T
-                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                  - pattern-not-inside: |
+                      $T = Annotated[..., Depends(...)]
+                      ...
+
                   - pattern-not-inside: |
                       def $F(..., $P = Depends(...), ...):
                         ...
@@ -97,8 +97,16 @@ rules:
                         ...
 
                   - pattern: $P
+      # rowan-registry:end source=web_request
+      # rowan-registry:begin source=operator_input
+      - patterns:
+          - pattern-either:
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
               - pattern: args.$PARAM
-      # rowan-registry:end source=web_request_argparse
+      # rowan-registry:end source=operator_input
 
     pattern-sinks:
       # Only the query argument is the sink. Matching the whole call also
@@ -122,15 +130,10 @@ rules:
     pattern-sanitizers:
       - patterns:
           - pattern-either:
-              # Parameterized execution is the fix this rule's own message
-              # recommends, so it has to be recognized on ANY DB handle, not
-              # just one literally named `cursor`. The sink patterns above
-              # already match $DB/$CONN/$SESSION receivers; the sanitizer was
-              # hardcoded to `cursor` and so never fired on conn.execute(
-              # sql, params), flagging correctly-parameterized queries as
-              # "without parameterization" (#302).
-              - pattern: $DBH.execute($SQL, $PARAMS)
-              - pattern: $DBH.executemany($SQL, $PARAMS)
+              # No `execute($SQL, $PARAMS)` sanitizer: the sink is focused on
+              # $SQL, so a constant query with bound parameters never fires,
+              # and the sanitizer only hid an f-string query that also passes
+              # parameters (#74).
               # `text(...)` is SQLAlchemy's raw-SQL constructor, not a
               # sanitizer; the bound form is covered by the two-argument
               # execute pattern above (RT-05).
@@ -174,10 +177,6 @@ rules:
               - pattern: request.POST[...]
               - pattern: request.body
               - pattern: request.query_params
-              - pattern: input(...)
-              - pattern: sys.argv
-              - pattern: os.environ[...]
-              - pattern: os.getenv(...)
               - pattern: await request.json(...)
               - pattern: await request.form(...)
               - pattern: await request.body(...)
@@ -211,7 +210,11 @@ rules:
                       regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                   - metavariable-regex:
                       metavariable: $T
-                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                  - pattern-not-inside: |
+                      $T = Annotated[..., Depends(...)]
+                      ...
+
                   - pattern-not-inside: |
                       def $F(..., $P = Depends(...), ...):
                         ...
@@ -230,6 +233,15 @@ rules:
 
                   - pattern: $P
       # rowan-registry:end source=web_request
+      # rowan-registry:begin source=operator_input
+      - patterns:
+          - pattern-either:
+              - pattern: input(...)
+              - pattern: sys.argv
+              - pattern: os.environ[...]
+              - pattern: os.getenv(...)
+              - pattern: args.$PARAM
+      # rowan-registry:end source=operator_input
     # The command argument is the sink, and only a shell STRING is
     # injectable: `subprocess.run(["ls", "-l", name])` passes argv without a
     # shell. The old whole-call sink fired on list form at ERROR, and the
@@ -240,8 +252,8 @@ rules:
           - pattern-either:
               - pattern: os.system($CMD, ...)
               - pattern: os.popen($CMD, ...)
-              - pattern: exec($CMD, ...)
-              - pattern: eval($CMD, ...)
+              # eval()/exec() run Python code, not a shell command: that is
+              # code injection (CWE-95), reported by TNT-INJECT-001.
               - patterns:
                   - pattern: subprocess.$F($CMD, ...)
                   - pattern-not: subprocess.$F([...], ...)
@@ -270,7 +282,7 @@ rules:
       category: ssrf
       fix: "Validate the destination host against an explicit allowlist of permitted domains/IPs before making the request."
     pattern-sources:
-      # rowan-registry:begin source=user_input
+      # rowan-registry:begin source=web_request
       - patterns:
           - pattern-either:
               - pattern: request.args.get(...)
@@ -292,7 +304,6 @@ rules:
               - pattern: request.POST[...]
               - pattern: request.body
               - pattern: request.query_params
-              - pattern: input(...)
               - pattern: await request.json(...)
               - pattern: await request.form(...)
               - pattern: await request.body(...)
@@ -326,7 +337,11 @@ rules:
                       regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                   - metavariable-regex:
                       metavariable: $T
-                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                  - pattern-not-inside: |
+                      $T = Annotated[..., Depends(...)]
+                      ...
+
                   - pattern-not-inside: |
                       def $F(..., $P = Depends(...), ...):
                         ...
@@ -344,26 +359,50 @@ rules:
                         ...
 
                   - pattern: $P
-      # rowan-registry:end source=user_input
+      # rowan-registry:end source=web_request
     pattern-sinks:
       - patterns:
           - pattern-either:
-              - pattern: requests.get(...)
-              - pattern: requests.post(...)
-              - pattern: requests.put(...)
-              - pattern: httpx.get(...)
-              - pattern: httpx.post(...)
-              - pattern: urllib.request.urlopen(...)
-              - pattern: aiohttp.ClientSession()
-              - pattern: mlflow.set_tracking_uri(...)
-              - pattern: MlflowClient(...)
-              - pattern: create_engine(...)
+              - patterns:
+                  - pattern-either:
+                      - pattern: requests.$M($URL, ...)
+                      - pattern: requests.$M(..., url=$URL, ...)
+                      - pattern: httpx.$M($URL, ...)
+                      - pattern: httpx.$M(..., url=$URL, ...)
+                  - metavariable-regex:
+                      metavariable: $M
+                      regex: ^(get|post|put|patch|delete|head|options|stream)$
+              - pattern: requests.request($METHOD, $URL, ...)
+              - pattern: httpx.request($METHOD, $URL, ...)
+              # A requests/httpx/aiohttp session or client object.
+              - patterns:
+                  - pattern: $CLIENT.$M($URL, ...)
+                  - metavariable-regex:
+                      metavariable: $CLIENT
+                      regex: (?i).*(session|client|http).*
+                  - metavariable-regex:
+                      metavariable: $M
+                      regex: ^(get|post|put|patch|delete|head|options|stream)$
+              - pattern: urllib.request.urlopen($URL, ...)
+              - pattern: urllib.request.Request($URL, ...)
+              - pattern: urllib.request.urlretrieve($URL, ...)
+          # Only the URL decides where the request goes: a tainted params=,
+          # body or header sent to a fixed host is not SSRF (#72).
+          - focus-metavariable: $URL
+      # Endpoint configuration taken from input.
+      - patterns:
+          - pattern-either:
+              - pattern: mlflow.set_tracking_uri($URL, ...)
+              - pattern: MlflowClient($URL, ...)
+              - pattern: MlflowClient(..., tracking_uri=$URL, ...)
+              - pattern: create_engine($URL, ...)
+          - focus-metavariable: $URL
     pattern-sanitizers:
       - patterns:
           - pattern-either:
               - pattern: validate_url(...)
               - pattern: is_allowed_domain(...)
-              - pattern: urlparse(...)
+              # Not urlparse: parsing a URL does not check where it points (#74).
 
   # ---------------------------------------------------------------------------
   # PY-TAINT-004: SSTI (extended with Django/Mako/Tornado)
@@ -380,7 +419,7 @@ rules:
       category: ssti
       fix: "Never call Template()/from_string() on a string built from user input; use jinja2.sandbox.SandboxedEnvironment if dynamic templates are required."
     pattern-sources:
-      # rowan-registry:begin source=user_input
+      # rowan-registry:begin source=web_request
       - patterns:
           - pattern-either:
               - pattern: request.args.get(...)
@@ -402,7 +441,6 @@ rules:
               - pattern: request.POST[...]
               - pattern: request.body
               - pattern: request.query_params
-              - pattern: input(...)
               - pattern: await request.json(...)
               - pattern: await request.form(...)
               - pattern: await request.body(...)
@@ -436,7 +474,11 @@ rules:
                       regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                   - metavariable-regex:
                       metavariable: $T
-                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                  - pattern-not-inside: |
+                      $T = Annotated[..., Depends(...)]
+                      ...
+
                   - pattern-not-inside: |
                       def $F(..., $P = Depends(...), ...):
                         ...
@@ -454,20 +496,29 @@ rules:
                         ...
 
                   - pattern: $P
-      # rowan-registry:end source=user_input
+      # rowan-registry:end source=web_request
     pattern-sinks:
+      # The template STRING is the sink: a tainted render() context is data
+      # that Jinja escapes, and stdlib string.Template runs no code (#72).
       - patterns:
-          # Django's `render(request, "literal.html", ctx)` shortcut resolves to
-          # `django.shortcuts.render(...)`, which `$TEMPLATE.render(...)` matches
-          # with $TEMPLATE = django.shortcuts. The template there is a literal
-          # file name and the tainted value is autoescaped context, not SSTI.
-          - pattern-not: django.shortcuts.render(...)
           - pattern-either:
-              - pattern: render_template_string(...)
-              - pattern: $TEMPLATE.render(...)
-              - pattern: django.template.Template(...)
-              - pattern: mako.template.Template(...)
-              - pattern: tornado.template.Template(...)
+              - pattern: render_template_string($TEMPLATE, ...)
+              - pattern: flask.render_template_string($TEMPLATE, ...)
+              - pattern: jinja2.Template($TEMPLATE, ...)
+              - pattern: django.template.Template($TEMPLATE, ...)
+              - pattern: mako.template.Template($TEMPLATE, ...)
+              - pattern: tornado.template.Template($TEMPLATE, ...)
+              - patterns:
+                  - pattern: $ENV.from_string($TEMPLATE, ...)
+                  - metavariable-regex:
+                      metavariable: $ENV
+                      regex: (?i).*(env|jinja|templ).*
+              - patterns:
+                  - pattern-inside: |
+                      from jinja2 import Template
+                      ...
+                  - pattern: Template($TEMPLATE, ...)
+          - focus-metavariable: $TEMPLATE
     pattern-sanitizers:
       - patterns:
           - pattern-either:
@@ -511,10 +562,6 @@ rules:
               - pattern: request.POST[...]
               - pattern: request.body
               - pattern: request.query_params
-              - pattern: input(...)
-              - pattern: sys.argv
-              - pattern: os.environ[...]
-              - pattern: os.getenv(...)
               - pattern: await request.json(...)
               - pattern: await request.form(...)
               - pattern: await request.body(...)
@@ -548,7 +595,11 @@ rules:
                       regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                   - metavariable-regex:
                       metavariable: $T
-                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                  - pattern-not-inside: |
+                      $T = Annotated[..., Depends(...)]
+                      ...
+
                   - pattern-not-inside: |
                       def $F(..., $P = Depends(...), ...):
                         ...
@@ -602,7 +653,7 @@ rules:
       category: path_traversal
       fix: "Resolve the path and verify the result is still under the intended base directory (os.path.realpath + os.path.commonpath check) before use, or use os.path.basename()/werkzeug's secure_filename() to discard directory components entirely."
     pattern-sources:
-      # rowan-registry:begin source=user_input
+      # rowan-registry:begin source=web_request
       - patterns:
           - pattern-either:
               - pattern: request.args.get(...)
@@ -624,7 +675,6 @@ rules:
               - pattern: request.POST[...]
               - pattern: request.body
               - pattern: request.query_params
-              - pattern: input(...)
               - pattern: await request.json(...)
               - pattern: await request.form(...)
               - pattern: await request.body(...)
@@ -658,7 +708,11 @@ rules:
                       regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                   - metavariable-regex:
                       metavariable: $T
-                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                  - pattern-not-inside: |
+                      $T = Annotated[..., Depends(...)]
+                      ...
+
                   - pattern-not-inside: |
                       def $F(..., $P = Depends(...), ...):
                         ...
@@ -676,7 +730,7 @@ rules:
                         ...
 
                   - pattern: $P
-      # rowan-registry:end source=user_input
+      # rowan-registry:end source=web_request
     pattern-sinks:
       - patterns:
           - pattern-either:
@@ -759,7 +813,7 @@ rules:
       category: prompt_injection
       fix: "Validate LLM-chosen tool arguments against an explicit allowlist before execution; don't trust an agent executor's parameters as if they came from the calling code."
     pattern-sources:
-      # rowan-registry:begin source=user_input
+      # rowan-registry:begin source=web_request
       - patterns:
           - pattern-either:
               - pattern: request.args.get(...)
@@ -781,7 +835,6 @@ rules:
               - pattern: request.POST[...]
               - pattern: request.body
               - pattern: request.query_params
-              - pattern: input(...)
               - pattern: await request.json(...)
               - pattern: await request.form(...)
               - pattern: await request.body(...)
@@ -815,7 +868,11 @@ rules:
                       regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                   - metavariable-regex:
                       metavariable: $T
-                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                  - pattern-not-inside: |
+                      $T = Annotated[..., Depends(...)]
+                      ...
+
                   - pattern-not-inside: |
                       def $F(..., $P = Depends(...), ...):
                         ...
@@ -833,7 +890,7 @@ rules:
                         ...
 
                   - pattern: $P
-      # rowan-registry:end source=user_input
+      # rowan-registry:end source=web_request
     # `$AGENT.run(...)` with no receiver constraint matched subprocess.run,
     # asyncio.run and Flask's app.run (RT-03). Same receiver regex as
     # TNT-ML-016 in agent_taint.yaml.
@@ -953,7 +1010,11 @@ rules:
                       regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                   - metavariable-regex:
                       metavariable: $T
-                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                  - pattern-not-inside: |
+                      $T = Annotated[..., Depends(...)]
+                      ...
+
                   - pattern-not-inside: |
                       def $F(..., $P = Depends(...), ...):
                         ...

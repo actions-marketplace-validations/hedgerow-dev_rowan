@@ -41,10 +41,6 @@ rules:
               - pattern: request.POST[...]
               - pattern: request.body
               - pattern: request.query_params
-              - pattern: input(...)
-              - pattern: sys.argv
-              - pattern: os.environ[...]
-              - pattern: os.getenv(...)
               - pattern: await request.json(...)
               - pattern: await request.form(...)
               - pattern: await request.body(...)
@@ -78,7 +74,11 @@ rules:
                       regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                   - metavariable-regex:
                       metavariable: $T
-                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                  - pattern-not-inside: |
+                      $T = Annotated[..., Depends(...)]
+                      ...
+
                   - pattern-not-inside: |
                       def $F(..., $P = Depends(...), ...):
                         ...
@@ -171,7 +171,6 @@ rules:
               - pattern: request.POST.get(...)
               - pattern: request.cookies.get(...)
               - pattern: request.headers.get(...)
-              - pattern: input(...)
     pattern-sinks:
       - patterns:
           - pattern-either:
@@ -231,7 +230,6 @@ rules:
               - pattern: request.json.get(...)
               - pattern: request.GET.get(...)
               - pattern: request.POST.get(...)
-              - pattern: input(...)
     pattern-sinks:
       - patterns:
           - pattern-either:
@@ -287,10 +285,6 @@ rules:
               - pattern: request.POST[...]
               - pattern: request.body
               - pattern: request.query_params
-              - pattern: input(...)
-              - pattern: sys.argv
-              - pattern: os.environ[...]
-              - pattern: os.getenv(...)
               - pattern: await request.json(...)
               - pattern: await request.form(...)
               - pattern: await request.body(...)
@@ -324,7 +318,11 @@ rules:
                       regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                   - metavariable-regex:
                       metavariable: $T
-                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                      regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                  - pattern-not-inside: |
+                      $T = Annotated[..., Depends(...)]
+                      ...
+
                   - pattern-not-inside: |
                       def $F(..., $P = Depends(...), ...):
                         ...
@@ -353,8 +351,9 @@ rules:
               - pattern: subprocess.check_call([$CMD, ...])
     pattern-sanitizers:
       - patterns:
+          # Not shlex.quote: it leaves `--upload-pack=x` unchanged, so an
+          # injected option survives (#74).
           - pattern-either:
-              - pattern: shlex.quote(...)
               - pattern: int(...)
               - pattern: float(...)
 
@@ -436,18 +435,28 @@ rules:
               - pattern: request.json.get(...)
               - pattern: request.GET.get(...)
               - pattern: request.POST.get(...)
-              - pattern: input(...)
     pattern-sinks:
+      # The template STRING is the sink: a tainted render() context is data
+      # that Jinja escapes, and stdlib string.Template runs no code (#72).
       - patterns:
           - pattern-either:
-              - pattern: flask.render_template_string(...)
-              - pattern: render_template_string(...)
-              - pattern: jinja2.Template(...)
-              - pattern: $ENV.from_string(...)
-              - pattern: jinja2.Environment().from_string(...)
-              - pattern: django.template.Template(...)
-              - pattern: mako.template.Template(...)
-              - pattern: tornado.template.Template(...)
+              - pattern: render_template_string($TEMPLATE, ...)
+              - pattern: flask.render_template_string($TEMPLATE, ...)
+              - pattern: jinja2.Template($TEMPLATE, ...)
+              - pattern: django.template.Template($TEMPLATE, ...)
+              - pattern: mako.template.Template($TEMPLATE, ...)
+              - pattern: tornado.template.Template($TEMPLATE, ...)
+              - patterns:
+                  - pattern: $ENV.from_string($TEMPLATE, ...)
+                  - metavariable-regex:
+                      metavariable: $ENV
+                      regex: (?i).*(env|jinja|templ).*
+              - patterns:
+                  - pattern-inside: |
+                      from jinja2 import Template
+                      ...
+                  - pattern: Template($TEMPLATE, ...)
+          - focus-metavariable: $TEMPLATE
     pattern-sanitizers:
       - patterns:
           - pattern-either:
@@ -496,10 +505,6 @@ rules:
                       - pattern: request.POST[...]
                       - pattern: request.body
                       - pattern: request.query_params
-                      - pattern: input(...)
-                      - pattern: sys.argv
-                      - pattern: os.environ[...]
-                      - pattern: os.getenv(...)
                       - pattern: await request.json(...)
                       - pattern: await request.form(...)
                       - pattern: await request.body(...)
@@ -533,7 +538,11 @@ rules:
                               regex: ^(str|bytes|Any|Optional\[str\]|str \| None|None \| str|(list|List|Optional)\[[A-Za-z_.]+\]|[A-Z]\w*)$
                           - metavariable-regex:
                               metavariable: $T
-                              regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal)$)
+                              regex: ^(?!(Request|Response|WebSocket|BackgroundTasks|HTTPConnection|SecurityScopes|Session|AsyncSession|UUID|Decimal|\w*Deps?|\w*Dependency|Current[A-Z]\w*)$)
+                          - pattern-not-inside: |
+                              $T = Annotated[..., Depends(...)]
+                              ...
+
                           - pattern-not-inside: |
                               def $F(..., $P = Depends(...), ...):
                                 ...
