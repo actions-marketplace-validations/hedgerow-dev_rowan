@@ -401,13 +401,11 @@ def scan(
 
     try:
         target = target.resolve()
-    except OSError:
-        console.print(f"[red]Error:[/red] Cannot resolve path: {target}")
-        sys.exit(1)
+    except OSError as exc:
+        raise click.UsageError(f"Cannot resolve path: {target}") from exc
 
     if not target.is_dir():
-        console.print(f"[red]Error:[/red] Target must be a directory: {target}")
-        sys.exit(1)
+        raise click.UsageError(f"Target must be a directory: {target}")
 
     try:
         config = ScanConfig(
@@ -607,7 +605,7 @@ def self_test():
 @click.option(
     "--version",
     default=None,
-    help="Release tag (default v1.29.0, verified by a built-in hash). Other tags, or 'latest', need cosign",
+    help="Release tag (default v1.31.0, verified by a built-in hash). Other tags, or 'latest', need cosign",
 )
 @click.option(
     "--allow-unverified",
