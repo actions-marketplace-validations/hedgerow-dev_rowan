@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- AI instruction files inside dot-folders (`.claude/skills/*/SKILL.md`,
+  `.github/copilot-instructions.md`) now reach the Opengrep rules, so the
+  Unicode smuggling rules (ns-aiml-107/108) cover them. `.git`, `.venv`, tool
+  caches and `.claude/worktrees` stay excluded.
 - Go: a hashed value (`sha256.Sum256`, `hex.EncodeToString`, a library
   `Digest()`/`Sum()`) and a number formatted with `%d`/`%x`/`%f` no longer
   carry taint into path, command, SQL or URL sinks. The Go SQL sinks ignore
