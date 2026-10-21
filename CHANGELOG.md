@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- JS/TS cross-file: `obj.method()` on a receiver of unknown type follows the
+  call into the project's classes that define `method`, when one to four
+  classes do and the name is specific. Receivers destructured from a tool's
+  arguments, builtins and module aliases are never fanned out.
 - Code files skipped as build output (`dist/`, `build/`), minified or
   oversized are listed in `analysis_capability.skipped_code_files` and in the
   console and text reports. A scan that skipped a package's only bundle no
