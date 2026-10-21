@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Code files skipped as build output (`dist/`, `build/`), minified or
+  oversized are listed in `analysis_capability.skipped_code_files` and in the
+  console and text reports. A scan that skipped a package's only bundle no
+  longer prints "No vulnerabilities found."
 - AI instruction files inside dot-folders (`.claude/skills/*/SKILL.md`,
   `.github/copilot-instructions.md`) now reach the Opengrep rules, so the
   Unicode smuggling rules (ns-aiml-107/108) cover them. `.git`, `.venv`, tool
