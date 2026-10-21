@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Agent skill files (`SKILL.md`) are treated as AI instruction files: the
+  zero-width and bidi smuggling rule (ns-aiml-108) now scans them, and Hunt
+  keeps their text out of LLM context, as for `AGENTS.md`.
 - `--policy deep` now runs the authz (BOLA/IDOR) and multiagent passes. They
   were selected but returned without scanning any file.
 - A repo checked out under a folder named `build`, `dist`, `out`, `coverage`,
@@ -17,6 +20,9 @@
 - SCA lists every reason the pass was degraded, not only the last one.
 - A target that is not a directory, or cannot be resolved, is a usage error
   (exit 2) instead of exit 1, which CI reads as findings present.
+- Hunt discovery verification no longer lets a misnumbered or repeated
+  verdict overwrite another claim's verdict, and accepts citations of the
+  code it showed the verifier instead of dropping those findings.
 
 ## v0.3.11 (alpha)
 
