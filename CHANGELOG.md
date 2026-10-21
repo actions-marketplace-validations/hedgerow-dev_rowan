@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Go: a hashed value (`sha256.Sum256`, `hex.EncodeToString`, a library
+  `Digest()`/`Sum()`) and a number formatted with `%d`/`%x`/`%f` no longer
+  carry taint into path, command, SQL or URL sinks. The Go SQL sinks ignore
+  struct-literal option values and, for the context-first `Query(ctx, x)`
+  form, receivers not named like a database handle (PromQL clients).
 - MCP tools registered indirectly are now treated as tools: Python
   `mcp.tool(...)(func)`, `add_tool(func)`, wrapper decorators that register
   tools, and `apply()` on Tool subclasses; TypeScript handlers passed by name,
