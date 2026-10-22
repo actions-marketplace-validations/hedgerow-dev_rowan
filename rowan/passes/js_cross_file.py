@@ -565,6 +565,40 @@ def _tool_handler_refs(root_node: Any, source: bytes) -> tuple[set[str], set[str
     return names, factories
 
 
+# `obj.method()` on a receiver of unknown type fans out to the project's
+# classes defining `method` (MCP census G5): only for a specific method name
+# defined by a handful of classes, on a plain local receiver.
+_FANOUT_MAX_CLASSES = 4
+_GENERIC_METHOD_NAMES = frozenset({
+    "get", "set", "has", "delete", "add", "remove", "clear", "run", "call", "apply", "bind",
+    "then", "catch", "finally", "map", "filter", "reduce", "forEach", "find", "some", "every",
+    "push", "pop", "shift", "send", "write", "read", "end", "on", "once", "off", "emit", "close",
+    "open", "start", "stop", "init", "handle", "process", "update", "create", "execute", "query",
+    "parse", "toString", "toJSON", "valueOf", "log", "info", "warn", "error", "debug", "next",
+    "use", "listen", "connect", "request", "fetch", "load", "save", "resolve", "reject",
+    "dispose", "destroy", "render", "validate", "register", "post", "put", "patch", "invoke",
+    "constructor",
+})
+_BUILTIN_QUALIFIERS = frozenset({
+    "console", "JSON", "Math", "Object", "Array", "Promise", "Reflect", "Number", "String", "Date",
+    "fs", "path", "os", "process", "window", "document", "crypto", "Buffer", "URL", "this", "super",
+})
+
+
+def _class_method_names(root_node: Any, source: bytes) -> set[str]:
+    """Names of methods declared in this file's class bodies."""
+    names: set[str] = set()
+    for node in _walk_all(root_node):
+        if node.type != "class_body":
+            continue
+        for member in node.named_children:
+            if member.type == "method_definition":
+                name = member.child_by_field_name("name")
+                if name is not None:
+                    names.add(_node_text(name, source))
+    return names
+
+
 def _returned_function_lines(root_node: Any, source: bytes) -> dict[str, list[int]]:
     """For each named function, the start lines of functions it returns directly
     (`return async (args) => {...}`, or an arrow whose body is a function)."""
@@ -802,6 +836,213 @@ def _host_tainted(node: Any, source: bytes, tainted: set[str]) -> bool:
     return False
 
 
+# A literal that fixes the scheme and host: `https://host/`, `...?`, `...#`, or
+# a path on the page's own origin (`/api`). Without the `/`, `?` or `#`, the
+# next value can still extend the host (`https://api.x.com` + `.evil.com`).
+_FIXED_HOST_PREFIX_RE = re.compile(r"^(?:[a-zA-Z][\w+.-]*://[^/?#\s]+[/?#]|/(?!/))")
+_SCOPE_TYPES = frozenset({"statement_block", "program"})
+_FUNCTION_TYPES = frozenset({
+    "function_declaration", "function_expression", "arrow_function",
+    "method_definition", "generator_function_declaration",
+})
+
+
+def _import_bindings(stmt: Any, source: bytes) -> set[str]:
+    """Local names an `import` statement binds (default, named, namespace)."""
+    names: set[str] = set()
+    for n in _walk_all(stmt):
+        if n.type == "import_specifier":
+            local = n.child_by_field_name("alias") or n.child_by_field_name("name")
+            names.add(_node_text(local, source))
+        elif n.type in ("import_clause", "namespace_import"):
+            names.update(_node_text(c, source) for c in n.children if c.type == "identifier")
+    return names
+
+
+def _const_value(ident: Any, source: bytes) -> Any | None:
+    """The initializer of the `const` an identifier names, or the `import`
+    statement that binds it, looked up through its enclosing blocks; None when
+    the nearest binding is a parameter, a loop or catch variable, a `let`/`var`,
+    or there is none in sight."""
+    name = _node_text(ident, source)
+    node = ident.parent
+    while node is not None:
+        bound: list[str] = []
+        if node.type in _FUNCTION_TYPES:
+            params = node.child_by_field_name("parameters")
+            bound = _params_of(params, source) if params is not None else _collect_pattern_identifiers(
+                node.child_by_field_name("parameter"), source)
+            # `var` anywhere in the body is function-scoped.
+            if any(
+                n.type == "variable_declarator" and n.parent.type == "variable_declaration"
+                and name in _collect_pattern_identifiers(n.child_by_field_name("name"), source)
+                for n in _walk_all(node.child_by_field_name("body") or node)
+            ):
+                return None
+        elif node.type == "for_in_statement":
+            bound = _collect_pattern_identifiers(node.child_by_field_name("left"), source)
+        elif node.type == "catch_clause":
+            bound = _collect_pattern_identifiers(node.child_by_field_name("parameter"), source)
+        if name in bound:
+            return None
+        if node.type in _SCOPE_TYPES:
+            for stmt in node.children:
+                if stmt.type == "import_statement" and name in _import_bindings(stmt, source):
+                    return stmt
+                decl = stmt.child_by_field_name("declaration") if stmt.type == "export_statement" else stmt
+                if decl is None or decl.type not in ("lexical_declaration", "variable_declaration"):
+                    continue
+                for d in decl.children:
+                    target = d.child_by_field_name("name") if d.type == "variable_declarator" else None
+                    if target is None or name not in _collect_pattern_identifiers(target, source):
+                        continue
+                    if target.type == "identifier" and _node_text(decl, source).split()[0] == "const":
+                        return d.child_by_field_name("value")
+                    return None
+        node = node.parent
+    return None
+
+
+def _constant(node: Any, source: bytes, depth: int = 0) -> bool:
+    """A value the model cannot choose: literals, `process.env.X`, imported
+    bindings (module configuration), and `const`s built only from those."""
+    if depth > 4:
+        return False
+    kind = node.type
+    if kind in ("string", "import_statement"):
+        return True
+    if kind == "template_string":
+        return all(
+            _constant(inner, source, depth + 1)
+            for sub in node.children if sub.type == "template_substitution"
+            for inner in sub.children if inner.is_named
+        )
+    if kind == "member_expression":
+        return _node_text(node, source).startswith("process.env.")
+    if kind == "identifier":
+        value = _const_value(node, source)
+        return value is not None and _constant(value, source, depth + 1)
+    if kind == "binary_expression":
+        op = node.child_by_field_name("operator")
+        sides = (node.child_by_field_name("left"), node.child_by_field_name("right"))
+        return (
+            op is not None and _node_text(op, source) in ("+", "||", "??")
+            and all(s is not None and _constant(s, source, depth + 1) for s in sides)
+        )
+    return False
+
+
+def _url_parts(node: Any, source: bytes) -> list[Any]:
+    """A URL expression as literal strings and opaque nodes, in order: `+`
+    chains and template literals are flattened, and a `const` holding a
+    string or template is inlined (`${API_BASE}/x` with a literal base)."""
+    parts: list[Any] = []
+    stack = [(node, 0)]
+    while stack:
+        n, depth = stack.pop()
+        if n.type == "string":
+            text = _string_literal_value(n, source) or ""
+        elif n.type in ("string_fragment", "escape_sequence"):
+            text = _node_text(n, source)
+        else:
+            text = None
+        if text is not None:
+            if parts and isinstance(parts[-1], str):
+                parts[-1] += text
+            else:
+                parts.append(text)
+            continue
+        children: list[Any] = []
+        if n.type == "template_string":
+            for c in n.children:
+                if c.type == "template_substitution":
+                    children.extend(i for i in c.children if i.is_named)
+                elif c.type in ("string_fragment", "escape_sequence"):
+                    children.append(c)
+        elif n.type == "binary_expression" and _node_text(n.child_by_field_name("operator"), source) == "+":
+            children = [n.child_by_field_name("left"), n.child_by_field_name("right")]
+        elif n.type == "parenthesized_expression":
+            children = [c for c in n.children if c.is_named]
+        elif n.type == "identifier" and depth < 4:
+            value = _const_value(n, source)
+            if value is not None and value.type in ("string", "template_string", "binary_expression"):
+                children = [value]
+        if children:
+            stack.extend((c, depth + (n.type == "identifier")) for c in reversed(children))
+        else:
+            parts.append(n)
+    return parts
+
+
+def _host_fixed(node: Any, source: bytes, depth: int = 0) -> bool:
+    """True only when the URL `node` builds keeps a fixed scheme and host
+    whatever the model supplies: a literal prefix that ends past the host, or
+    a constant base followed by a literal `/`, `?` or `#`.
+
+    Stricter than `_host_tainted`, which knows the tainted names: this judges
+    an Opengrep finding without them, so `${API_BASE}${path}` stays (a `path`
+    of `.evil.com/` moves the host).
+    """
+    if depth > 4:
+        return False
+    if node.type in ("parenthesized_expression", "await_expression", "as_expression", "non_null_expression"):
+        inner = next((c for c in node.children if c.is_named), None)
+        return inner is not None and _host_fixed(inner, source, depth + 1)
+    if node.type == "ternary_expression":
+        branches = (node.child_by_field_name("consequence"), node.child_by_field_name("alternative"))
+        return all(b is not None and _host_fixed(b, source, depth + 1) for b in branches)
+    if node.type == "identifier":
+        value = _const_value(node, source)
+        if value is not None and value.type not in ("string", "template_string", "binary_expression"):
+            return _host_fixed(value, source, depth + 1)
+    parts = _url_parts(node, source)
+    if not parts:
+        return False
+    first = parts[0]
+    if isinstance(first, str):
+        return len(parts) == 1 or bool(_FIXED_HOST_PREFIX_RE.match(first))
+    return (
+        _constant(first, source)
+        and len(parts) > 1 and isinstance(parts[1], str) and parts[1][:1] in ("/", "?", "#")
+    )
+
+
+def _fixed_host_lines(tree: Any, source: bytes) -> set[int]:
+    """1-based lines where every SSRF call spanning the line keeps a fixed host."""
+    verdicts: dict[int, bool] = {}
+    for n in _walk_all(tree):
+        if n.type != "call_expression" or _sink_category(n, source) != Category.SSRF:
+            continue
+        args = n.child_by_field_name("arguments")
+        first = next((a for a in args.children if a.is_named), None) if args is not None else None
+        fixed = first is not None and _host_fixed(first, source)
+        for line in range(n.start_point[0] + 1, n.end_point[0] + 2):
+            verdicts[line] = verdicts.get(line, True) and fixed
+    return {line for line, fixed in verdicts.items() if fixed}
+
+
+def _drop_fixed_host_ssrf(findings: list[Finding], parsers: dict[str, Any], root: Path) -> list[Finding]:
+    """Opengrep's tool-argument SSRF rule reports any tainted value in a URL.
+    Drop a finding when every SSRF call on its line keeps a fixed host: the
+    model then only chooses a path or query (`${API_BASE}/cases/${id}`)."""
+    kept: list[Finding] = []
+    fixed_lines: dict[Path, set[int]] = {}
+    for f in findings:
+        path = Path(f.file_path) if Path(f.file_path).is_absolute() else root / f.file_path
+        if f.engine != "opengrep" or f.rule_id != _TOOL_RULE_BY_CATEGORY[Category.SSRF] or path.suffix not in parsers:
+            kept.append(f)
+            continue
+        if path not in fixed_lines:
+            try:
+                source = path.read_bytes()
+                fixed_lines[path] = _fixed_host_lines(parsers[path.suffix].parse(source).root_node, source)
+            except OSError:
+                fixed_lines[path] = set()
+        if f.start_line not in fixed_lines[path]:
+            kept.append(f)
+    return kept
+
+
 def _guarded_names(body: Any, source: bytes) -> set[str]:
     """Names checked by a sanitizer-named statement (`assertSafeBasename(name);`),
     which throws on bad input rather than returning a cleaned value."""
@@ -926,6 +1167,24 @@ def _params_of(formal_params_node: Any | None, source: bytes) -> list[str]:
     for c in formal_params_node.children:
         names.extend(_collect_pattern_identifiers(c, source))
     return names
+
+
+def _destructured_param_names(formal_params_node: Any | None, source: bytes) -> frozenset[str]:
+    """Names bound by an object or array pattern among the parameters."""
+    names: set[str] = set()
+    if formal_params_node is None:
+        return frozenset()
+    for c in formal_params_node.named_children:
+        pattern = (
+            c.child_by_field_name("pattern")
+            if c.type in ("required_parameter", "optional_parameter")
+            else c
+        )
+        if pattern is not None and pattern.type == "assignment_pattern":
+            pattern = pattern.child_by_field_name("left")
+        if pattern is not None and pattern.type in ("object_pattern", "array_pattern"):
+            names.update(_collect_pattern_identifiers(pattern, source))
+    return frozenset(names)
 
 
 def _param_slots(formal_params_node: Any | None, source: bytes) -> list[list[str]]:
@@ -1121,6 +1380,7 @@ def extract_functions(
             calls_propagator=calls_propagator,
             has_source=remote_source or operator_source,
             operator_source_only=operator_source and not remote_source,
+            destructured_params=_destructured_param_names(params_node, source),
             has_return_taint=_returns_known_source(body_node, source),
         )
         sink = _param_sink(body_node, [] if is_sanitizer else params, source, aliases)
@@ -1363,6 +1623,7 @@ class JSCrossFilePass:
         reexports: dict[tuple[str, str], tuple[str, str]] = {}
         star_exports: dict[str, list[str]] = {}
         handler_refs: list[tuple[str, set[str], set[str]]] = []
+        method_files: dict[str, set[str]] = {}
         # Handlers Opengrep's inline-only TS rules cannot see: (file, line).
         indirect_handlers: set[tuple[str, int]] = set()
         returned_functions: dict[tuple[str, str], list[int]] = {}
@@ -1432,6 +1693,8 @@ class JSCrossFilePass:
             tool_spans.extend((file_str, start, end) for start, end in spans)
             indirect_handlers.update((file_str, line) for line in definition_lines)
             handler_refs.append((file_str, *_tool_handler_refs(tree.root_node, source)))
+            for method in _class_method_names(tree.root_node, source):
+                method_files.setdefault(method, set()).add(file_str)
             returned_functions.update(
                 ((file_str, name), lines)
                 for name, lines in _returned_function_lines(tree.root_node, source).items()
@@ -1524,6 +1787,30 @@ class JSCrossFilePass:
                 if target_name:
                     sig.calls[i] = (*call[:4], owner[0], *call[5:7], target_name, *call[8:])
 
+        # `context.saveFile(p)` on a parameter or local of unknown type: one
+        # call edge per class that defines the method, when that is few.
+        for sig in all_funcs:
+            fanned: list[tuple] = []
+            for i, call in enumerate(sig.calls):
+                callee, qualifier = call[0], call[1]
+                if (
+                    call[4] is not None
+                    or qualifier is None
+                    or qualifier == _UNRESOLVED_QUALIFIER
+                    or "." in qualifier
+                    or qualifier in _BUILTIN_QUALIFIERS
+                    or qualifier in sig.destructured_params
+                    or callee in _GENERIC_METHOD_NAMES
+                    or (sig.file, qualifier) in all_imports.module_to_file
+                ):
+                    continue
+                files = sorted(method_files.get(callee, ()))
+                if not 1 <= len(files) <= _FANOUT_MAX_CLASSES:
+                    continue
+                sig.calls[i] = (*call[:4], files[0], *call[5:])
+                fanned.extend((*call[:4], f, *call[5:]) for f in files[1:])
+            sig.calls.extend(fanned)
+
         logger.info(
             "JSCrossFilePass: %d files, %d functions, %d imports",
             len(js_files), len(all_funcs), len(all_imports.name_to_def),
@@ -1534,6 +1821,7 @@ class JSCrossFilePass:
         # knows nothing about which value reaches the call, and with agent
         # tool handlers as sources it turned every matched helper into a HIGH
         # cross-file "taint-flow" finding.
+        context.result.findings = _drop_fixed_host_ssrf(context.result.findings, parsers, root)
         all_findings = [
             f for f in context.result.findings
             if f.engine in ("opengrep", "neuroscan")
