@@ -17,16 +17,9 @@ Install the Opengrep taint-analysis engine (required for the `Taint` pass):
 rowan install-engine       # Opengrep v1.31.0, checked against a built-in SHA-256
 ```
 
-Optional: install `tree-sitter` for JS/TS and Go cross-file taint propagation (the
-AST-based fixpoint layer, same role it plays for Python). Without it, JS/TS
-still gets Opengrep's own intra-file cross-function taint flows. Installing
-tree-sitter adds the additional Python-equivalent cross-file propagation layer:
-
-```bash
-pipx install --force "rowan-sast[js-crossfile]"
-```
-
-Verify:
+`tree-sitter`, which powers JS/TS and Go cross-file taint propagation (the
+AST-based fixpoint layer, same role it plays for Python), is installed with
+rowan-sast. Verify:
 
 ```bash
 rowan self-test
@@ -758,7 +751,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: hedgerow-dev/rowan@v0.3.12
+      - uses: hedgerow-dev/rowan@v0.4.2
         with:
           target: .
           output: rowan.sarif
@@ -796,7 +789,7 @@ security-scan:
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/hedgerow-dev/rowan
-    rev: v0.3.12
+    rev: v0.4.2
     hooks:
       - id: rowan
 ```

@@ -1,6 +1,36 @@
 # Changelog
 
-## Unreleased
+## v0.4.2 (alpha)
+
+Security fix for the dependency scan. Affects 0.3.0 through 0.4.1. Upgrade
+if you scan repositories you do not control, for example fork pull requests
+in CI.
+
+- The dependency scan (on by default) read manifests and their companion
+  files without checking that they were regular files inside the scanned
+  repo. A scanned repo could hang the scan with a FIFO or a symlink to
+  `/dev/zero`, or leak host secrets: a `gradle.properties` symlinked out of
+  the repo (for example to `~/.gradle`) let `$signingPassword` in
+  `build.gradle` resolve to the real value, which was printed in the report
+  and, when it looked like a version, sent to osv.dev.
+- Every file the dependency scan reads must now be a regular file, reached
+  without a symlink, inside the scan root and at most 50 MB. Skipped files are
+  named in the scan's degraded message.
+- Gradle and Maven property values are substituted into a version only when
+  they look like a plain version (`1.2.3`, `2.0.0-RC1`).
+- Upgrade with `pip install -U rowan-sast`, or pin the GitHub Action to
+  `hedgerow-dev/rowan@v0.4.2`. Until then, run with `--no-sca` on untrusted
+  repositories.
+
+## v0.4.1 (alpha)
+
+- tree-sitter and its JavaScript, TypeScript and Go grammars are now default
+  dependencies, so a plain `pip install rowan-sast` gets JS/TS and Go
+  cross-file analysis, TypeScript MCP tool detection and the fixed-host SSRF
+  checks. The `js-crossfile` extra is kept, empty, so existing install
+  commands still work.
+
+## v0.4.0 (alpha)
 
 Fixes from hand-verifying a random sample of 300 MCP servers from the official
 registry.
@@ -17,6 +47,11 @@ registry.
 - MCP-CONFIG-001: base URLs, word-only paths, `your-...` placeholders,
   `${user_config.x}`-style substitutions and DSNs whose password is a
   placeholder word are no longer reported as hardcoded secrets.
+- Cross-file: "leads to a sink" now spreads to a caller only through a call
+  that hands it a tainted value, at every hop, not just the last one. JS/TS
+  helpers that only relay into `fetch` (`getJson(url)` ->
+  `fetchWithRetry(url)`) take host-position taint, so a fixed-host path built
+  several calls up no longer reports as SSRF.
 
 ## v0.3.12 (alpha)
 
